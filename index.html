@@ -356,6 +356,10 @@ input[type=range]::-moz-range-thumb{width:17px;height:17px;border-radius:50%;bac
 .frac{display:inline-block;vertical-align:middle;text-align:center;margin:0 .18em}
 .frac .top{display:block;border-bottom:1.4px solid var(--text2);padding:0 5px 1px;font-size:.9em}
 .frac .bot{display:block;padding:1px 5px 0;font-size:.9em}
+.mat{display:inline-grid;grid-template-columns:auto auto;gap:7px 20px;vertical-align:middle;
+  text-align:center;margin:0 .35em;font-family:var(--serif);font-style:italic;font-size:.92em}
+.mbrack{font-family:var(--serif);font-weight:300;font-size:2.5em;line-height:1;vertical-align:middle;
+  color:var(--text2);padding:0 1px}
 .refs{font-size:14.4px}
 .refs li{margin-bottom:11px;color:var(--text2)}
 .refs .rt{color:var(--text);font-weight:600}
@@ -1121,11 +1125,8 @@ a vector changes where it points without changing what it is.</p>
 
 <div class="mathbox">
 <span class="mm">R(p·ω)</span> <span class="op">=</span>
-<span style="font-family:var(--serif)">[</span>
-<span class="frac"><span class="top">cos pω</span><span class="bot">sin pω</span></span>
-<span class="frac"><span class="top">−sin pω</span><span class="bot">cos pω</span></span>
-<span style="font-family:var(--serif)">]</span>
-<span class="op" style="padding-left:1.6em">applied to q and k, in one 2-D plane of the head</span>
+<span class="mbrack">[</span><span class="mat"><span>cos pω</span><span>−sin pω</span><span>sin pω</span><span>cos pω</span></span><span class="mbrack">]</span>
+<span class="op" style="padding-left:1.6em">a 2×2 rotation matrix (rows: cos, −sin / sin, cos), applied to q and k in one plane</span>
 </div>
 
 <p>Two facts about rotations then do all the work. <b>Rotations preserve length</b>, so a rotated token

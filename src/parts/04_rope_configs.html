@@ -18,11 +18,8 @@ a vector changes where it points without changing what it is.</p>
 
 <div class="mathbox">
 <span class="mm">R(p·ω)</span> <span class="op">=</span>
-<span style="font-family:var(--serif)">[</span>
-<span class="frac"><span class="top">cos pω</span><span class="bot">sin pω</span></span>
-<span class="frac"><span class="top">−sin pω</span><span class="bot">cos pω</span></span>
-<span style="font-family:var(--serif)">]</span>
-<span class="op" style="padding-left:1.6em">applied to q and k, in one 2-D plane of the head</span>
+<span class="mbrack">[</span><span class="mat"><span>cos pω</span><span>−sin pω</span><span>sin pω</span><span>cos pω</span></span><span class="mbrack">]</span>
+<span class="op" style="padding-left:1.6em">a 2×2 rotation matrix (rows: cos, −sin / sin, cos), applied to q and k in one plane</span>
 </div>
 
 <p>Two facts about rotations then do all the work. <b>Rotations preserve length</b>, so a rotated token
