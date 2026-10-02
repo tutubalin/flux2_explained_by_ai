@@ -1109,32 +1109,142 @@ answer shuffled. Everything spatial about an image — and everything sequential
 to be injected deliberately. FLUX.2 does it with <strong>RoPE</strong>, extended to four axes at once.
 </p>
 
-<h3>4.1 · The one-paragraph version of RoPE</h3>
-<p>Rotary Position Embedding (<a href="#refs">Su et al., 2021</a>) works by <em>rotating</em> the query
-and key vectors in 2-dimensional planes before the dot product. Suppose a head has 2 dimensions and a
-token sits at position <em>p</em>. We rotate its query by an angle <em>p·ω</em>:</p>
+<h3>4.1 · RoPE in one paragraph — and three pictures</h3>
+<p>Attention scores are dot products: <code>score = ⟨q, k⟩</code>. And a dot product is blind to order —
+shuffle the tokens and the scores shuffle with them, without ever changing value. Position therefore
+has to be baked into <code>q</code> and <code>k</code> themselves, and there are two classic ways to do
+that. You can <em>add</em> a position vector to each token — but then content and position occupy the
+same directions and the model must learn to untangle them. Or you can <em>rotate</em> each vector by an
+angle that depends on its position. That second idea is RoPE — Rotary Position Embedding
+(<a href="#refs">Su et al., 2021</a>) — and it is the better choice for one beautiful reason: rotating
+a vector changes where it points without changing what it is.</p>
 
 <div class="mathbox">
-<span class="mm">q</span>(<span class="mm">p</span>) <span class="op">→</span>
+<span class="mm">R(p·ω)</span> <span class="op">=</span>
 <span style="font-family:var(--serif)">[</span>
-<span class="frac"><span class="top">cos <span class="mm">pω</span></span><span class="bot">sin <span class="mm">pω</span></span></span>
-<span class="frac"><span class="top">−sin <span class="mm">pω</span></span><span class="bot">cos <span class="mm">pω</span></span></span>
-<span style="font-family:var(--serif)">]</span> · <span class="mm">q</span>
-<span class="op" style="padding-left:2.4em">and the magic:</span>
-⟨<span class="mm">R<sub>p</sub> q</span>, <span class="mm">R<sub>p′</sub> k</span>⟩
-<span class="op">depends only on</span> <span class="mm">p − p′</span>
+<span class="frac"><span class="top">cos pω</span><span class="bot">sin pω</span></span>
+<span class="frac"><span class="top">−sin pω</span><span class="bot">cos pω</span></span>
+<span style="font-family:var(--serif)">]</span>
+<span class="op" style="padding-left:1.6em">applied to q and k, in one 2-D plane of the head</span>
 </div>
 
-<p>Rotations preserve lengths and, crucially, composing two rotations subtracts their angles. So the
-attention score between two tokens automatically encodes their <em>distance</em>, with no extra
-parameters and no fixed maximum sequence length. That relative-distance property is what makes RoPE
-generalise to image sizes never seen in training — essential for a model that must handle anything
-from 512² to 4 MP.</p>
+<p>Two facts about rotations then do all the work. <b>Rotations preserve length</b>, so a rotated token
+keeps exactly the same "loudness" — position can never amplify or silence content. And <b>rotations
+compose by adding angles</b>: turn by <em>a</em>, then by <em>b</em>, and you have turned by
+<em>a + b</em>; the transpose of a rotation is simply the same rotation run backwards,
+<span class="mm">Rᵀ = R(−θ)</span>. Feed those two facts into the attention score and the absolute
+positions cancel out of the equation:</p>
+
+<div class="mathbox">
+<span class="mm">⟨R<sub>p</sub> q, R<sub>p′</sub> k⟩</span> <span class="op">=</span>
+<span class="mm">qᵀ R<sub>p</sub>ᵀ R<sub>p′</sub> k</span> <span class="op">=</span>
+<span class="mm">qᵀ R<sub>(p′−p)</sub> k</span>
+<span class="op" style="padding-left:1.6em">← one rotation, by the gap</span><br>
+<span class="op">so the score depends on p′ − p and on the two tokens' content — never on where either one sits</span>
+</div>
+
+<p>That line is the whole trick, and it is worth reading twice. The model never tells attention
+"you are at position 4096"; it turns each vector by an angle proportional to 4096, and lets the
+<em>difference</em> of two turns carry the only information the score needs: <b>how far apart these two
+tokens are</b>. Zero learned parameters, no maximum sequence length, nothing to look up in a table.</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 1040 320" role="img" aria-label="Two panels: a query and key rotated by their positions, and the same pair shifted by seven positions; the angle between the vectors, and hence the attention score, is identical in both.">
+<text x="40" y="28" class="ttl">What survives is the gap, not the position</text>
+
+<rect x="40" y="44" width="460" height="232" rx="12" fill="#0e1622" stroke="#2e4054"/>
+<rect x="540" y="44" width="460" height="232" rx="12" fill="#0e1622" stroke="#2e4054"/>
+<text x="60" y="70" class="axb">tokens at p = 3 and p = 11</text>
+<text x="560" y="70" class="axb">the same pair, shifted +7</text>
+
+<circle cx="210" cy="160" r="72" fill="none" stroke="#2e4054" stroke-width="1.4"/>
+<line x1="210" y1="160" x2="256.3" y2="104.8" stroke="#f6a93b" stroke-width="2.6" marker-end="url(#arA)"/>
+<line x1="210" y1="160" x2="154.8" y2="113.7" stroke="#35d6f0" stroke-width="2" marker-end="url(#arC)"/>
+<path d="M235.7,129.4 A40,40 0 0 0 179.4,134.3" fill="none" stroke="#ff7ab8" stroke-width="1.6" stroke-dasharray="4 3"/>
+<text x="262" y="100" class="eq">q at p = 3</text>
+<text x="148" y="110" class="eq" text-anchor="end">k at p = 11</text>
+<text x="210" y="252" class="ax" text-anchor="middle">gap = 8 → relative angle 8·ω + (α−β)</text>
+<text x="210" y="268" class="eq" text-anchor="middle">the score sees only this angle</text>
+
+<text x="520" y="170" class="big" text-anchor="middle">=</text>
+
+<circle cx="710" cy="160" r="72" fill="none" stroke="#2e4054" stroke-width="1.4"/>
+<line x1="710" y1="160" x2="707.5" y2="88.0" stroke="#f6a93b" stroke-width="2.6" marker-end="url(#arA)"/>
+<line x1="710" y1="160" x2="638.0" y2="162.5" stroke="#35d6f0" stroke-width="2" marker-end="url(#arC)"/>
+<path d="M708.6,120.0 A40,40 0 0 0 670.0,161.4" fill="none" stroke="#ff7ab8" stroke-width="1.6" stroke-dasharray="4 3"/>
+<text x="718" y="84" class="eq">q at p = 10</text>
+<text x="630" y="178" class="eq" text-anchor="end">k at p = 18</text>
+<text x="710" y="252" class="ax" text-anchor="middle">gap = 8 → the same relative angle</text>
+<text x="710" y="268" class="eq" text-anchor="middle">so the score is unchanged, exactly</text>
+
+<text x="40" y="306" class="ax">both vectors spun by the same extra 7·ω — the angle between them, and therefore the attention score, is untouched</text>
+</svg>
+</div>
+<figcaption><span class="figno">FIG 5</span><b>The relative-angle trick.</b> Left: a query at position 3 and a key at
+position 11, each rotated by its own position times ω. Right: the same pair moved seven positions along —
+both vectors spin by the same extra angle, so the angle <em>between</em> them never changes, and neither
+does the attention score. Absolute position cancels out of the equation; distance stays in it.</figcaption>
+</figure>
+
+<p>One plane, though, would not be enough. A head pairs its 128 dimensions into 64 rotation planes.
+In FLUX.2 those planes come in four groups of 16 — one group per position axis (§4.2) — and within a
+group the planes run at speeds <span class="mm">ωⱼ = θ^(−2j/32)</span>, j = 0…15: a geometric ladder
+from <span class="mm">ω₀ = 1</span> (a full turn every 6.28 positions on that axis) down to
+<span class="mm">ω₁₅ = 1/θ^(30/32) ≈ 0.0008</span> (barely moving at all). The score is the sum of 64
+such contributions, one per plane: <span class="mm">cos((p′−p)·ω + φ)</span>. A fast plane is a minute hand: exquisitely precise about
+small gaps, but it returns to the same angle every period, so gap 0 and gap 6.28 look identical to it —
+it <em>aliases</em>. A slow plane is an hour hand: never ambiguous, far too coarse to tell neighbours
+apart. Summed together, the ladder gives every gap its own fingerprint.</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 1040 320" role="img" aria-label="Three cosine curves over position gap: a fast plane oscillates and aliases, a slow plane is nearly flat, and only their sum across 64 planes identifies each gap uniquely.">
+<text x="40" y="28" class="ttl">One plane aliases — the ladder of 64 does not</text>
+
+<rect x="520" y="44" width="10" height="10" fill="#f6a93b"/>
+<text x="536" y="53" class="eq">plane 0 · period 6.3</text>
+<rect x="690" y="44" width="10" height="10" fill="#b18cff"/>
+<text x="706" y="53" class="eq">plane 3 · period 26</text>
+<rect x="860" y="44" width="10" height="10" fill="#35d6f0"/>
+<text x="876" y="53" class="eq">plane 7 · period 175</text>
+
+<line x1="80" y1="140" x2="1000" y2="140" stroke="#22303f" stroke-dasharray="4 4"/>
+<line x1="80" y1="214" x2="1000" y2="214" stroke="#2e4054"/>
+<text x="72" y="84" class="eq" text-anchor="end">+1</text>
+<text x="72" y="144" class="eq" text-anchor="end">0</text>
+<text x="72" y="204" class="eq" text-anchor="end">−1</text>
+<text x="80" y="230" class="eq" text-anchor="middle">0</text>
+<text x="310" y="230" class="eq" text-anchor="middle">16</text>
+<text x="540" y="230" class="eq" text-anchor="middle">32</text>
+<text x="770" y="230" class="eq" text-anchor="middle">48</text>
+<text x="1000" y="230" class="eq" text-anchor="middle">64</text>
+<text x="540" y="254" class="ax" text-anchor="middle">position gap  p′ − p</text>
+
+<polyline points="80.0,80.0 87.2,87.3 94.4,107.6 101.6,135.8 108.8,165.0 115.9,188.1 123.1,199.4 130.3,196.2 137.5,179.2 144.7,152.6 151.9,123.0 159.1,97.5 166.2,82.4 173.4,81.4 180.6,94.8 187.8,119.2 195.0,148.7 202.2,176.1 209.4,194.7 216.6,199.8 223.8,190.3 230.9,168.5 238.1,139.7 245.3,111.0 252.5,89.4 259.7,80.1 266.9,85.6 274.1,104.3 281.2,131.8 288.4,161.3 295.6,185.6 302.8,198.7 310.0,197.5 317.2,182.1 324.4,156.5 331.6,126.8 338.8,100.4 345.9,83.6 353.1,80.7 360.3,92.3 367.5,115.5 374.7,144.8 381.9,172.9 389.1,192.9 396.2,200.0 403.4,192.4 410.6,172.0 417.8,143.7 425.0,114.5 432.2,91.6 439.4,80.5 446.6,84.0 453.8,101.2 460.9,127.9 468.1,157.5 475.3,182.9 482.5,197.8 489.7,198.5 496.9,184.9 504.1,160.3 511.2,130.7 518.4,103.5 525.6,85.1 532.8,80.2 540.0,89.9 547.2,111.9 554.4,140.8 561.6,169.5 568.8,190.9 575.9,199.9 583.1,194.2 590.3,175.3 597.5,147.7 604.7,118.2 611.9,94.1 619.1,81.2 626.2,82.7 633.4,98.2 640.6,124.0 647.8,153.7 655.0,180.0 662.2,196.6 669.4,199.2 676.6,187.4 683.8,164.0 690.9,134.7 698.1,106.7 705.3,86.8 712.5,80.0 719.7,87.9 726.9,108.5 734.1,136.8 741.2,165.9 748.4,188.7 755.6,199.5 762.8,195.8 770.0,178.4 777.2,151.6 784.4,122.0 791.6,96.7 798.8,82.1 805.9,81.6 813.1,95.5 820.3,120.2 827.5,149.8 834.7,177.0 841.9,195.1 849.1,199.7 856.2,189.8 863.4,167.6 870.6,138.7 877.8,110.1 885.0,88.8 892.2,80.1 899.4,86.0 906.6,105.2 913.8,132.8 920.9,162.3 928.1,186.3 935.3,198.9 942.5,197.1 949.7,181.4 956.9,155.5 964.1,125.8 971.2,99.6 978.4,83.3 985.6,80.8 992.8,92.9 1000.0,116.5" fill="none" stroke="#f6a93b" stroke-width="1.5" opacity=".85"/>
+<polyline points="80.0,80.0 87.2,80.4 94.4,81.7 101.6,83.9 108.8,86.8 115.9,90.5 123.1,94.9 130.3,100.0 137.5,105.7 144.7,111.8 151.9,118.4 159.1,125.3 166.2,132.3 173.4,139.5 180.6,146.7 187.8,153.8 195.0,160.7 202.2,167.3 209.4,173.6 216.6,179.3 223.8,184.4 230.9,188.9 238.1,192.8 245.3,195.8 252.5,198.0 259.7,199.4 266.9,200.0 274.1,199.7 281.2,198.5 288.4,196.5 295.6,193.6 302.8,190.0 310.0,185.7 317.2,180.7 324.4,175.1 331.6,169.0 338.8,162.5 345.9,155.6 353.1,148.6 360.3,141.4 367.5,134.2 374.7,127.1 381.9,120.1 389.1,113.5 396.2,107.2 403.4,101.4 410.6,96.2 417.8,91.6 425.0,87.7 432.2,84.5 439.4,82.2 446.6,80.7 453.8,80.0 460.9,80.2 468.1,81.3 475.3,83.2 482.5,86.0 489.7,89.5 496.9,93.7 504.1,98.7 511.2,104.2 518.4,110.2 525.6,116.7 532.8,123.5 540.0,130.5 547.2,137.7 554.4,144.9 561.6,152.0 568.8,159.0 575.9,165.7 583.1,172.0 590.3,177.8 597.5,183.2 604.7,187.8 611.9,191.8 619.1,195.1 626.2,197.5 633.4,199.2 640.6,199.9 647.8,199.8 655.0,198.9 662.2,197.1 669.4,194.4 676.6,191.0 683.8,186.8 690.9,182.0 698.1,176.6 705.3,170.6 712.5,164.2 719.7,157.4 726.9,150.4 734.1,143.3 741.2,136.0 748.4,128.9 755.6,121.9 762.8,115.2 770.0,108.8 777.2,102.9 784.4,97.5 791.6,92.7 798.8,88.6 805.9,85.3 813.1,82.7 820.3,81.0 827.5,80.1 834.7,80.1 841.9,81.0 849.1,82.7 856.2,85.2 863.4,88.5 870.6,92.6 877.8,97.3 885.0,102.7 892.2,108.6 899.4,115.0 906.6,121.7 913.8,128.7 920.9,135.8 928.1,143.0 935.3,150.2 942.5,157.2 949.7,164.0 956.9,170.4 964.1,176.4 971.2,181.8 978.4,186.7 985.6,190.9 992.8,194.3 1000.0,197.0" fill="none" stroke="#b18cff" stroke-width="2"/>
+<polyline points="80.0,80.0 87.2,80.0 94.4,80.0 101.6,80.1 108.8,80.2 115.9,80.2 123.1,80.3 130.3,80.5 137.5,80.6 144.7,80.8 151.9,81.0 159.1,81.2 166.2,81.4 173.4,81.6 180.6,81.9 187.8,82.2 195.0,82.5 202.2,82.8 209.4,83.1 216.6,83.5 223.8,83.8 230.9,84.2 238.1,84.6 245.3,85.1 252.5,85.5 259.7,86.0 266.9,86.4 274.1,86.9 281.2,87.4 288.4,88.0 295.6,88.5 302.8,89.1 310.0,89.7 317.2,90.3 324.4,90.9 331.6,91.5 338.8,92.1 345.9,92.8 353.1,93.5 360.3,94.2 367.5,94.9 374.7,95.6 381.9,96.3 389.1,97.1 396.2,97.8 403.4,98.6 410.6,99.4 417.8,100.2 425.0,101.0 432.2,101.8 439.4,102.7 446.6,103.5 453.8,104.4 460.9,105.2 468.1,106.1 475.3,107.0 482.5,107.9 489.7,108.8 496.9,109.8 504.1,110.7 511.2,111.7 518.4,112.6 525.6,113.6 532.8,114.5 540.0,115.5 547.2,116.5 554.4,117.5 561.6,118.5 568.8,119.5 575.9,120.5 583.1,121.6 590.3,122.6 597.5,123.6 604.7,124.7 611.9,125.7 619.1,126.8 626.2,127.8 633.4,128.9 640.6,129.9 647.8,131.0 655.0,132.1 662.2,133.1 669.4,134.2 676.6,135.3 683.8,136.4 690.9,137.4 698.1,138.5 705.3,139.6 712.5,140.7 719.7,141.8 726.9,142.8 734.1,143.9 741.2,145.0 748.4,146.1 755.6,147.1 762.8,148.2 770.0,149.3 777.2,150.3 784.4,151.4 791.6,152.5 798.8,153.5 805.9,154.6 813.1,155.6 820.3,156.6 827.5,157.7 834.7,158.7 841.9,159.7 849.1,160.7 856.2,161.8 863.4,162.8 870.6,163.7 877.8,164.7 885.0,165.7 892.2,166.7 899.4,167.6 906.6,168.6 913.8,169.5 920.9,170.5 928.1,171.4 935.3,172.3 942.5,173.2 949.7,174.1 956.9,175.0 964.1,175.9 971.2,176.7 978.4,177.6 985.6,178.4 992.8,179.2 1000.0,180.0" fill="none" stroke="#35d6f0" stroke-width="2.2"/>
+
+<text x="80" y="282" class="ax">fast plane 0 repeats every 6.3 positions: gap 0 and gap 6.3 give it the same value — precise but ambiguous</text>
+<text x="80" y="302" class="ax">slow plane 7 barely moves: unambiguous but coarse. Attention sums all 64 planes — and only the sum is unique per gap</text>
+</svg>
+</div>
+<figcaption><span class="figno">FIG 6</span><b>Why one plane is not enough.</b> Every plane contributes
+cos(gap·ωᵢ) to the attention score. The fast plane oscillates and aliases — every peak looks like every
+other. The slow plane never repeats but cannot resolve neighbours. The geometric ladder of 64 speeds
+between those extremes gives each gap a distinct summed fingerprint: no learned parameters, no length
+limit.</figcaption>
+</figure>
+
+<p>For an image model this property is not a luxury, it is the product. FLUX.2 has to accept resolutions
+it has never seen — anything from 512² up to 4 megapixels — and a purely <em>relative</em> position code
+extrapolates to new sequence lengths in a way that absolute position tables famously do not.</p>
 
 <div class="note proof">
 <div class="nh">◆ Verified · the property holds in this exact implementation</div>
 <p>I rotated a fixed query/key pair with <code>apply_rope</code> at several position pairs and measured
-the dot product. Pairs with the same gap give the same score, to six decimals:</p>
+the dot product. Pairs with the same gap give the same score, agreeing to within 1×10⁻⁶ — pure float32
+round-off:</p>
 <p style="font-family:var(--mono);font-size:13.4px;color:var(--gold)">
 gap = 2 : (p=0, p=2) → 4.919082 &nbsp; (p=5, p=7) → 4.919081 &nbsp; (p=13, p=15) → 4.919082<br>
 gap = 3 : (p=0, p=3) → 6.703997 &nbsp; (p=5, p=8) → 6.703996
@@ -1222,7 +1332,7 @@ would do in older architectures.</p>
 <text x="520" y="360" class="ax">slow planes resolve coarse layout (far-apart regions).</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 5</span><b>How 128 dimensions become a 4-D coordinate system.</b> The mixed ladder of
+<figcaption><span class="figno">FIG 7</span><b>How 128 dimensions become a 4-D coordinate system.</b> The mixed ladder of
 fast and slow frequencies is the same idea as the wheels on an odometer: the fast wheel tells you the
 last digit, the slow wheel tells you how far you have really travelled. Stacking four such odometers —
 one per axis — gives every token an unambiguous address in (image, row, column, text-slot) space.</figcaption>
@@ -1504,7 +1614,7 @@ learned shifts and scales, we <em>generate</em> them from the conditioning vecto
 <text x="740" y="106" class="eq" style="fill:#5fe08a">gate</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 6</span><b>adaLN in one picture.</b> The green dials are generated, not learned
+<figcaption><span class="figno">FIG 8</span><b>adaLN in one picture.</b> The green dials are generated, not learned
 per-layer: the same <code>vec</code> that encodes "we are 62 % noisy" decides how strongly every
 sub-layer of every block is allowed to speak. A gate initialised near zero lets a block start life as
 the identity function — the "adaLN-Zero" trick that makes very deep transformers trainable.</figcaption>
@@ -1568,7 +1678,7 @@ of §12 mathematically exact. Read the name as "references are sealed", not as "
 <text x="660" y="414" class="ax">coloured cells = attended</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 7</span><b>The mask, measured.</b> I fed one-hot values through
+<figcaption><span class="figno">FIG 9</span><b>The mask, measured.</b> I fed one-hot values through
 <code>causal_attn_fn</code> and read back which key each query actually mixed: on the left is what came
 out. Text and image rows are completely dense — every token sees every token, in both directions. The
 reference block is an isolated island: references read each other and nothing else. On the right, the
@@ -1681,7 +1791,7 @@ fused MLP over it.
 <text x="430" y="450" class="ax" text-anchor="middle">residual skip — added after the gate, unchanged</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 8</span><b>The single-stream block.</b> The design trick is the fusion:
+<figcaption><span class="figno">FIG 10</span><b>The single-stream block.</b> The design trick is the fusion:
 <code>linear1</code> computes the queries, keys, values <em>and</em> the MLP's input in one matrix
 multiply, and <code>linear2</code> consumes the attention output and the gated MLP output together.
 Two big matmuls per block instead of five smaller ones — much better GPU utilisation, identical
@@ -1787,7 +1897,7 @@ other.
 <path d="M992,100 L972,100 M992,326 L972,326 M992,414 L972,414" stroke="#5fe08a" stroke-width="1.3" fill="none" stroke-dasharray="4 4" marker-end="url(#dV)"/>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 9</span><b>The double-stream block.</b> Everything is doubled except the attention.
+<figcaption><span class="figno">FIG 11</span><b>The double-stream block.</b> Everything is doubled except the attention.
 Text tokens are transformed by text weights and image tokens by image weights; only when it is time to
 <em>compare</em> them are their q/k/v concatenated into one sequence. After attention the streams split
 again and each finishes with its own projection and its own MLP. Eight of these teach the two
@@ -1949,7 +2059,7 @@ make sense together.
 <text x="40" y="312" class="ax">cost of a 50-step run with 4 reference images: 1 full step + 49 discounted steps instead of 50 full ones</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 10</span><b>Two phases, one sequence contract.</b> Step 0 pays full price and
+<figcaption><span class="figno">FIG 12</span><b>Two phases, one sequence contract.</b> Step 0 pays full price and
 banks the reference keys and values from all 56 blocks. Every later step omits the reference tokens from
 the sequence entirely and splices the stored keys back in at attention time — so the queries still see
 the references, but nothing about them is ever recomputed.</figcaption>

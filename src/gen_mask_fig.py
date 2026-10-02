@@ -77,7 +77,7 @@ fig = f'''<figure>
 <div class="fig">
 {svg}
 </div>
-<figcaption><span class="figno">FIG 7</span><b>The mask, measured.</b> I fed one-hot values through
+<figcaption><span class="figno">FIG 9</span><b>The mask, measured.</b> I fed one-hot values through
 <code>causal_attn_fn</code> and read back which key each query actually mixed: on the left is what came
 out. Text and image rows are completely dense — every token sees every token, in both directions. The
 reference block is an isolated island: references read each other and nothing else. On the right, the
