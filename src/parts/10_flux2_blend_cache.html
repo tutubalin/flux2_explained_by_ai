@@ -1,5 +1,5 @@
 <section id="flux2">
-<h2><span class="secno">§ 10</span><span class="sig">Flux2</span> — three ways to run the network · L52</h2>
+<h2><span class="secno">§ 11</span><span class="sig">Flux2</span> — three ways to run the network · L52</h2>
 <p class="section-intro">
 The <code>Flux2</code> class is mostly bookkeeping: it owns the embedders, the modulation MLPs, the two
 block stacks and the output head, and then offers three forward passes that differ only in <em>which
@@ -18,7 +18,7 @@ understanding the whole inference design.
 </table>
 </div>
 
-<h3>10.1 · <code>forward</code> — the simple path</h3>
+<h3>11.1 · <code>forward</code> — the simple path</h3>
 <!--CODE 115-168 title="model.py" hl="124,126,127,128,129,130,132,133,134,136,137,139,140,142,143,150,153,154,156,162,165,167"-->
 
 <!--TRACE-->
@@ -35,7 +35,7 @@ understanding the whole inference design.
 <!--T 167|The final AdaLN + linear turns the 6144-dim features back into 128 channels of latent velocity, and casts to fp32 for the sampler's arithmetic.-->
 <!--/TRACE-->
 
-<h3>10.2 · <code>forward_kv_extract</code> — step 0, with references</h3>
+<h3>11.2 · <code>forward_kv_extract</code> — step 0, with references</h3>
 <!--CODE 170-265 title="model.py" hl="189,190,192,193,196,197,198,200,201,202,203,206,207,208,210,211,213,214,216,217,220,221,223,224,225,232,234,236,237,240,241,242,245,246,247,254,257,258,260,261,262,263,265"-->
 
 <!--TRACE-->
@@ -45,7 +45,7 @@ understanding the whole inference design.
 <!--T 200-203|Guidance is added to <em>both</em> vectors, so the reference path is conditioned on the same guidance strength as the image path.-->
 <!--T 206-211|Five modulation computations: the three real ones, plus a reference-specific double-image modulation and single modulation. There is deliberately <em>no</em> reference-specific text modulation — text is text, whatever the timestep.-->
 <!--T 213-217|Project the concatenated <code>[ref, img]</code> latents and the text, and build both position tensor sets.-->
-<!--T 220-221|The double blocks see the image stream as <code>[ref, img]</code>, so their modulation must be per-token: reference tokens get <code>ref_double_mod</code>, canvas tokens get the real one. <code>_blend_double_mods</code> (§11) does the splicing.-->
+<!--T 220-221|The double blocks see the image stream as <code>[ref, img]</code>, so their modulation must be per-token: reference tokens get <code>ref_double_mod</code>, canvas tokens get the real one. <code>_blend_double_mods</code> (§12) does the splicing.-->
 <!--T 223-234|Run the eight double blocks, this time <em>keeping</em> each block's cache in a list, and passing the real <code>num_ref_tokens</code> so the masking actually isolates the references.-->
 <!--T 236-237|Merge the streams exactly as in <code>forward</code>. Because the image stream is already <code>[ref, img]</code>, the merged sequence is <code>[txt, ref, img]</code> — the layout <code>causal_attn_fn</code> expects.-->
 <!--T 240-243|Blend the single-block modulation into three pieces this time: text gets the real modulation, references get theirs, canvas gets the real one.-->
@@ -54,7 +54,7 @@ understanding the whole inference design.
 <!--T 260-265|Bundle the two cache lists and the reference count into a dict. Storing <code>num_ref_tokens</code> inside the cache is what lets <code>forward_kv_cached</code> be called without that argument.-->
 <!--/TRACE-->
 
-<h3>10.3 · <code>forward_kv_cached</code> — steps 1…N−1</h3>
+<h3>11.3 · <code>forward_kv_cached</code> — steps 1…N−1</h3>
 <p>The third forward is a mirror of the second with three differences: no <code>x_seq_concat</code>
 argument, no reference modulation, and the cache supplied instead of built.</p>
 
@@ -83,7 +83,7 @@ slightly different images. That is why the KV-cache variant is shipped as its ow
 </section>
 
 <section id="blend">
-<h2><span class="secno">§ 11</span><span class="sig">_blend_mod_triple · _blend_double_mods · _blend_single_mods</span> · L329–372</h2>
+<h2><span class="secno">§ 12</span><span class="sig">_blend_mod_triple · _blend_double_mods · _blend_single_mods</span> · L329–372</h2>
 <p class="section-intro">
 Three tiny module-level functions that solve one problem: a modulation vector is normally
 <em>one value per batch element</em>, broadcast across all tokens — but reference tokens need a
@@ -122,9 +122,9 @@ conditioning regimes through the same attention.</p>
 </section>
 
 <section id="kvcache">
-<h2><span class="secno">§ 12</span>The KV cache: why it is exact, and what it costs</h2>
+<h2><span class="secno">§ 13</span>The KV cache: why it is exact, and what it costs</h2>
 <p class="section-intro">
-Everything in §6–§11 was building towards this. The claim: <strong>reference tokens produce byte-identical
+Everything in §7–§12 was building towards this. The claim: <strong>reference tokens produce byte-identical
 keys and values at every denoising step</strong>, so they can be computed once and replayed. Nothing
 in <code>model.py</code> states this as a theorem — it emerges from three design decisions that only
 make sense together.
@@ -174,13 +174,13 @@ make sense together.
 <text x="40" y="312" class="ax">cost of a 50-step run with 4 reference images: 1 full step + 49 discounted steps instead of 50 full ones</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 13</span><b>Two phases, one sequence contract.</b> Step 0 pays full price and
+<figcaption><span class="figno">FIG 14</span><b>Two phases, one sequence contract.</b> Step 0 pays full price and
 banks the reference keys and values from all 56 blocks. Every later step omits the reference tokens from
 the sequence entirely and splices the stored keys back in at attention time — so the queries still see
 the references, but nothing about them is ever recomputed.</figcaption>
 </figure>
 
-<h3>12.1 · The three conditions that make it exact</h3>
+<h3>13.1 · The three conditions that make it exact</h3>
 <div class="tbl-wrap">
 <table class="data">
 <thead><tr><th style="width:270px">condition</th><th style="width:180px">where it lives</th><th>what it guarantees</th></tr></thead>
@@ -204,7 +204,7 @@ values that were <strong>bit-identical</strong> — not merely close. Feeding th
 is exact.</p>
 </div>
 
-<h3>12.2 · What it costs in memory</h3>
+<h3>13.2 · What it costs in memory</h3>
 <p>The cache is not free: it stores two tensors per block per reference token, in the network's working
 precision. The formula is</p>
 <div class="note math">
@@ -227,7 +227,7 @@ pixels per reference when there is more than one, and 2024² when there is exact
 <p class="dim" style="font-size:13.6px">The two columns are close because the token cap shrinks each
 reference when there are several: four references at 1024² occupy barely more cache than one at 2024².</p>
 
-<h3>12.3 · What it buys</h3>
+<h3>13.3 · What it buys</h3>
 <p>Measured speedups from the upstream <code>docs/flux2_klein_kv_cache.md</code>:</p>
 <div class="tbl-wrap">
 <table class="data">

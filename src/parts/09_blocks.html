@@ -1,4 +1,4 @@
-<h3>7.1 · The cached branch (L770–786)</h3>
+<h3>8.1 · The cached branch (L770–786)</h3>
 <!--TRACE-->
 <!--T 770-773|Pull the stored reference keys and values out of the cache. They were computed once, on step 0, and are reused verbatim on every later step.-->
 <!--T 775-780|Slice the current step's q/k/v into a text part and an image part. In this branch the incoming sequence is <code>[txt, img]</code> — the references are <em>not</em> present, which is the entire point of the cache.-->
@@ -7,7 +7,7 @@
 <!--T 786|One dense, unmasked attention call over all of them: softmax over (n_txt + n_ref + n_img) keys for every query.-->
 <!--/TRACE-->
 
-<h3>7.2 · The uncached branch (L788–813)</h3>
+<h3>8.2 · The uncached branch (L788–813)</h3>
 <!--TRACE-->
 <!--T 790-791|Compute the reference slice boundaries: references occupy positions <code>[num_txt, num_txt + num_ref)</code> of the combined sequence. This is the layout contract of the whole file — always <code>[txt, ref, img]</code>.-->
 <!--T 793-800|Cut q, k and v into three contiguous parts each: text, reference, image. Pure slicing; no arithmetic.-->
@@ -27,7 +27,7 @@ difference <strong>0.000e+00</strong>. The cache is not an approximation of the 
 </section>
 
 <section id="single">
-<h2><span class="secno">§ 8</span><span class="sig">SingleStreamBlock</span> · L437</h2>
+<h2><span class="secno">§ 9</span><span class="sig">SingleStreamBlock</span> · L437</h2>
 <p class="section-intro">
 The workhorse. FLUX.2 stacks 48 of these — 73 % of all its parameters. A single-stream block treats
 text tokens and image tokens as one undifferentiated sequence and runs one fused attention plus one
@@ -117,7 +117,7 @@ fused MLP over it.
 <text x="430" y="450" class="ax" text-anchor="middle">residual skip — added after the gate, unchanged</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 11</span><b>The single-stream block.</b> The design trick is the fusion:
+<figcaption><span class="figno">FIG 12</span><b>The single-stream block.</b> The design trick is the fusion:
 <code>linear1</code> computes the queries, keys, values <em>and</em> the MLP's input in one matrix
 multiply, and <code>linear2</code> consumes the attention output and the gated MLP output together.
 Two big matmuls per block instead of five smaller ones — much better GPU utilisation, identical
@@ -141,7 +141,7 @@ mathematics. The MLP branch simply waits while attention runs; both halves meet 
 <!--CODE 468-484 title="model.py · _qkv and _out" hl="469,470,472,473,474,478,479,480,483,484"-->
 
 <!--TRACE-->
-<!--T 469|Unpack the three modulation vectors. In the plain path these have shape (B, 1, D) and broadcast over all tokens; in the KV-cache path they have been <em>blended</em> per token (§11) and arrive as (B, L, D).-->
+<!--T 469|Unpack the three modulation vectors. In the plain path these have shape (B, 1, D) and broadcast over all tokens; in the KV-cache path they have been <em>blended</em> per token (§12) and arrive as (B, L, D).-->
 <!--T 470|Adaptive normalisation: standardise, then scale and shift with values generated from the timestep. This is the only place the noise level touches the token stream inside a single-stream block.-->
 <!--T 472-476|Run the fused projection and immediately split its output into the qkv part (first 18432 columns) and the mlp part (last 36864 columns). <code>torch.split</code> returns views — no data is copied.-->
 <!--T 478|The einops pattern <code>"B L (K H D) -&gt; K B H L D"</code> with K=3, H=48 does three jobs at once: it splits qkv into q, k and v (the K axis), splits the feature axis into 48 heads of 128 dims (H and D), and moves heads to their own axis. Result: three tensors of shape (B, 48, L, 128).-->
@@ -156,7 +156,7 @@ mathematics. The MLP branch simply waits while attention runs; both halves meet 
 <!--TRACE-->
 <!--T 495-496|Build q/k/v and rotate q and k by the position matrices. In a single-stream block this happens over the <em>whole</em> mixed sequence — text, references and canvas together.-->
 <!--T 498-503|Carve out the reference slice of k and v and copy it (<code>.clone()</code>) into this block's cache entry. The clone matters: without it the cache would alias the live activations and be silently overwritten by the next layer's computation.-->
-<!--T 505|Run the masked attention of §7.-->
+<!--T 505|Run the masked attention of §8.-->
 <!--T 506|Combine and return, together with the cache.-->
 <!--T 517-519|The cached path is identical except that the reference count is not an argument any more — it is recovered from the cached tensor's own shape (<code>shape[2]</code> is the token axis of k). A neat bit of self-describing state.-->
 <!--T 520-521|Attention with the cache spliced in, then the same gated residual.-->
@@ -177,7 +177,7 @@ shared-weight half of the architecture.</p>
 </section>
 
 <section id="double">
-<h2><span class="secno">§ 9</span><span class="sig">DoubleStreamBlock</span> · L524</h2>
+<h2><span class="secno">§ 10</span><span class="sig">DoubleStreamBlock</span> · L524</h2>
 <p class="section-intro">
 The first eight blocks of the network are different. Text and image keep <em>separate weights</em> —
 separate norms, separate projections, separate MLPs — and meet only inside the attention, where their
@@ -248,7 +248,7 @@ other.
 <path d="M992,100 L972,100 M992,326 L972,326 M992,414 L972,414" stroke="#5fe08a" stroke-width="1.3" fill="none" stroke-dasharray="4 4" marker-end="url(#dV)"/>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 12</span><b>The double-stream block.</b> Everything is doubled except the attention.
+<figcaption><span class="figno">FIG 13</span><b>The double-stream block.</b> Everything is doubled except the attention.
 Text tokens are transformed by text weights and image tokens by image weights; only when it is time to
 <em>compare</em> them are their q/k/v concatenated into one sequence. After attention the streams split
 again and each finishes with its own projection and its own MLP. Eight of these teach the two

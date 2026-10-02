@@ -181,7 +181,7 @@ budget on global structure. The dashed diagonal is the naive uniform schedule fo
 per call, via the argument named <code>timesteps</code>. So whenever you read
 "timestep" in this file, think: <em>"a single float telling the model how noisy its input currently
 is"</em>. Because of the shift above, that float is usually above 0.7 in practice — which is why
-<code>timestep_embedding</code> multiplies it by 1000 before doing anything (§6.1).</p>
+<code>timestep_embedding</code> multiplies it by 1000 before doing anything (§7.1).</p>
 </div>
 </section>
 
@@ -286,8 +286,8 @@ high resolution than FLUX.1's.</p>
 </table>
 </div>
 <p>Quadrupling the pixels quadruples the tokens but multiplies attention work by <strong>13.4×</strong>.
-That single fact explains most of FLUX.2's engineering: the KV cache for references (§12), the shared
-modulation (§14), and the choice of 48 cheap single-stream blocks over expensive double-stream ones.</p>
+That single fact explains most of FLUX.2's engineering: the KV cache for references (§13), the shared
+modulation (§15), and the choice of 48 cheap single-stream blocks over expensive double-stream ones.</p>
 
 <h3>3.3 · Text tokens, and the mystery of 15360</h3>
 <p>The text side is simpler but has one surprise. The 24-billion-parameter Mistral VLM is run over your

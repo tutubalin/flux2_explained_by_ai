@@ -1,0 +1,162 @@
+<section id="attnbasics">
+<h2><span class="secno">§ 4</span>Attention, from zero</h2>
+<p class="section-intro">
+Everything from here on is built from one operation: <em>attention</em>. Every paper mentions it; few
+explain it. We will build it from scratch using nothing but a dot product and one paragraph about
+softmax — and by the end you will know exactly what a query, a key and a value are, why scores are
+divided by √d, what a "head" is, and, crucially for everything that follows, what attention
+<em>cannot</em> see.
+</p>
+
+<h3>4.1 · The question every token must answer</h3>
+<p>A token on its own knows almost nothing. The canvas token at row 17, column 42 holds a small patch
+of half-finished image; whether that patch should become "fox ear" or "shadow on snow" depends on
+tokens far away from it — the word <em>fox</em> in the prompt, a patch of the reference image showing
+the actual animal. So at every layer of the network, every token needs to ask the same question:</p>
+<div class="note math">
+<div class="nh">Σ The question</div>
+<p><span class="mathblk">"Everybody else — what do you have that I need?"</span></p>
+</div>
+<p>Attention is the machinery that answers this question for all tokens at once, in parallel, using
+nothing but matrix multiplications. It is a <em>soft database lookup</em>: instead of fetching one
+record, every token takes a weighted slice of everything.</p>
+
+<h3>4.2 · Three roles per token: query, key, value</h3>
+<p>Each token vector <span class="mm">x</span> is linearly projected into three new vectors — three
+roles in the lookup:</p>
+<ul>
+<li><b>the query q</b> — the question this token is asking: <em>what I am looking for</em>;</li>
+<li><b>the key k</b> — the advertisement this token broadcasts: <em>what I have on offer</em>;</li>
+<li><b>the value v</b> — the payload this token will actually hand over if it gets chosen:
+<em>what I carry</em>.</li>
+</ul>
+<p>A conference is the right picture: your query is what you hope to find, someone's key is what their
+name badge says, their value is the folder under their arm. How well a question matches an
+advertisement is measured by the simplest thing available — the <b>dot product</b> <span class="mm">q·k</span>:
+large when the two vectors point the same way, near zero when they are unrelated, negative when they
+oppose. The three projections are learned matrices (in FLUX.2 they are fused into a single matmul —
+the <code>SelfAttention</code> bundle of §7.8); nothing about them is hand-designed.</p>
+
+<h3>4.3 · From scores to weights: divide by √d, then softmax</h3>
+<p>Raw dot products need two adjustments before they can be used as weights.</p>
+<p><b>First, scale.</b> A dot product of two <em>d</em>-dimensional vectors adds <em>d</em> terms, so its
+typical size grows like √d — with d = 128 (the width of one head's q and k in FLUX.2, §6) that is a
+factor of ~11 of pure size, carrying no information at all. Dividing every score by √d removes it and
+keeps the next step sane.</p>
+<p><b>Second, softmax.</b> Weights must be positive and sum to one, so that "taking a little of
+everyone" is a well-defined mix. Softmax does exactly that: exponentiate each score (now everything is
+positive, and bigger scores are amplified), then divide by the total:</p>
+<div class="mathbox">
+<span class="mm">wᵢ</span> <span class="op">=</span>
+<span class="frac"><span class="top">e<sup>sᵢ</sup></span><span class="bot">Σⱼ e<sup>sⱼ</sup></span></span>
+<span class="op" style="padding-left:1.2em">with</span>
+<span class="mm">sᵢ</span> <span class="op">=</span>
+<span class="frac"><span class="top">q · kᵢ</span><span class="bot">√d</span></span>
+<span class="op" style="padding-left:1.6em">and the answer is</span>
+<span class="mm">out</span> <span class="op">=</span> <span class="mm">Σ wᵢ · v</span>
+</div>
+<p>Because exponentiation is steep, a score that is merely a bit larger than the others can take most
+of the weight — softmax is a <em>soft</em> maximum: usually "mostly one, a little of the rest", never a
+hard cut. (Which entries are allowed to compete at all is a separate question — FLUX.2's mask — and
+gets its own section, §8.)</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 1040 390" role="img" aria-label="One attention lookup: a query is dotted with four keys, scores are scaled and softmaxed into weights, and the values are mixed in those proportions.">
+<text x="40" y="28" class="ttl">One lookup: a query, four keys, a weighted mix of values</text>
+
+<rect x="50" y="60" width="150" height="56" rx="9" fill="#182231" stroke="#ff7ab8" stroke-opacity=".6"/>
+<text x="125" y="84" class="axb" text-anchor="middle" fill="#ff7ab8">query q</text>
+<text x="125" y="102" class="eq" text-anchor="middle">what I look for</text>
+
+<rect x="300" y="60" width="150" height="44" rx="8" fill="#121a26" stroke="#7ea6ff" stroke-opacity=".5"/>
+<text x="375" y="78" class="axb" text-anchor="middle" fill="#7ea6ff">key k₁</text>
+<text x="375" y="95" class="eq" text-anchor="middle">what I have</text>
+<rect x="480" y="60" width="150" height="44" rx="8" fill="#121a26" stroke="#7ea6ff" stroke-opacity=".5"/>
+<text x="555" y="78" class="axb" text-anchor="middle" fill="#7ea6ff">key k₂</text>
+<text x="555" y="95" class="eq" text-anchor="middle">what I have</text>
+<rect x="660" y="60" width="150" height="44" rx="8" fill="#121a26" stroke="#7ea6ff" stroke-opacity=".5"/>
+<text x="735" y="78" class="axb" text-anchor="middle" fill="#7ea6ff">key k₃</text>
+<text x="735" y="95" class="eq" text-anchor="middle">what I have</text>
+<rect x="840" y="60" width="150" height="44" rx="8" fill="#121a26" stroke="#7ea6ff" stroke-opacity=".5"/>
+<text x="915" y="78" class="axb" text-anchor="middle" fill="#7ea6ff">key k₄</text>
+<text x="915" y="95" class="eq" text-anchor="middle">what I have</text>
+
+<path d="M125,116 L125,140 L915,140" stroke="#ff7ab8" stroke-width="1.5" fill="none"/>
+<text x="132" y="134" class="eq" fill="#ff7ab8">q meets every key — one dot product each</text>
+
+<text x="375" y="160" class="eq" text-anchor="middle">q·k₁ / √d = 2.40</text>
+<text x="555" y="160" class="eq" text-anchor="middle">q·k₂ / √d = 1.10</text>
+<text x="735" y="160" class="eq" text-anchor="middle">q·k₃ / √d = 0.20</text>
+<text x="915" y="160" class="eq" text-anchor="middle">q·k₄ / √d = −0.80</text>
+
+<path d="M375,166 L375,178" stroke="#7d8da1" stroke-width="1.4" marker-end="url(#ar)"/>
+<path d="M555,166 L555,178" stroke="#7d8da1" stroke-width="1.4" marker-end="url(#ar)"/>
+<path d="M735,166 L735,178" stroke="#7d8da1" stroke-width="1.4" marker-end="url(#ar)"/>
+<path d="M915,166 L915,178" stroke="#7d8da1" stroke-width="1.4" marker-end="url(#ar)"/>
+<text x="292" y="199" class="eq" text-anchor="end">softmax turns scores into weights:</text>
+<rect x="300" y="182" width="105" height="24" rx="4" fill="rgba(255,122,184,.25)" stroke="#ff7ab8" stroke-opacity=".6"/>
+<rect x="480" y="182" width="29" height="24" rx="4" fill="rgba(255,122,184,.18)" stroke="#ff7ab8" stroke-opacity=".45"/>
+<rect x="660" y="182" width="12" height="24" rx="3" fill="rgba(255,122,184,.12)" stroke="#ff7ab8" stroke-opacity=".35"/>
+<rect x="840" y="182" width="5" height="24" rx="2" fill="rgba(255,122,184,.1)" stroke="#ff7ab8" stroke-opacity=".3"/>
+<text x="413" y="199" class="eq">70 %</text>
+<text x="517" y="199" class="eq">19 %</text>
+<text x="680" y="199" class="eq">8 %</text>
+<text x="853" y="199" class="eq">3 %</text>
+
+<path d="M375,206 L375,226" stroke="#7d8da1" stroke-width="1.4" marker-end="url(#ar)"/>
+<path d="M555,206 L555,226" stroke="#7d8da1" stroke-width="1.4" marker-end="url(#ar)"/>
+<path d="M735,206 L735,226" stroke="#7d8da1" stroke-width="1.4" marker-end="url(#ar)"/>
+<path d="M915,206 L915,226" stroke="#7d8da1" stroke-width="1.4" marker-end="url(#ar)"/>
+
+<rect x="300" y="228" width="150" height="44" rx="8" fill="#121a26" stroke="#ffd479" stroke-opacity=".5"/>
+<text x="375" y="246" class="axb" text-anchor="middle" fill="#ffd479">value v₁</text>
+<text x="375" y="263" class="eq" text-anchor="middle">what I carry</text>
+<rect x="480" y="228" width="150" height="44" rx="8" fill="#121a26" stroke="#ffd479" stroke-opacity=".5"/>
+<text x="555" y="246" class="axb" text-anchor="middle" fill="#ffd479">value v₂</text>
+<text x="555" y="263" class="eq" text-anchor="middle">what I carry</text>
+<rect x="660" y="228" width="150" height="44" rx="8" fill="#121a26" stroke="#ffd479" stroke-opacity=".5"/>
+<text x="735" y="246" class="axb" text-anchor="middle" fill="#ffd479">value v₃</text>
+<text x="735" y="263" class="eq" text-anchor="middle">what I carry</text>
+<rect x="840" y="228" width="150" height="44" rx="8" fill="#121a26" stroke="#ffd479" stroke-opacity=".5"/>
+<text x="915" y="246" class="axb" text-anchor="middle" fill="#ffd479">value v₄</text>
+<text x="915" y="263" class="eq" text-anchor="middle">what I carry</text>
+
+<path d="M375,272 L450,314" stroke="#ffd479" stroke-width="3.4" marker-end="url(#ar)"/>
+<path d="M555,272 L492,314" stroke="#ffd479" stroke-width="2" marker-end="url(#ar)"/>
+<path d="M735,272 L560,314" stroke="#ffd479" stroke-width="1.4" marker-end="url(#ar)"/>
+<path d="M915,272 L600,314" stroke="#ffd479" stroke-width="1" marker-end="url(#ar)"/>
+<rect x="390" y="316" width="260" height="52" rx="10" fill="#182231" stroke="#ffd479" stroke-opacity=".55"/>
+<text x="520" y="338" class="axb" text-anchor="middle" fill="#ffd479">output = Σ wᵢ · v</text>
+<text x="520" y="356" class="eq" text-anchor="middle">mostly v₁, a little of the rest</text>
+</svg>
+</div>
+<figcaption><span class="figno">FIG 5</span><b>Attention as a soft lookup.</b> One querying token compares its
+query against four keys (dot products, scaled by √d), softmax turns the four scores into weights that
+sum to 100 %, and the answer is the values mixed in exactly those proportions — arrow thickness is the
+weight. In the real model the "four keys" are all 4 608 tokens of the sequence, and <em>every</em> token
+runs this lookup simultaneously; on a GPU the whole exchange is three matrix multiplies and a softmax.</figcaption>
+</figure>
+
+<h3>4.4 · Heads: many lookups in parallel</h3>
+<p>One lookup can encode one kind of relationship at a time — "looks like", "sits next to",
+"contradicts". Real language and real images need dozens of such relationships at once, so the feature
+width is sliced into <em>H</em> independent sub-lookups called <b>heads</b>: FLUX.2 [dev] splits its
+6144 dimensions into 48 heads of 128 dimensions each (§6), and every head runs its own private copy of
+§4.3 on its own slice — its own q, k, v, its own scores, its own weights. The head outputs are
+concatenated back into one vector and mixed by a final projection. Nothing coordinates the heads;
+training discovers that head 17 tracks colour match while head 31 tracks vertical adjacency.</p>
+<p>Remember the number <b>128</b>: it is <code>head_dim</code>, the width of one head's query and key —
+and therefore the size of everything in this section. It appears again in the norms (§7.7), in the
+rotation planes (§5) and in every parameter count in this article.</p>
+
+<h3>4.5 · What attention cannot see: order</h3>
+<p>Notice what is missing from all of the above: <em>position</em>. The weights depend only on the
+<em>contents</em> of the vectors. Shuffle the tokens and the weights shuffle with them — the set of
+outputs comes back identical, rearranged. Attention is a perfect lookup and a total amnesiac: left to
+itself it has no idea which patches are neighbours, which reference image a patch came from, or which
+word preceded which in your prompt.</p>
+<p>Everything spatial and sequential must therefore be injected into q and k <em>before</em> the dot
+product is taken. That is precisely the job of the next section — and the reason FLUX.2's position
+system is worth a chapter of its own.</p>
+</section>

@@ -1,5 +1,5 @@
 <section id="loop">
-<h2><span class="secno">§ 13</span>The denoising loop — where <code>model.py</code> meets the world</h2>
+<h2><span class="secno">§ 14</span>The denoising loop — where <code>model.py</code> meets the world</h2>
 <p class="section-intro">
 <code>model.py</code> never loops. It answers one question per call: "given this noisy image at this
 timestep, which way is clean?" The loop lives in <code>sampling.py</code>, and it is short enough to
@@ -22,7 +22,7 @@ landing exactly on the clean latent, which the autoencoder then decodes into pix
 injected anywhere: this is an ordinary differential equation being integrated, not a stochastic
 process.</p>
 
-<h3>13.1 · Which timesteps? The logit-normal schedule</h3>
+<h3>14.1 · Which timesteps? The logit-normal schedule</h3>
 <p>The step times are not evenly spaced. <code>get_schedule</code> draws them from a logit-normal
 distribution shifted by <code>mu</code>, which depends only on the number of image tokens — bigger
 images get their steps concentrated differently. For a 4096-token image (1024²) with 8 steps the
@@ -39,7 +39,7 @@ times are</p>
 structure decisions, then takes one long stride from 0.58 to 0. See <a href="#flow">FIG 3</a> for the
 full curve family.</p>
 
-<h3>13.2 · What a step costs</h3>
+<h3>14.2 · What a step costs</h3>
 <p>Attention is quadratic in sequence length and the block matmuls are linear, so the cost of a step is
 dominated by token count. Counting the two matmuls of every block plus the attention FLOPs:</p>
 <div class="tbl-wrap">
@@ -56,7 +56,7 @@ dominated by token count. Counting the two matmuls of every block plus the atten
 <p>Quadrupling the pixels multiplies the work by ~4.6× — the attention term growing as the square is
 exactly the extra 0.6. This table is also the honest explanation of the KV cache's value: at 512² with
 four references the reference tokens <em>quadruple</em> the sequence, and removing them from 49 of the
-50 steps is worth the 2.66× measured in §12.</p>
+50 steps is worth the 2.66× measured in §13.</p>
 
 <div class="tbl-wrap">
 <table class="data">
@@ -75,7 +75,7 @@ anywhere in the file.</p>
 </section>
 
 <section id="design">
-<h2><span class="secno">§ 14</span>Why the file looks like this — twelve design decisions</h2>
+<h2><span class="secno">§ 15</span>Why the file looks like this — twelve design decisions</h2>
 <p class="section-intro">
 Reading 834 lines you meet a lot of choices that look arbitrary until you see the reason. Here they
 are, collected.
@@ -96,14 +96,14 @@ are, collected.
 <tr><td><b>Cache as a dict of lists</b></td><td>L260–264</td><td>Plain Python structures, one entry per block in block order. No abstraction layer, no registry — the simplest thing that makes <code>cache["double_blocks"][i]</code> obvious.</td></tr>
 <tr><td><b>Dead code left in place</b></td><td>L446, L449</td><td><code>self.scale</code> and <code>self.hidden_dim</code> are never read. They survive from an older hand-written attention; deleting them would break checkpoint key compatibility.</td></tr>
 <tr><td><b><code>assert</code> for shape checks</b></td><td>L63, L528</td><td>Divisibility of hidden by heads is a programming error, not a runtime condition — assert documents it and vanishes under <code>-O</code>.</td></tr>
-<tr><td><b>No dropout, no stochasticity</b></td><td>—</td><td>An inference-only file. Everything deterministic means the KV-cache proof of §12 holds exactly, in floating point, forever.</td></tr>
+<tr><td><b>No dropout, no stochasticity</b></td><td>—</td><td>An inference-only file. Everything deterministic means the KV-cache proof of §13 holds exactly, in floating point, forever.</td></tr>
 </tbody>
 </table>
 </div>
 </section>
 
 <section id="cheatsheet">
-<h2><span class="secno">§ 15</span>The complete cheat sheet</h2>
+<h2><span class="secno">§ 16</span>The complete cheat sheet</h2>
 <p class="section-intro">
 Every symbol defined in <code>model.py</code>, in file order, with the line where it begins. If you
 ever get lost, this is the map back.
@@ -155,7 +155,7 @@ ever get lost, this is the map back.
 </table>
 </div>
 
-<h3>15.1 · Constants worth memorising</h3>
+<h3>16.1 · Constants worth memorising</h3>
 <div class="tbl-wrap">
 <table class="data">
 <thead><tr><th style="width:280px">constant</th><th style="width:150px">value</th><th>meaning</th></tr></thead>
@@ -174,16 +174,16 @@ ever get lost, this is the map back.
 </section>
 
 <section id="refs">
-<h2><span class="secno">§ 16</span>References &amp; further reading</h2>
+<h2><span class="secno">§ 17</span>References &amp; further reading</h2>
 <ul>
 <li><b>The source.</b> black-forest-labs/flux2, <code>src/flux2/model.py</code> — the file this article walks through, line by line. Also <code>sampling.py</code>, <code>autoencoder.py</code>, <code>text_encoder.py</code> and <code>docs/flux2_klein_kv_cache.md</code> in the same repository.</li>
 <li><b>FLUX.2 technical write-up.</b> Black Forest Labs, "FLUX.2" blog post (bfl.ai/blog/flux-2) and the accompanying representation-comparison note — the closest thing to a paper; there is no arXiv preprint for FLUX.2 itself.</li>
 <li><b>Scaling Rectified Flow Transformers (SD3 / MM-DiT).</b> Esser et al., 2024 — arXiv:2403.03206. The double-stream block, the shared modulation and the logit-normal timestep sampling all come from here.</li>
-<li><b>RoPE.</b> Su et al., "RoFormer: Enhanced Transformer with Rotary Position Embedding", arXiv:2104.09864 — the rotation mechanism generalised to four axes in §4.</li>
-<li><b>SwiGLU.</b> Shazeer, "GLU Variants Improve Transformer", arXiv:2002.05202 — the <code>silu(x₁)·x₂</code> gate of §6.2.</li>
+<li><b>RoPE.</b> Su et al., "RoFormer: Enhanced Transformer with Rotary Position Embedding", arXiv:2104.09864 — the rotation mechanism generalised to four axes in §5.</li>
+<li><b>SwiGLU.</b> Shazeer, "GLU Variants Improve Transformer", arXiv:2002.05202 — the <code>silu(x₁)·x₂</code> gate of §7.2.</li>
 <li><b>adaLN.</b> Peebles &amp; Xie, "Scalable Diffusion Models with Transformers" (DiT), arXiv:2212.09748 — adaptive layer norm with shift/scale/gate from a condition vector.</li>
 <li><b>Demystifying FLUX.</b> arXiv:2507.09595 — an independent architecture review of the FLUX family, useful for the FLUX.1 → FLUX.2 differences (19+38 → 8+48 blocks, Mistral-3 replacing T5+CLIP).</li>
-<li><b>QK-norm.</b> Henry et al., "Query-Key Normalization for Transformers", 2020 — the stability trick behind §6.7.</li>
+<li><b>QK-norm.</b> Henry et al., "Query-Key Normalization for Transformers", 2020 — the stability trick behind §7.7.</li>
 </ul>
 <p class="dim" style="margin-top:18px">All numerical claims in this article — parameter counts, token
 counts, FLOPs, cache sizes, mask patterns, rotation orthogonality and the bit-exactness of the KV

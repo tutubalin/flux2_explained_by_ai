@@ -77,7 +77,7 @@ fig = f'''<figure>
 <div class="fig">
 {svg}
 </div>
-<figcaption><span class="figno">FIG 10</span><b>The mask, measured.</b> I fed one-hot values through
+<figcaption><span class="figno">FIG 11</span><b>The mask, measured.</b> I fed one-hot values through
 <code>causal_attn_fn</code> and read back which key each query actually mixed: on the left is what came
 out. Text and image rows are completely dense — every token sees every token, in both directions. The
 reference block is an isolated island: references read each other and nothing else. On the right, the
@@ -85,6 +85,6 @@ cached variant: the reference <em>rows</em> are gone (we no longer compute their
 <em>columns</em> remain, supplied from the cache, so text and image still see them exactly as before.</figcaption>
 </figure>'''
 
-OUT = pathlib.Path(os.environ.get("FLUX2_MASKFIG", str(HERE / "parts" / "07_mask_fig.html")))
+OUT = pathlib.Path(os.environ.get("FLUX2_MASKFIG", str(HERE / "parts" / "08_mask_fig.html")))
 OUT.write_text(fig + "\n")
 print("wrote", OUT, len(fig), "chars")

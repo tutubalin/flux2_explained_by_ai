@@ -13,34 +13,35 @@
     <a href="#bigpicture">1 · What FLUX.2 actually is</a>
     <a href="#flow">2 · Rectified flow in 5 minutes</a>
     <a href="#tokens">3 · From pixels to tokens</a>
-    <a href="#rope">4 · Position: the 4-axis RoPE</a>
-    <a href="#configs">5 · The three configurations</a>
+    <a href="#attnbasics">4 · Attention, from zero</a>
+    <a href="#rope">5 · Position: the 4-axis RoPE</a>
+    <a href="#configs">6 · The three configurations</a>
 
     <div class="toc-h">The building blocks</div>
-    <a href="#p-timestep">6.1 · timestep_embedding</a>
-    <a href="#p-glu">6.2 · SiLUActivation — the gate</a>
-    <a href="#p-mlp">6.3 · MLPEmbedder</a>
-    <a href="#p-rope">6.4 · rope — building rotations</a>
-    <a href="#p-embednd">6.5 · EmbedND — gluing four axes</a>
-    <a href="#p-applyrope">6.6 · apply_rope — using them</a>
-    <a href="#p-norms">6.7 · RMSNorm &amp; QKNorm</a>
-    <a href="#p-selfattn">6.8 · SelfAttention</a>
-    <a href="#p-mod">6.9 · Modulation</a>
-    <a href="#p-last">6.10 · LastLayer</a>
+    <a href="#p-timestep">7.1 · timestep_embedding</a>
+    <a href="#p-glu">7.2 · SiLUActivation — the gate</a>
+    <a href="#p-mlp">7.3 · MLPEmbedder</a>
+    <a href="#p-rope">7.4 · rope — building rotations</a>
+    <a href="#p-embednd">7.5 · EmbedND — gluing four axes</a>
+    <a href="#p-applyrope">7.6 · apply_rope — using them</a>
+    <a href="#p-norms">7.7 · RMSNorm &amp; QKNorm</a>
+    <a href="#p-selfattn">7.8 · SelfAttention</a>
+    <a href="#p-mod">7.9 · Modulation</a>
+    <a href="#p-last">7.10 · LastLayer</a>
 
     <div class="toc-h">The big pieces</div>
-    <a href="#attention">7 · causal_attn_fn</a>
-    <a href="#single">8 · SingleStreamBlock</a>
-    <a href="#double">9 · DoubleStreamBlock</a>
-    <a href="#flux2">10 · Flux2.forward</a>
-    <a href="#blend">11 · Blending modulations</a>
-    <a href="#kvcache">12 · The KV cache paths</a>
+    <a href="#attention">8 · causal_attn_fn — the mask</a>
+    <a href="#single">9 · SingleStreamBlock</a>
+    <a href="#double">10 · DoubleStreamBlock</a>
+    <a href="#flux2">11 · Flux2.forward</a>
+    <a href="#blend">12 · Blending modulations</a>
+    <a href="#kvcache">13 · The KV cache paths</a>
 
     <div class="toc-h">Zooming back out</div>
-    <a href="#loop">13 · The denoising loop</a>
-    <a href="#design">14 · Why it looks like this</a>
-    <a href="#cheatsheet">15 · Complete cheat sheet</a>
-    <a href="#refs">16 · References</a>
+    <a href="#loop">14 · The denoising loop</a>
+    <a href="#design">15 · Why it looks like this</a>
+    <a href="#cheatsheet">16 · Complete cheat sheet</a>
+    <a href="#refs">17 · References</a>
   </nav>
 </aside>
 
