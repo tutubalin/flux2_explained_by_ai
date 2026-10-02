@@ -1,0 +1,83 @@
+<div id="wrap">
+<aside id="toc">
+  <div class="brand">
+    <div class="brand-mark">F2</div>
+    <div>
+      <div class="brand-name">FLUX.2 model.py</div>
+      <div class="brand-sub">EVERY LINE, EXPLAINED</div>
+    </div>
+  </div>
+  <nav>
+    <div class="toc-h">Orientation</div>
+    <a href="#map">The file at a glance</a>
+    <a href="#bigpicture">1 · What FLUX.2 actually is</a>
+    <a href="#flow">2 · Rectified flow in 5 minutes</a>
+    <a href="#tokens">3 · From pixels to tokens</a>
+    <a href="#rope">4 · Position: the 4-axis RoPE</a>
+    <a href="#configs">5 · The three configurations</a>
+
+    <div class="toc-h">The building blocks</div>
+    <a href="#p-timestep">6.1 · timestep_embedding</a>
+    <a href="#p-mlp">6.2 · MLPEmbedder</a>
+    <a href="#p-embednd">6.3 · EmbedND</a>
+    <a href="#p-rope">6.4 · rope &amp; apply_rope</a>
+    <a href="#p-norms">6.5 · RMSNorm &amp; QKNorm</a>
+    <a href="#p-glu">6.6 · SiLUActivation</a>
+    <a href="#p-selfattn">6.7 · SelfAttention</a>
+    <a href="#p-mod">6.8 · Modulation</a>
+    <a href="#p-last">6.9 · LastLayer</a>
+
+    <div class="toc-h">The big pieces</div>
+    <a href="#attention">7 · causal_attn_fn</a>
+    <a href="#single">8 · SingleStreamBlock</a>
+    <a href="#double">9 · DoubleStreamBlock</a>
+    <a href="#flux2">10 · Flux2.forward</a>
+    <a href="#blend">11 · Blending modulations</a>
+    <a href="#kvcache">12 · The KV cache paths</a>
+
+    <div class="toc-h">Zooming back out</div>
+    <a href="#loop">13 · The denoising loop</a>
+    <a href="#design">14 · Why it looks like this</a>
+    <a href="#cheatsheet">15 · Complete cheat sheet</a>
+    <a href="#refs">16 · References</a>
+  </nav>
+</aside>
+
+<main>
+<header class="hero">
+  <div class="kicker">A complete walkthrough · black-forest-labs/flux2 · src/flux2/model.py</div>
+  <h1 class="title">FLUX.2, <span class="mono">model.py</span>,<br>every single line.</h1>
+  <p class="lede">
+    This is the 834-line file that defines a <strong>32-billion-parameter image generator</strong>.
+    It has no training code, no diffusion schedulers, no VAE — just the transformer that sits in the
+    middle of FLUX.2 and predicts, at every step, <em>which direction to push the image</em>.
+    Below, every class, every function and every line is explained from first principles, with
+    hand-drawn diagrams showing exactly how the layers are wired and what shape the data has
+    as it flows between them.
+  </p>
+  <p class="lede" style="font-size:16.5px">
+    No prior knowledge of diffusion models is assumed. If you know what a matrix multiply does
+    and have seen a bit of Python, you can follow this all the way to the end.
+  </p>
+
+  <div class="statgrid">
+    <div class="stat a"><div class="n">834</div><div class="l">lines of Python</div></div>
+    <div class="stat b"><div class="n">14</div><div class="l">classes</div></div>
+    <div class="stat c"><div class="n">36</div><div class="l">functions &amp; methods</div></div>
+    <div class="stat d"><div class="n">32.22B</div><div class="l">parameters (verified)</div></div>
+    <div class="stat e"><div class="n">56</div><div class="l">transformer blocks</div></div>
+    <div class="stat a"><div class="n">0</div><div class="l">bias terms in the whole model</div></div>
+  </div>
+
+  <div class="note proof" style="margin-top:26px">
+    <div class="nh">◆ How this article was checked</div>
+    <p>Every claim marked <b style="color:var(--ref)">VERIFIED</b> was produced by actually
+    <em>running</em> the code. The file reproduced here is byte-identical to the upstream source —
+    its git blob hash is <code>9b1f5b50f8a966d6f4b9ed33b6f125695dc707f0</code>, matching
+    <code>black-forest-labs/flux2@main</code>. I instantiated all three model configs on PyTorch's
+    <code>meta</code> device to count parameters exactly, ran a miniature FLUX.2 end-to-end to trace
+    real tensor shapes, derived the attention mask empirically by feeding one-hot values through it,
+    and measured the KV-cache error as exactly <code>0.000e+00</code>. The scripts are in
+    <code>verify/</code> in this repository.</p>
+  </div>
+</header>

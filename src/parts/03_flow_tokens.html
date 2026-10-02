@@ -1,0 +1,329 @@
+<section id="flow">
+<h2><span class="secno">§ 2</span>Rectified flow in five minutes</h2>
+<p class="section-intro">
+Everything in <code>model.py</code> follows from one equation. Understand this section and the rest of
+the file is bookkeeping.
+</p>
+
+<h3>2.1 · The single idea</h3>
+<p>Take a real image and call it <em>x₀</em>. Take pure Gaussian noise and call it <em>x₁</em>.
+Now draw a straight line between them and put a dot somewhere on that line. The dot's position is
+described by one number, <em>t</em>:</p>
+
+<div class="mathbox">
+<span class="mm">x<sub>t</sub></span> <span class="op">=</span> (1 − <span class="mm">t</span>)·<span class="mm">x</span><sub>0</sub> <span class="op">+</span> <span class="mm">t</span>·<span class="mm">x</span><sub>1</sub>
+<span class="op" style="padding-left:2.2em">with</span> <span class="mm">t</span> = 0 <span class="op">→</span> clean image, <span class="op">&nbsp;</span> <span class="mm">t</span> = 1 <span class="op">→</span> pure noise
+</div>
+
+<p>That is the entire "forward process". There is no gradual noise schedule, no Markov chain, no
+β-parameters — just a line segment. The model's whole job is to learn the <strong>velocity</strong>:
+the direction and speed you would have to travel along that line. Formally it learns the vector field</p>
+
+<div class="mathbox">
+<span class="mm">v</span>(<span class="mm">x<sub>t</sub></span>, <span class="mm">t</span>) <span class="op">=</span>
+<span class="frac"><span class="top">d<span class="mm">x<sub>t</sub></span></span><span class="bot">d<span class="mm">t</span></span></span>
+<span class="op">=</span> <span class="mm">x</span><sub>1</sub> − <span class="mm">x</span><sub>0</sub>
+</div>
+
+<p>Notice what that means: the target the network is trained to predict is simply
+<em>noise minus image</em>. Not the noise, not the clean image — the <strong>difference</strong>. This is
+why FLUX.2 is called a <em>flow</em> model rather than a diffusion model: it is trained to integrate an
+ordinary differential equation along (approximately) straight paths, following
+<a href="#refs">Lipman et al. 2023</a> and <a href="#refs">Liu et al. 2023</a>.</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 1040 330" role="img" aria-label="The rectified flow line segment: the model predicts the velocity pointing from clean data to noise, and sampling walks backwards along it.">
+<defs><marker id="fA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#f6a93b"/></marker>
+<marker id="fP" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#ff7ab8"/></marker>
+<marker id="fG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7d8da1"/></marker></defs>
+
+<text x="40" y="34" class="ttl">One image, one noise sample, one straight line</text>
+
+<!-- the axis -->
+<line x1="90" y1="150" x2="950" y2="150" stroke="#2e4054" stroke-width="2"/>
+<line x1="90" y1="142" x2="90" y2="158" stroke="#2e4054" stroke-width="2"/>
+<line x1="950" y1="142" x2="950" y2="158" stroke="#2e4054" stroke-width="2"/>
+<text x="90" y="180" class="axb" text-anchor="middle">t = 0</text>
+<text x="90" y="198" class="ax" text-anchor="middle">clean image x₀</text>
+<text x="950" y="180" class="axb" text-anchor="middle">t = 1</text>
+<text x="950" y="198" class="ax" text-anchor="middle">pure noise x₁</text>
+
+<!-- endpoints -->
+<circle cx="90" cy="150" r="9" fill="#f6a93b"/>
+<circle cx="950" cy="150" r="9" fill="#7d8da1"/>
+
+<!-- current state at t=0.62 -->
+<circle cx="623" cy="150" r="11" fill="#0c1119" stroke="#ff7ab8" stroke-width="3"/>
+<text x="623" y="120" class="axb" text-anchor="middle" fill="#ff7ab8">x_t  (t = 0.62)</text>
+<text x="623" y="228" class="ax" text-anchor="middle">this half-noisy latent is what</text>
+<text x="623" y="244" class="ax" text-anchor="middle">the transformer actually receives</text>
+
+<!-- the velocity arrow (points toward noise = increasing t) -->
+<line x1="640" y1="86" x2="880" y2="86" stroke="#f6a93b" stroke-width="2.6" marker-end="url(#fA)"/>
+<text x="760" y="72" class="axb" text-anchor="middle" fill="#f6a93b">v = x₁ − x₀</text>
+<text x="760" y="106" class="ax" text-anchor="middle">the ONE thing model.py outputs</text>
+<line x1="623" y1="139" x2="623" y2="92" stroke="#f6a93b" stroke-width="1.3" stroke-dasharray="4 3"/>
+
+<!-- the euler hop -->
+<line x1="623" y1="266" x2="478" y2="266" stroke="#ff7ab8" stroke-width="2.4" marker-end="url(#fP)"/>
+<circle cx="478" cy="150" r="6" fill="#ff7ab8" opacity=".55"/>
+<line x1="478" y1="156" x2="478" y2="262" stroke="#ff7ab8" stroke-width="1.2" stroke-dasharray="4 3" opacity=".6"/>
+<text x="550" y="288" class="axb" text-anchor="middle" fill="#ff7ab8">one Euler hop:  x ← x + (t_prev − t)·v</text>
+<text x="550" y="306" class="ax" text-anchor="middle">(t_prev − t) is negative, so we walk against v, toward t = 0</text>
+</svg>
+</div>
+<figcaption><span class="figno">FIG 2</span><b>The whole generative process in one picture.</b> Training shows the network
+points along the line at many values of <em>t</em> and asks it to predict <em>v</em>. Generation starts at
+<em>t = 1</em> and repeatedly asks "which way?" then takes a step. Because the paths are straight, very
+few steps are needed — this is why the distilled klein models manage with only 4.</figcaption>
+</figure>
+
+<h3>2.2 · Reading the sampling step</h3>
+<p>With that picture in mind, the denoising loop in <code>sampling.py</code> is three lines:</p>
+
+<!--RAW title="sampling.py · denoise() — the whole Euler loop"-->
+    guidance_vec = torch.full((img.shape[0],), guidance, device=img.device, dtype=img.dtype)
+    for t_curr, t_prev in zip(timesteps[:-1], timesteps[1:]):
+        t_vec = torch.full((img.shape[0],), t_curr, dtype=img.dtype, device=img.device)
+        ...
+        pred = model(x=img_input, x_ids=img_input_ids, timesteps=t_vec,
+                     ctx=txt, ctx_ids=txt_ids, guidance=guidance_vec)
+        ...
+        img = img + (t_prev - t_curr) * pred      # <-- the only line that changes the image
+    return img
+<!--/RAW-->
+
+<p>Line 212 is exactly the pink arrow in Figure 2. <code>t_curr</code> is where we are,
+<code>t_prev</code> is where we want to be next (always a smaller number), <code>pred</code> is the
+velocity <em>v</em> that <code>Flux2.forward</code> just returned. Multiplying velocity by the time
+difference gives the displacement. Nothing else happens — no noise is injected, no variance schedule
+is applied. It is a plain, deterministic Euler integration of an ODE.</p>
+
+<div class="note warn">
+<div class="nh">⚠ Gotcha · which direction is "forward"?</div>
+<p>The convention here is <strong>t = 1 is noise and t = 0 is data</strong> — the opposite of what many
+diffusion tutorials use, where t counts <em>up</em> as noise is added. In this codebase
+<code>get_schedule</code> returns timesteps starting at 1.0 and ending at 0.0, and the Euler step moves
+<em>down</em>. Keep that in mind whenever you see a timestep value: big = noisy, small = clean.</p>
+</div>
+
+<h3>2.3 · The timestep schedule is not uniform</h3>
+<p>If you split [1, 0] into 50 equal slices you waste steps in the easy middle of the trajectory and
+starve the hard part. Which part is hard? Empirically, the <em>noisy</em> end: deciding the global
+composition from near-pure noise is where most of the information is created, and it is also where the
+velocity field curves the most. So FLUX.2 warps the uniform grid through a shift function, taken from
+the <a href="#refs">Stable Diffusion 3 paper</a>:</p>
+
+<div class="mathbox">
+<span class="mm">t′</span> <span class="op">=</span>
+<span class="frac"><span class="top">e<sup>μ</sup></span><span class="bot">e<sup>μ</sup> + (1/t − 1)<sup>σ</sup></span></span>
+<span class="op" style="padding-left:2em">μ = f(number of tokens, number of steps), σ = 1</span>
+</div>
+
+<p>The parameter μ grows with the number of image tokens — bigger images get a stronger shift. Here
+are the <em>actual</em> schedules produced by <code>get_schedule</code>, plotted (I ran the function):</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 1040 380" role="img" aria-label="Real timestep schedules: shifted curves concentrate steps at the noisy end, more strongly for larger images.">
+<text x="40" y="30" class="ttl">Real schedules from get_schedule() — vertical is t, horizontal is step index</text>
+<!-- grid -->
+<line x1="110" y1="50" x2="110" y2="320" stroke="#2e4054" stroke-width="1.4"/>
+<line x1="110" y1="320" x2="1000" y2="320" stroke="#2e4054" stroke-width="1.4"/>
+<g stroke="#1a2532" stroke-width="1">
+<line x1="110" y1="104" x2="1000" y2="104"/><line x1="110" y1="158" x2="1000" y2="158"/>
+<line x1="110" y1="212" x2="1000" y2="212"/><line x1="110" y1="266" x2="1000" y2="266"/>
+<line x1="288" y1="50" x2="288" y2="320"/><line x1="466" y1="50" x2="466" y2="320"/>
+<line x1="644" y1="50" x2="644" y2="320"/><line x1="822" y1="50" x2="822" y2="320"/>
+</g>
+<text x="100" y="54" class="ax" text-anchor="end">t=1.0</text>
+<text x="100" y="108" class="ax" text-anchor="end">0.8</text>
+<text x="100" y="162" class="ax" text-anchor="end">0.6</text>
+<text x="100" y="216" class="ax" text-anchor="end">0.4</text>
+<text x="100" y="270" class="ax" text-anchor="end">0.2</text>
+<text x="100" y="324" class="ax" text-anchor="end">0.0</text>
+<text x="110" y="344" class="ax" text-anchor="middle">step 0</text>
+<text x="555" y="344" class="ax" text-anchor="middle">half the steps spent here</text>
+<text x="1000" y="344" class="ax" text-anchor="middle">final step</text>
+
+<!-- uniform reference -->
+<line x1="110" y1="50" x2="1000" y2="320" stroke="#3d4d61" stroke-width="1.6" stroke-dasharray="5 5"/>
+<text x="470" y="200" class="ax" fill="#5b6b7f" transform="rotate(17 470 200)">uniform (what you'd get naively)</text>
+
+<!-- curves -->
+<polyline fill="none" stroke="#35d6f0" stroke-width="2.6" points="110.0,50.0 127.8,50.7 145.6,51.5 163.4,52.3 181.2,53.1 199.0,53.9 216.8,54.8 234.6,55.7 252.4,56.6 270.2,57.6 288.0,58.6 305.8,59.7 323.6,60.8 341.4,62.0 359.2,63.2 377.0,64.5 394.8,65.8 412.6,67.2 430.4,68.7 448.2,70.2 466.0,71.9 483.8,73.6 501.6,75.4 519.4,77.3 537.2,79.4 555.0,81.5 572.8,83.8 590.6,86.3 608.4,88.9 626.2,91.7 644.0,94.7 661.8,97.9 679.6,101.4 697.4,105.1 715.2,109.2 733.0,113.7 750.8,118.5 768.6,123.8 786.4,129.7 804.2,136.2 822.0,143.4 839.8,151.5 857.6,160.6 875.4,171.0 893.2,182.9 911.0,196.7 928.8,212.9 946.6,232.1 964.4,255.3 982.2,283.9 1000.0,320.0"/>
+<polyline fill="none" stroke="#f6a93b" stroke-width="2.6" points="110.0,50.0 141.8,51.2 173.6,52.4 205.4,53.7 237.1,55.1 268.9,56.7 300.7,58.3 332.5,60.1 364.3,62.0 396.1,64.1 427.9,66.4 459.6,68.9 491.4,71.7 523.2,74.7 555.0,78.1 586.8,81.9 618.6,86.3 650.4,91.1 682.1,96.7 713.9,103.2 745.7,110.8 777.5,119.8 809.3,130.7 841.1,144.1 872.9,161.0 904.6,182.9 936.4,212.5 968.2,254.8 1000.0,320.0"/>
+<polyline fill="none" stroke="#b18cff" stroke-width="2.6" points="110.0,50.0 332.5,58.8 555.0,74.8 777.5,112.9 1000.0,320.0"/>
+<polyline fill="none" stroke="#5fe08a" stroke-width="2.6" points="110.0,50.0 127.8,50.2 145.6,50.4 163.4,50.7 181.2,50.9 199.0,51.2 216.8,51.4 234.6,51.7 252.4,52.0 270.2,52.3 288.0,52.6 305.8,53.0 323.6,53.3 341.4,53.7 359.2,54.1 377.0,54.5 394.8,54.9 412.6,55.4 430.4,55.9 448.2,56.4 466.0,56.9 483.8,57.5 501.6,58.1 519.4,58.8 537.2,59.5 555.0,60.3 572.8,61.1 590.6,62.0 608.4,62.9 626.2,64.0 644.0,65.1 661.8,66.4 679.6,67.7 697.4,69.3 715.2,70.9 733.0,72.8 750.8,74.9 768.6,77.3 786.4,80.1 804.2,83.2 822.0,86.9 839.8,91.2 857.6,96.4 875.4,102.8 893.2,110.7 911.0,120.9 928.8,134.4 946.6,153.3 964.4,181.5 982.2,228.1 1000.0,320.0"/>
+
+<!-- legend -->
+<rect x="130" y="66" width="250" height="104" rx="10" fill="rgba(12,17,25,.92)" stroke="#22303f"/>
+<line x1="146" y1="88" x2="176" y2="88" stroke="#35d6f0" stroke-width="2.6"/>
+<text x="186" y="92" class="ax">50 steps · 1 MP (μ = 2.02)</text>
+<line x1="146" y1="112" x2="176" y2="112" stroke="#f6a93b" stroke-width="2.6"/>
+<text x="186" y="116" class="ax">28 steps · 1 MP (μ = 2.15)</text>
+<line x1="146" y1="136" x2="176" y2="136" stroke="#b18cff" stroke-width="2.6"/>
+<text x="186" y="140" class="ax">4 steps · 1 MP (μ = 2.29)</text>
+<line x1="146" y1="160" x2="176" y2="160" stroke="#5fe08a" stroke-width="2.6"/>
+<text x="186" y="164" class="ax">50 steps · 4 MP (μ = 3.23)</text>
+</svg>
+</div>
+<figcaption><span class="figno">FIG 3</span><b>Curves, not straight lines.</b> Every schedule hugs the top of the plot —
+the noisy end — and only dives toward 0 at the very last steps. The 4-megapixel curve (green) hugs it
+hardest: at 4 MP the first 40 of 50 steps all happen above t = 0.7. That is the model spending its
+budget on global structure. The dashed diagonal is the naive uniform schedule for comparison.</figcaption>
+</figure>
+
+<div class="note idea">
+<div class="nh">💡 Why this matters for reading the code</div>
+<p><code>model.py</code> never sees the schedule; it only ever receives <em>one</em> value of <em>t</em>
+per call, via the argument named <code>timesteps</code>. So whenever you read
+"timestep" in this file, think: <em>"a single float telling the model how noisy its input currently
+is"</em>. Because of the shift above, that float is usually above 0.7 in practice — which is why
+<code>timestep_embedding</code> multiplies it by 1000 before doing anything (§6.1).</p>
+</div>
+</section>
+
+<section id="tokens">
+<h2><span class="secno">§ 3</span>From pixels to tokens: what the model actually eats</h2>
+<p class="section-intro">
+<code>model.py</code> has no convolutions and no image logic. It receives images that have already been
+flattened into a list of vectors. To understand its shapes you must know exactly how that flattening
+happens.
+</p>
+
+<h3>3.1 · Three stages of compression</h3>
+<p>The VAE in <code>autoencoder.py</code> does two of the three stages; the third happens in
+<code>sampling.py</code> before the call:</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 1040 330" role="img" aria-label="Pixel grid compressed 8x by the VAE to 32 channels, then patchified 2x2 into 128-channel tokens.">
+<defs><marker id="tA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7d8da1"/></marker></defs>
+<text x="40" y="32" class="ttl">A 1024 × 1024 image becomes 4096 tokens of 128 numbers each</text>
+
+<!-- stage 1: pixels -->
+<text x="60" y="76" class="axb">1 · pixels</text>
+<g>
+<rect x="60" y="90" width="180" height="180" rx="6" fill="rgba(246,169,59,.05)" stroke="#f6a93b" stroke-opacity=".5"/>
+<g stroke="#f6a93b" stroke-opacity=".22" stroke-width="1">
+<line x1="60" y1="120" x2="240" y2="120"/><line x1="60" y1="150" x2="240" y2="150"/><line x1="60" y1="180" x2="240" y2="180"/><line x1="60" y1="210" x2="240" y2="210"/><line x1="60" y1="240" x2="240" y2="240"/>
+<line x1="90" y1="90" x2="90" y2="270"/><line x1="120" y1="90" x2="120" y2="270"/><line x1="150" y1="90" x2="150" y2="270"/><line x1="180" y1="90" x2="180" y2="270"/><line x1="210" y1="90" x2="210" y2="270"/>
+</g>
+</g>
+<text x="150" y="296" class="eq" text-anchor="middle">(3, 1024, 1024)</text>
+
+<path d="M252,180 L300,180" stroke="#7d8da1" stroke-width="1.8" marker-end="url(#tA)"/>
+<text x="276" y="166" class="ax" text-anchor="middle">VAE</text>
+<text x="276" y="200" class="ax" text-anchor="middle">8× ↓</text>
+
+<!-- stage 2: latent -->
+<text x="312" y="76" class="axb">2 · latent grid</text>
+<rect x="312" y="135" width="90" height="90" rx="5" fill="rgba(177,140,255,.07)" stroke="#b18cff" stroke-opacity=".55"/>
+<g stroke="#b18cff" stroke-opacity=".3" stroke-width="1">
+<line x1="312" y1="157" x2="402" y2="157"/><line x1="312" y1="180" x2="402" y2="180"/><line x1="312" y1="202" x2="402" y2="202"/>
+<line x1="334" y1="135" x2="334" y2="225"/><line x1="357" y1="135" x2="357" y2="225"/><line x1="379" y1="135" x2="379" y2="225"/>
+</g>
+<text x="357" y="252" class="eq" text-anchor="middle">(32, 128, 128)</text>
+<text x="357" y="272" class="ax" text-anchor="middle">32 channels, 8× smaller</text>
+
+<path d="M414,180 L462,180" stroke="#7d8da1" stroke-width="1.8" marker-end="url(#tA)"/>
+<text x="438" y="166" class="ax" text-anchor="middle">2×2</text>
+<text x="438" y="200" class="ax" text-anchor="middle">patchify</text>
+
+<!-- stage 3: tokens -->
+<text x="474" y="76" class="axb">3 · token grid</text>
+<rect x="474" y="157" width="46" height="46" rx="4" fill="rgba(246,169,59,.1)" stroke="#f6a93b" stroke-opacity=".7"/>
+<line x1="497" y1="157" x2="497" y2="203" stroke="#f6a93b" stroke-opacity=".5"/>
+<line x1="474" y1="180" x2="520" y2="180" stroke="#f6a93b" stroke-opacity=".5"/>
+<text x="497" y="228" class="eq" text-anchor="middle">128 channels</text>
+<text x="497" y="248" class="ax" text-anchor="middle">one token</text>
+
+<path d="M532,180 L580,180" stroke="#7d8da1" stroke-width="1.8" marker-end="url(#tA)"/>
+<text x="556" y="166" class="ax" text-anchor="middle">flatten</text>
+<text x="556" y="200" class="ax" text-anchor="middle">row-major</text>
+
+<rect x="592" y="166" width="230" height="28" rx="14" fill="rgba(246,169,59,.1)" stroke="#f6a93b" stroke-opacity=".5"/>
+<text x="707" y="184" class="eq" text-anchor="middle">x  (B, 4096, 128)</text>
+<text x="707" y="216" class="ax" text-anchor="middle">64 × 64 = 4096 tokens</text>
+
+<path d="M834,180 L870,180" stroke="#7d8da1" stroke-width="1.8" marker-end="url(#tA)"/>
+<rect x="882" y="150" width="120" height="60" rx="10" fill="#182231" stroke="#f6a93b" stroke-opacity=".7"/>
+<text x="942" y="176" class="axb" text-anchor="middle" fill="#f6a93b">img_in</text>
+<text x="942" y="194" class="eq" text-anchor="middle">→ 6144</text>
+</svg>
+</div>
+<figcaption><span class="figno">FIG 4</span><b>Sixteen-fold compression in each spatial direction.</b> The VAE shrinks
+1024² to 128² with 32 channels; then each 2×2 block of latent cells is folded into a single token of
+4 × 32 = 128 numbers (<code>autoencoder.py</code> literally does this with an einops
+<code>rearrange</code> and calls it <code>ps = [2, 2]</code>). The result is a flat list the transformer
+can chew on — and this is exactly why <code>Flux2Params.in_channels</code> is <strong>128</strong>.</figcaption>
+</figure>
+
+<div class="note beginner">
+<div class="nh">◇ Beginner · why bother with latents at all?</div>
+<p>Attention costs grow with the <em>square</em> of the token count. A 1024×1024 image as raw pixels
+would be over a million tokens: 10¹² attention pairs per layer, utterly impossible. As 4096 tokens it
+is 21 million pairs — expensive but feasible on real hardware. The latent space is a compression
+scheme that throws away perceptually irrelevant detail (exact sub-pixel noise) while keeping
+everything a human would notice. FLUX.2's VAE was retrained specifically to make that trade better at
+high resolution than FLUX.1's.</p>
+</div>
+
+<h3>3.2 · How many tokens is that, really?</h3>
+<div class="tbl-wrap">
+<table class="data">
+<thead><tr><th>Output size</th><th>Megapixels</th><th>Latent grid</th><th style="text-align:right">image tokens</th><th style="text-align:right">+ 512 text</th><th style="text-align:right">attention pairs (L²)</th></tr></thead>
+<tbody>
+<tr><td>512 × 512</td><td class="m">0.26</td><td class="m">32 × 32</td><td class="num">1,024</td><td class="num">1,536</td><td class="num">2.4 M</td></tr>
+<tr><td>768 × 768</td><td class="m">0.59</td><td class="m">48 × 48</td><td class="num">2,304</td><td class="num">2,816</td><td class="num">7.9 M</td></tr>
+<tr><td><strong>1024 × 1024</strong></td><td class="m">1.05</td><td class="m">64 × 64</td><td class="num">4,096</td><td class="num">4,608</td><td class="num">21.2 M</td></tr>
+<tr><td>1360 × 768 <span style="color:var(--muted)">(CLI default)</span></td><td class="m">1.04</td><td class="m">48 × 85</td><td class="num">4,080</td><td class="num">4,592</td><td class="num">21.1 M</td></tr>
+<tr><td>1440 × 1440</td><td class="m">2.07</td><td class="m">90 × 90</td><td class="num">8,100</td><td class="num">8,612</td><td class="num">74.2 M</td></tr>
+<tr><td><strong>2048 × 2048</strong> (4 MP)</td><td class="m">4.19</td><td class="m">128 × 128</td><td class="num">16,384</td><td class="num">16,896</td><td class="num">285.5 M</td></tr>
+</tbody>
+</table>
+</div>
+<p>Quadrupling the pixels quadruples the tokens but multiplies attention work by <strong>13.4×</strong>.
+That single fact explains most of FLUX.2's engineering: the KV cache for references (§12), the shared
+modulation (§14), and the choice of 48 cheap single-stream blocks over expensive double-stream ones.</p>
+
+<h3>3.3 · Text tokens, and the mystery of 15360</h3>
+<p>The text side is simpler but has one surprise. The 24-billion-parameter Mistral VLM is run over your
+prompt, and then <em>three of its internal layers</em> — layers 10, 20 and 30 — are pulled out and
+stacked side by side:</p>
+
+<!--RAW title="text_encoder.py · Mistral3SmallEmbedder.forward — the layer sandwich"-->
+    OUTPUT_LAYERS_MISTRAL = [10, 20, 30]      # which VLM layers to read
+
+    out = torch.stack([output.hidden_states[k] for k in OUTPUT_LAYERS_MISTRAL], dim=1)
+    return rearrange(out, "b c l d -> b l (c d)")   # (B, 512, 3*5120) = (B, 512, 15360)
+<!--/RAW-->
+
+<p>Mistral-Small-3.2 has a hidden width of 5120, so each prompt token arrives as
+3 × 5120 = <strong>15360</strong> numbers. That is precisely <code>Flux2Params.context_in_dim</code>.
+And the reason the Klein configs use 12288 and 7680 is exactly the same trick with different teachers:
+Qwen3-8B (4096 × 3) and Qwen3-4B (2560 × 3). Using mid-depth layers rather than only the last one gives
+the flow transformer access to both syntactic and semantic features — a trick also used in
+<a href="#refs">SD3</a>.</p>
+
+<p>Prompts are padded and truncated to <code>MAX_LENGTH = 512</code> tokens, which is where the
+"512 text tokens" column above comes from.</p>
+
+<div class="note proof">
+<div class="nh">◆ Verified · the arithmetic behind every config's context_in_dim</div>
+<p style="font-family:var(--mono);font-size:13.6px">
+FLUX.2 [dev]  : Mistral-Small-3.2-24B, layers [10,20,30], hidden 5120 → 3 × 5120 = <b>15360</b> ✓<br>
+Klein 9B      : Qwen3-8B,           layers [ 9,18,27], hidden 4096 → 3 × 4096 = <b>12288</b> ✓<br>
+Klein 4B      : Qwen3-4B,           layers [ 9,18,27], hidden 2560 → 3 × 2560 = <b>7680</b> ✓
+</p>
+</div>
+
+<h3>3.4 · Reference images are just more tokens</h3>
+<p>For editing and multi-reference generation, reference images go through the same VAE encoder and
+the same patchify, and their tokens are simply <em>appended to the sequence</em>. Up to ten references
+are supported; to keep the cost sane the pipeline caps reference pixels at 1024² each when there are
+several, and 2024² when there is only one. The only thing that distinguishes a reference token from a
+canvas token is its <em>position id</em> — which is the subject of the next section.</p>
+</section>

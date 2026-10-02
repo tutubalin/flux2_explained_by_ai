@@ -1,0 +1,191 @@
+<section id="loop">
+<h2><span class="secno">§ 13</span>The denoising loop — where <code>model.py</code> meets the world</h2>
+<p class="section-intro">
+<code>model.py</code> never loops. It answers one question per call: "given this noisy image at this
+timestep, which way is clean?" The loop lives in <code>sampling.py</code>, and it is short enough to
+fit in your head.
+</p>
+
+<!--RAW title="sampling.py · denoise() — the Euler loop"-->
+<pre>
+<span class="k">for</span> i, t <span class="k">in</span> <span class="f">enumerate</span>(timesteps):
+    t_curr, t_prev = t / num_steps, (timesteps[i + <span class="n">1</span>] <span class="k">if</span> i + <span class="n">1</span> &lt; <span class="f">len</span>(timesteps) <span class="k">else</span> <span class="n">0</span>) / num_steps
+    pred = model(img, ids, t_curr, ctx, ctx_ids, guidance)   <span class="c"># ← the file you just read</span>
+    img = img + (t_prev - t_curr) * pred                     <span class="c"># one Euler step towards clean</span>
+</pre>
+<!--/RAW-->
+
+<p>Read the update rule slowly, because it is the whole of rectified flow: the model predicts a
+<em>velocity</em> — the direction and speed at which the image should move — and the sampler takes one
+Euler step of size <code>(t_prev − t_curr)</code> along it. At the last step <code>t_prev = 0</code>,
+landing exactly on the clean latent, which the autoencoder then decodes into pixels. There is no noise
+injected anywhere: this is an ordinary differential equation being integrated, not a stochastic
+process.</p>
+
+<h3>13.1 · Which timesteps? The logit-normal schedule</h3>
+<p>The step times are not evenly spaced. <code>get_schedule</code> draws them from a logit-normal
+distribution shifted by <code>mu</code>, which depends only on the number of image tokens — bigger
+images get their steps concentrated differently. For a 4096-token image (1024²) with 8 steps the
+times are</p>
+<div class="tbl-wrap">
+<table class="data">
+<thead><tr><th>step</th><th>0</th><th>1</th><th>2</th><th>3</th><th>4</th><th>5</th><th>6</th><th>7</th></tr></thead>
+<tbody>
+<tr><td><b>t</b></td><td class="num">1.000</td><td class="num">0.985</td><td class="num">0.967</td><td class="num">0.942</td><td class="num">0.906</td><td class="num">0.853</td><td class="num">0.763</td><td class="num">0.580</td></tr>
+</tbody>
+</table>
+</div>
+<p>Half the steps happen above <code>t = 0.9</code>: the model spends its budget on the early, global
+structure decisions, then takes one long stride from 0.58 to 0. See <a href="#flow">FIG 3</a> for the
+full curve family.</p>
+
+<h3>13.2 · What a step costs</h3>
+<p>Attention is quadratic in sequence length and the block matmuls are linear, so the cost of a step is
+dominated by token count. Counting the two matmuls of every block plus the attention FLOPs:</p>
+<div class="tbl-wrap">
+<table class="data">
+<thead><tr><th>output size</th><th style="width:130px">image tokens</th><th style="width:170px">with 512 text tokens</th><th style="width:180px">TFLOPs per step</th><th style="width:180px">50 steps</th></tr></thead>
+<tbody>
+<tr><td>512 × 512</td><td class="num">1 024</td><td class="num">1 536</td><td class="num">112.5</td><td class="num">5.63 P</td></tr>
+<tr><td>1024 × 1024</td><td class="num">4 096</td><td class="num">4 608</td><td class="num">318.7</td><td class="num">15.93 P</td></tr>
+<tr><td>1360 × 768 <span class="dim">(CLI default)</span></td><td class="num">4 080</td><td class="num">4 592</td><td class="num">317.7</td><td class="num">15.88 P</td></tr>
+<tr><td>2048 × 2048</td><td class="num">16 384</td><td class="num">16 896</td><td class="num">1 454.2</td><td class="num">72.71 P</td></tr>
+</tbody>
+</table>
+</div>
+<p>Quadrupling the pixels multiplies the work by ~4.6× — the attention term growing as the square is
+exactly the extra 0.6. This table is also the honest explanation of the KV cache's value: at 512² with
+four references the reference tokens <em>quadruple</em> the sequence, and removing them from 49 of the
+50 steps is worth the 2.66× measured in §12.</p>
+
+<div class="tbl-wrap">
+<table class="data">
+<thead><tr><th>checkpoint</th><th style="width:150px">parameters</th><th style="width:130px">bf16</th><th style="width:130px">fp8</th><th style="width:130px">int4</th></tr></thead>
+<tbody>
+<tr><td>FLUX.2-dev</td><td class="num">32 223 281 152</td><td class="num">64.4 GB</td><td class="num">32.2 GB</td><td class="num">16.1 GB</td></tr>
+<tr><td>FLUX.2-klein-9B</td><td class="num">9 078 581 248</td><td class="num">18.2 GB</td><td class="num">9.1 GB</td><td class="num">4.5 GB</td></tr>
+<tr><td>FLUX.2-klein-4B</td><td class="num">3 875 544 576</td><td class="num">7.8 GB</td><td class="num">3.9 GB</td><td class="num">1.9 GB</td></tr>
+</tbody>
+</table>
+</div>
+<p class="dim" style="font-size:13.6px">Exact parameter counts, obtained by constructing each
+configuration on the meta device and summing <code>numel()</code> over every tensor — including the
+16 384 RMSNorm values and excluding nothing. There are zero bias vectors and zero dropout layers
+anywhere in the file.</p>
+</section>
+
+<section id="design">
+<h2><span class="secno">§ 14</span>Why the file looks like this — twelve design decisions</h2>
+<p class="section-intro">
+Reading 834 lines you meet a lot of choices that look arbitrary until you see the reason. Here they
+are, collected.
+</p>
+
+<div class="tbl-wrap">
+<table class="data">
+<thead><tr><th style="width:250px">decision</th><th style="width:150px">where</th><th>the reason</th></tr></thead>
+<tbody>
+<tr><td><b>Fused projections</b></td><td>L453, L459</td><td>One matrix produces q, k, v <em>and</em> the MLP input; another consumes attention and MLP output together. Five matmuls become two, and on a GPU fewer, bigger matmuls are dramatically more efficient.</td></tr>
+<tr><td><b>Modulation computed once</b></td><td>L132–134</td><td>56 blocks × 3 vectors would mean 168 MLP calls per step; sharing them costs 3 and gives every block the same conditioning signal.</td></tr>
+<tr><td><b>Parameter-free norms + adaLN</b></td><td>L464, L470</td><td>LayerNorm's own gain/bias would fight the modulation. Setting <code>elementwise_affine=False</code> everywhere (81 norms) makes the timestep the sole owner of scale and shift.</td></tr>
+<tr><td><b>No biases anywhere</b></td><td>all Linears</td><td>171 linear layers, all <code>bias=False</code>. At this scale biases contribute nothing measurable and cost memory bandwidth.</td></tr>
+<tr><td><b>fp32 at the edges</b></td><td>L433, L831</td><td>The network runs in bf16 but the final prediction and the RoPE rotation are cast to fp32: the sampler integrates 50 steps, and tiny systematic errors would accumulate.</td></tr>
+<tr><td><b>4-axis RoPE instead of 1-D</b></td><td>L694–707</td><td>Images are 2-D and references are separated in "time". Four rotation planes with equal dimension splits let one mechanism encode <code>(t, h, w, l)</code> without learned position tables.</td></tr>
+<tr><td><b>A mask instead of two attentions</b></td><td>L808–811</td><td>Reference isolation could have been a separate code path; expressing it as one boolean mask keeps a single, auditable attention call per configuration.</td></tr>
+<tr><td><b>8 double + 48 single</b></td><td>L96–103</td><td>Cross-modal weights are only needed while the two streams learn to relate; afterwards shared weights are cheaper. FLUX.1's 19+38 moved to 8+48 — the trade keeps paying.</td></tr>
+<tr><td><b>Cache as a dict of lists</b></td><td>L260–264</td><td>Plain Python structures, one entry per block in block order. No abstraction layer, no registry — the simplest thing that makes <code>cache["double_blocks"][i]</code> obvious.</td></tr>
+<tr><td><b>Dead code left in place</b></td><td>L446, L449</td><td><code>self.scale</code> and <code>self.hidden_dim</code> are never read. They survive from an older hand-written attention; deleting them would break checkpoint key compatibility.</td></tr>
+<tr><td><b><code>assert</code> for shape checks</b></td><td>L63, L528</td><td>Divisibility of hidden by heads is a programming error, not a runtime condition — assert documents it and vanishes under <code>-O</code>.</td></tr>
+<tr><td><b>No dropout, no stochasticity</b></td><td>—</td><td>An inference-only file. Everything deterministic means the KV-cache proof of §12 holds exactly, in floating point, forever.</td></tr>
+</tbody>
+</table>
+</div>
+</section>
+
+<section id="cheatsheet">
+<h2><span class="secno">§ 15</span>The complete cheat sheet</h2>
+<p class="section-intro">
+Every symbol defined in <code>model.py</code>, in file order, with the line where it begins. If you
+ever get lost, this is the map back.
+</p>
+
+<div class="tbl-wrap">
+<table class="data">
+<thead><tr><th style="width:80px">lines</th><th style="width:250px">symbol</th><th>one-line description</th></tr></thead>
+<tbody>
+<tr class="grp"><td colspan="3">top level</td></tr>
+<tr><td class="m">11</td><td><code>Flux2Params</code></td><td>Dataclass of the ten hyper-parameters of the 32B flagship (dev) configuration.</td></tr>
+<tr><td class="m">25</td><td><code>Klein9BParams</code></td><td>Same ten fields, klein-9B values: hidden 4096, 24 single blocks, no guidance.</td></tr>
+<tr><td class="m">39</td><td><code>Klein4BParams</code></td><td>The 4B preset: hidden 3072, 5 double + 20 single blocks.</td></tr>
+<tr class="grp"><td colspan="3">the model</td></tr>
+<tr><td class="m">52</td><td><code>Flux2</code></td><td>The transformer: embedders, modulation MLPs, 8 double + N single blocks, final layer.</td></tr>
+<tr><td class="m">53</td><td><code>Flux2.__init__</code></td><td>Builds every submodule; validates hidden % heads == 0.</td></tr>
+<tr><td class="m">115</td><td><code>Flux2.forward</code></td><td>Plain text→image pass, sequence <code>[txt, img]</code>.</td></tr>
+<tr><td class="m">170</td><td><code>Flux2.forward_kv_extract</code></td><td>Step 0 with references; returns prediction + KV cache.</td></tr>
+<tr><td class="m">267</td><td><code>Flux2.forward_kv_cached</code></td><td>Steps 1…N−1; references come from the cache.</td></tr>
+<tr class="grp"><td colspan="3">module-level helpers</td></tr>
+<tr><td class="m">329</td><td><code>_blend_mod_triple</code></td><td>Splice two (shift, scale, gate) triples into a per-token tensor.</td></tr>
+<tr><td class="m">346</td><td><code>_blend_double_mods</code></td><td>Same, wrapped for the double blocks' single-triple modulation.</td></tr>
+<tr><td class="m">356</td><td><code>_blend_single_mods</code></td><td>Same for the single blocks' three-region layout <code>[txt, ref, img]</code>.</td></tr>
+<tr><td class="m">710</td><td><code>timestep_embedding</code></td><td>Scalar → sinusoidal vector of dimension <code>dim</code>.</td></tr>
+<tr><td class="m">758</td><td><code>causal_attn_fn</code></td><td>Masked attention: references sealed off from everything else.</td></tr>
+<tr><td class="m">818</td><td><code>rope</code></td><td>Positions → per-token rotation matrices (…, n, dim/2, 2, 2).</td></tr>
+<tr><td class="m">828</td><td><code>apply_rope</code></td><td>Apply those rotations to q and k in fp32.</td></tr>
+<tr class="grp"><td colspan="3">small modules</td></tr>
+<tr><td class="m">375</td><td><code>SelfAttention</code></td><td>Container for one attention's qkv + proj weights (no forward!).</td></tr>
+<tr><td class="m">390</td><td><code>SiLUActivation</code></td><td>SwiGLU gate: <code>silu(x₁)·x₂</code> after <code>chunk(2, -1)</code>.</td></tr>
+<tr><td class="m">400</td><td><code>Modulation</code></td><td>condition vector → (shift, scale, gate) [×2], with the <code>[:, None, :]</code> fix-up.</td></tr>
+<tr><td class="m">415</td><td><code>LastLayer</code></td><td>Final adaLN + linear to patch channels; casts to fp32.</td></tr>
+<tr><td class="m">683</td><td><code>MLPEmbedder</code></td><td>linear → SiLU → linear; lifts the timestep embedding to hidden size.</td></tr>
+<tr><td class="m">694</td><td><code>EmbedND</code></td><td>Per-axis RoPE frequencies → concatenated rotation matrices.</td></tr>
+<tr><td class="m">734</td><td><code>RMSNorm</code></td><td>Root-mean-square normalisation with a learned gain.</td></tr>
+<tr><td class="m">746</td><td><code>QKNorm</code></td><td>Two RMSNorms for q and k; reads v only for its dtype.</td></tr>
+<tr class="grp"><td colspan="3">the blocks</td></tr>
+<tr><td class="m">437</td><td><code>SingleStreamBlock</code></td><td>Shared-weight block: fused attention + SwiGLU MLP, gated residuals.</td></tr>
+<tr><td class="m">468</td><td><code>· _qkv</code></td><td>adaLN → fused projection → heads → QKNorm.</td></tr>
+<tr><td class="m">482</td><td><code>· _out</code></td><td>cat(attn, gated MLP) → linear2 → gated residual.</td></tr>
+<tr><td class="m">486</td><td><code>· forward_kv_extract</code></td><td>Full pass + bank this block's reference k/v.</td></tr>
+<tr><td class="m">508</td><td><code>· forward_kv_cached</code></td><td>Pass with reference k/v taken from the cache.</td></tr>
+<tr><td class="m">524</td><td><code>DoubleStreamBlock</code></td><td>Two weight sets, one shared joint attention.</td></tr>
+<tr><td class="m">569</td><td><code>· _prepare_qkv</code></td><td>Modulate both streams, concatenate q/k/v, build pe_full.</td></tr>
+<tr><td class="m">614</td><td><code>· _apply_residuals</code></td><td>Four gated residuals: attention and MLP, per stream.</td></tr>
+<tr><td class="m">637</td><td><code>· forward_kv_extract</code></td><td>As above, banking the reference slice.</td></tr>
+<tr><td class="m">663</td><td><code>· forward_kv_cached</code></td><td>As above, consuming the cache.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>15.1 · Constants worth memorising</h3>
+<div class="tbl-wrap">
+<table class="data">
+<thead><tr><th style="width:280px">constant</th><th style="width:150px">value</th><th>meaning</th></tr></thead>
+<tbody>
+<tr><td><code>in_channels</code></td><td class="num">128</td><td>Latent channels per patch after the VAE's 16× compression.</td></tr>
+<tr><td><code>axes_dim</code></td><td class="num">[32, 32, 32, 32]</td><td>Rotation planes per position axis (t, h, w, l).</td></tr>
+<tr><td><code>theta</code></td><td class="num">2000</td><td>RoPE base frequency — ten times smaller than an LLM's 10 000.</td></tr>
+<tr><td><code>mlp_ratio</code></td><td class="num">3.0</td><td>MLP width multiplier (before the SwiGLU doubling).</td></tr>
+<tr><td><code>head_dim</code></td><td class="num">128</td><td>hidden ÷ heads, identical in every configuration.</td></tr>
+<tr><td><code>ref timestep</code></td><td class="num">0.0</td><td>References are always "clean"; makes the cache exact.</td></tr>
+<tr><td><code>ref t-offsets</code></td><td class="num">10, 20, 30…</td><td>Reference images separated along the t axis (scale = 10).</td></tr>
+<tr><td><code>eps (norms)</code></td><td class="num">1e-6</td><td>LayerNorm epsilon throughout; RMSNorm uses 1e-6 too.</td></tr>
+</tbody>
+</table>
+</div>
+</section>
+
+<section id="refs">
+<h2><span class="secno">§ 16</span>References &amp; further reading</h2>
+<ul>
+<li><b>The source.</b> black-forest-labs/flux2, <code>src/flux2/model.py</code> — the file this article walks through, line by line. Also <code>sampling.py</code>, <code>autoencoder.py</code>, <code>text_encoder.py</code> and <code>docs/flux2_klein_kv_cache.md</code> in the same repository.</li>
+<li><b>FLUX.2 technical write-up.</b> Black Forest Labs, "FLUX.2" blog post (bfl.ai/blog/flux-2) and the accompanying representation-comparison note — the closest thing to a paper; there is no arXiv preprint for FLUX.2 itself.</li>
+<li><b>Scaling Rectified Flow Transformers (SD3 / MM-DiT).</b> Esser et al., 2024 — arXiv:2403.03206. The double-stream block, the shared modulation and the logit-normal timestep sampling all come from here.</li>
+<li><b>RoPE.</b> Su et al., "RoFormer: Enhanced Transformer with Rotary Position Embedding", arXiv:2104.09864 — the rotation mechanism generalised to four axes in §4.</li>
+<li><b>SwiGLU.</b> Shazeer, "GLU Variants Improve Transformer", arXiv:2002.05202 — the <code>silu(x₁)·x₂</code> gate of §6.6.</li>
+<li><b>adaLN.</b> Peebles &amp; Xie, "Scalable Diffusion Models with Transformers" (DiT), arXiv:2212.09748 — adaptive layer norm with shift/scale/gate from a condition vector.</li>
+<li><b>Demystifying FLUX.</b> arXiv:2507.09595 — an independent architecture review of the FLUX family, useful for the FLUX.1 → FLUX.2 differences (19+38 → 8+48 blocks, Mistral-3 replacing T5+CLIP).</li>
+<li><b>QK-norm.</b> Henry et al., "Query-Key Normalization for Transformers", 2020 — the stability trick behind §6.5.</li>
+</ul>
+<p class="dim" style="margin-top:18px">All numerical claims in this article — parameter counts, token
+counts, FLOPs, cache sizes, mask patterns, rotation orthogonality and the bit-exactness of the KV
+cache — were computed or measured directly from the repository's code, not copied from documentation.</p>
+</section>

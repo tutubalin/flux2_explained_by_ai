@@ -1,0 +1,280 @@
+<section id="primitives">
+<h2><span class="secno">§ 6</span>The eleven small parts</h2>
+<p class="section-intro">
+Every large structure in this file is assembled from eleven small ones. We now meet each of them,
+line by line, in the order that makes them easiest to understand — not the order the file happens to
+list them in.
+</p>
+
+<h3 id="p-timestep">6.1 · <span class="sig">timestep_embedding(t, dim, max_period, time_factor)</span> — L710</h3>
+<p>The model needs to know <em>how noisy its input is</em>. But a single float like 0.87 is a terrible
+input for a neural network: one number cannot be meaningfully multiplied by a 6144-column weight
+matrix in a way that distinguishes 0.87 from 0.86. The standard fix, inherited from the original
+diffusion paper and from Transformers' positional encoding, is to expand the scalar into a bundle of
+sines and cosines at many different frequencies.</p>
+
+<!--CODE 710-731 title="model.py" hl="719,721,722,725,726,727,728,729,730"-->
+
+<!--TRACE-->
+<!--T 719|Rescale the noise level from [0, 1] to [0, 1000]. Why? Because the sinusoid frequencies below are tuned for inputs of that magnitude (this is the scale the original diffusion code used, where t was an integer step index out of 1000). Without this line, <em>t</em> ∈ [0,1] would make every <code>args</code> value tiny and all the sines would sit in their near-linear region — the embedding would carry almost no information. Verified: with the factor, <code>timestep_embedding([0, .5, 1], 256)</code> produces three vectors of norm ≈ 11.31 each that are nearly orthogonal; without it they would be almost identical.-->
+<!--T 720|<code>half = dim // 2</code>. Each frequency will contribute <em>two</em> output numbers — one cosine and one sine — so we only need half as many frequencies as output dimensions. For dim = 256 that is 128 frequencies.-->
+<!--T 721-723|Build the geometric frequency ladder. <code>arange(0, half)</code> gives 0…127; dividing by <code>half</code> gives fractions 0…~1; <code>-log(10000) · fraction</code> then <code>exp</code> turns that into frequencies from <code>e⁰ = 1</code> down to <code>e^(-log 10000) = 1/10000</code>. Written out: ω_i = 10000^(−2i/dim). Doing it in log-space with <code>exp</code> avoids overflow and keeps precision. Note the dtype is forced to float32 — frequency ladders are exactly the kind of thing that breaks in bfloat16.-->
+<!--T 725|The outer product of timesteps and frequencies. <code>t[:, None]</code> makes t a column (N, 1); <code>freqs[None]</code> makes it a row (1, 128); broadcasting multiplies them into an (N, 128) matrix of angles. This is the "phase" of every sinusoid for every batch element.-->
+<!--T 726|Take cos and sin of every angle and glue the two halves together along the last axis → (N, 256). This is the classic sinusoidal embedding: a smooth, invertible-enough code where nearby timesteps give nearby vectors, and the whole range is covered.-->
+<!--T 727-728|Defensive padding for odd output sizes: if <code>dim</code> were odd, the cos/sin pair would leave us one short, so a zero is appended. Never triggers here (dim is always 256) but makes the function safe to reuse.-->
+<!--T 729-730|Restore the caller's dtype. If the model runs in bfloat16 and <code>t</code> is a bfloat16 tensor, the embedding is cast back down to bfloat16 so it can be added to other bfloat16 activations. The computation itself, deliberately, happened in float32.-->
+<!--T 731|Return an (N, 256) tensor: one 256-dim "noise fingerprint" per batch element.-->
+<!--/TRACE-->
+
+<div class="note math">
+<div class="nh">∑ The formula in one line</div>
+<p style="font-family:var(--mono);font-size:13.6px">
+emb(t)[2i]   = cos( 1000·t · 10000^(−2i/dim) )<br>
+emb(t)[2i+1] = sin( 1000·t · 10000^(−2i/dim) )
+</p>
+<p>128 frequencies spanning four orders of magnitude means the embedding changes fast in some
+coordinates and slow in others — so a linear layer reading it can resolve both "roughly how noisy"
+and "exactly how noisy".</p>
+</div>
+
+<h3 id="p-mlp">6.2 · <span class="sig">MLPEmbedder</span> — L683</h3>
+<p>The sinusoidal fingerprint is still just a fixed code; the model needs to <em>learn</em> what to do
+with it. <code>MLPEmbedder</code> is the smallest possible learned transformer of a vector: two linear
+layers with a nonlinearity between them.</p>
+
+<!--CODE 683-691 title="model.py" hl="686,688,691"-->
+
+<!--TRACE-->
+<!--T 686|First projection, 256 → 6144. Notice <code>bias=not disable_bias</code>: the class can be told to drop biases, and FLUX.2 always does (<code>disable_bias=True</code> at both call sites). Biases in a conditioning pathway add parameters and can fight the adaptive-normalisation scheme; the model does fine without them.-->
+<!--T 687|<code>nn.SiLU</code> is the smooth activation x·σ(x), also called swish. It is used everywhere in this file instead of ReLU or GELU — it was the activation of choice in the diffusion-model lineage (it appears in the original DDPM's time embedding too).-->
+<!--T 688|Second projection, 6144 → 6144. This is the expensive part: 37.7 million parameters for one call, per step. It exists so the timestep signal gets a full-width, learned, nonlinear transformation before it is allowed to touch the image stream.-->
+<!--T 691|The whole forward is one expression: <code>out(in(x))</code> with a SiLU sandwiched. Input (N, 256) → output (N, 6144).-->
+<!--/TRACE-->
+
+<p>In <code>Flux2</code> this class is instantiated twice: as <code>time_in</code> for the noise level
+and, when <code>use_guidance_embed</code> is set, as <code>guidance_in</code> for the guidance strength.
+Their outputs are simply <em>added</em>, so both signals share every downstream modulation weight.</p>
+
+<h3 id="p-embednd">6.3 · <span class="sig">EmbedND</span> — L694</h3>
+<p>This is the entry point of the position system. It takes the coordinate tensor
+<span class="shape">(B, L, 4)</span> from §4 and returns rotation matrices. It owns <strong>no
+parameters at all</strong> — it is pure trigonometry.</p>
+
+<!--CODE 694-707 title="model.py" hl="702,703,704,707"-->
+
+<!--TRACE-->
+<!--T 697-699|Store the three settings. <code>dim</code> (128, the head width) is actually never used again after the constructor's validation — the real work is driven by <code>axes_dim</code>. Keeping it is harmless documentation.-->
+<!--T 702-705|A list comprehension over the four axes. For axis <em>i</em> it slices that axis's coordinates — <code>ids[..., i]</code>, shape (B, L) — and hands them to <code>rope</code> together with that axis's dimension budget (32) and θ. The four results, each (B, L, 16, 2, 2), are concatenated along <code>dim=-3</code>, the axis holding the rotation planes: 4 × 16 = 64 planes → (B, L, 64, 2, 2).-->
+<!--T 707|<code>unsqueeze(1)</code> inserts a head axis, giving (B, <strong>1</strong>, L, 64, 2, 2). Every head uses the <em>same</em> rotations, so the size-1 axis broadcasts across all 48 heads for free during <code>apply_rope</code>.-->
+<!--/TRACE-->
+
+<div class="note proof">
+<div class="nh">◆ Verified · shapes through EmbedND</div>
+<p style="font-family:var(--mono);font-size:13.4px">
+EmbedND(dim=128, axes_dim=[32,32,32,32])(ids of shape (1, 7, 4))<br>
+&nbsp;&nbsp;→ (1, 1, 7, 64, 2, 2) &nbsp;=&nbsp; (batch, head, token, plane, row, col)
+</p>
+</div>
+
+<h3 id="p-rope">6.4 · <span class="sig">rope</span> and <span class="sig">apply_rope</span> — L818, L828</h3>
+<p>Eight lines that are, honestly, the densest in the file. They build and apply the 2×2 rotation
+matrices. Let us take them extremely slowly.</p>
+
+<!--CODE 818-825 title="model.py · rope()" hl="819,820,821,822,823,824,825"-->
+
+<!--TRACE-->
+<!--T 819|Refuse odd dimension budgets: rotations consume dimensions in pairs, so an axis with an odd number of dimensions would leave one dimension un-rotated and therefore position-blind.-->
+<!--T 820|Build the exponent ladder for this axis: <code>arange(0, dim, 2)</code> steps by two — one entry per rotation <em>plane</em>, i.e. 0, 2, 4, …, 30 for dim = 32 — then divides by <code>dim</code> to get fractions 0, 1/16, 2/16, …, 15/16. (Dividing by <code>dim</code> rather than by the plane count is just the standard RoPE formula written with the full dimension.)-->
+<!--T 821|<code>omega = 1 / θ^scale</code>: the angular speed of each plane. With θ = 2000 and dim = 32 the 16 speeds run from 1.0 down to 0.000804 — the odometer wheels of Figure 5.-->
+<!--T 822|<code>einsum("...n,d-&gt;...nd", pos, omega)</code> multiplies every position (the "n" axis) by every frequency (the "d" axis): the angle of plane <em>d</em> at position <em>p</em> is <code>p·ω_d</code>. Shape goes from (B, L) to (B, L, 16). The <code>...</code> keeps it general over any leading batch axes.-->
+<!--T 823|Here is the clever bit. For each angle φ we need the rotation matrix [[cos φ, −sin φ], [sin φ, cos φ]]. Read row-major, that matrix's four entries are exactly <code>[cos, −sin, sin, cos]</code> — so stacking those four tensors along a new last axis yields, in one shot, every rotation matrix. Shape: (B, L, 16, 4).-->
+<!--T 824|Reshape the flat 4 into a genuine 2×2: <code>(i j)</code> with i = j = 2 splits the last axis into two. Now the tensor is (B, L, 16, 2, 2) — a real matrix per plane, per token.-->
+<!--T 825|Cast to float32 and return. Rotations are computed and stored in full precision; they will be applied in float32 by <code>apply_rope</code> and only then cast back. This is a deliberate accuracy choice: a small angular error, multiplied across 56 blocks, would visibly blur high-frequency detail.-->
+<!--/TRACE-->
+
+<!--CODE 828-833 title="model.py · apply_rope()" hl="829,830,831,832,833"-->
+
+<!--TRACE-->
+<!--T 829-830|View each 128-dim head vector as 64 pairs of coordinates: <code>reshape(..., -1, 1, 2)</code>. The stray <code>1</code> axis is a placeholder for the matrix's column index, so that the multiply below can use plain broadcasting instead of an explicit matmul. Also note <code>.float()</code>: the rotation happens in float32 regardless of the model's working dtype.-->
+<!--T 831-832|The matrix–vector product, written out by hand. <code>freqs_cis[..., 0]</code> is the first <em>row</em> of each 2×2 (shape …, 64, 2) and <code>xq_[..., 0]</code> is the vector's first component of each pair; row 0 · v plus row 1 · v is exactly <code>R·v</code>. Doing it with multiplies and adds instead of <code>matmul</code> keeps everything elementwise and broadcast-friendly over (batch, heads, tokens).-->
+<!--T 833|Flatten the 64 pairs back into 128 dimensions and cast to the input's dtype with <code>type_as</code>, so a bfloat16 model gets bfloat16 queries and keys back.-->
+<!--/TRACE-->
+
+<div class="note warn">
+<div class="nh">⚠ Gotcha · queries and keys rotate, values do not</div>
+<p>Look at where <code>apply_rope</code> is called (lines 475, 500, 588, 645, 670): it is always applied
+to <code>q, k</code> only. That is correct and important. Position information must live in the
+<em>comparison</em> between a query and a key; rotating the values too would rotate the information
+being retrieved, which is not what you want. The relative-distance trick from §4.1 works precisely
+because q and k are rotated <em>identically</em>.</p>
+</div>
+
+<h3 id="p-norms">6.5 · <span class="sig">RMSNorm</span> and <span class="sig">QKNorm</span> — L734, L746</h3>
+<p>Attention scores are dot products of queries and keys. During training those vectors can grow large,
+and a few oversized keys can dominate every softmax in the layer — a well-known instability. The fix
+used here, from <a href="#refs">Henry et al. / Zhang &amp; Sennrich</a> and popularised for flow
+transformers by SD3, is to normalise queries and keys <em>per head</em> before the dot product.</p>
+
+<!--CODE 734-755 title="model.py" hl="737,740,741,742,743,749,750,753,754,755"-->
+
+<!--TRACE-->
+<!--T 737|The only learnable parameter: a per-dimension scale vector, initialised to ones. RMSNorm has no mean-centring and no bias — it only rescales, which is why it is cheaper and often more stable than LayerNorm.-->
+<!--T 740-741|Remember the input dtype, then upcast to float32. Squaring bfloat16 values and averaging them is exactly where precision evaporates; doing the statistics in float32 costs almost nothing at these sizes.-->
+<!--T 742|The root-mean-square, inverted: <code>rsqrt(mean(x²) + 1e-6)</code>. The epsilon stops a all-zero vector from producing a division by zero. <code>keepdim=True</code> keeps the result broadcastable over the last axis.-->
+<!--T 743|Divide (by multiplying with the reciprocal rms), cast back to the original dtype, and apply the learned scale. Note the cast happens <em>before</em> the scale so the scale itself can stay in the model dtype.-->
+<!--T 749-750|Two independent RMSNorms — one for queries, one for keys. They are separate because q and k have genuinely different statistics.-->
+<!--T 752-755|Normalise q and k, then cast both to <strong>v's dtype</strong>. The <code>v</code> argument exists purely for that: it is a dtype witness. This matters in mixed-precision training where v may live in a different precision than the freshly-computed float32 norms.-->
+<!--/TRACE-->
+
+<p>Across the whole 32B model there are 128 RMSNorm modules — one q and one k per attention — and their
+16,384 scale values are the <em>only</em> parameters in the file that are not part of a matrix
+multiply.</p>
+
+<h3 id="p-glu">6.6 · <span class="sig">SiLUActivation</span> — L390</h3>
+<p>Despite the name, this is not just an activation function: it is a <strong>gate</strong>, and it
+halves the width of whatever you give it.</p>
+
+<!--CODE 390-397 title="model.py" hl="396,397"-->
+
+<!--TRACE-->
+<!--T 396|Split the input's last dimension into two equal halves, <code>x1</code> and <code>x2</code>. A vector of width 2m becomes two vectors of width m.-->
+<!--T 397|Return <code>SiLU(x1) * x2</code>. The first half decides <em>how much</em> of the second half gets through — a learned, smooth, per-feature on/off switch. This is the GLU family of activations; with SiLU as the gate function it is usually called <strong>SwiGLU</strong> (<a href="#refs">Shazeer, 2020</a>). It is consistently stronger than a plain nonlinearity at the same parameter count, which is why every modern LLM and every FLUX block uses it.-->
+<!--/TRACE-->
+
+<p>That is also why every MLP linear layer in this file outputs <em>twice</em> its nominal width:
+<code>mlp_hidden_dim * 2</code> appears at lines 443, 455, 528 and 551. Half of those numbers are the
+gate and will be consumed by this multiplication.</p>
+
+<h3 id="p-selfattn">6.7 · <span class="sig">SelfAttention</span> — L375</h3>
+<p>Now for something genuinely surprising. Read the whole class:</p>
+
+<!--CODE 375-387 title="model.py" hl="384,386,387"-->
+
+<p><strong>There is no <code>forward</code> method.</strong> You cannot call
+<code>self.img_attn(x)</code> — Python would raise <code>NotImplementedError</code> from
+<code>nn.Module</code>'s fallback. <code>SelfAttention</code> is used purely as a
+<em>container of parameters</em>: the fused QKV projection, the QK normalisation, and the output
+projection. The actual attention mathematics lives elsewhere — inside
+<code>DoubleStreamBlock._prepare_qkv</code> (which uses <code>.qkv</code> and <code>.norm</code>) and
+inside <code>causal_attn_fn</code> (which does the softmax), with the result finished off by
+<code>.proj</code> in <code>_apply_residuals</code>.</p>
+
+<!--TRACE-->
+<!--T 384|One linear layer producing queries, keys and values at once: 6144 → 18432. Fusing the three projections into a single matrix multiply is faster on GPUs than three separate ones and is universal in modern implementations.-->
+<!--T 386|The QK normalisation from §6.5, sized to the head width (128), because normalisation happens per head after the split.-->
+<!--T 387|The output projection, 6144 → 6144, applied after attention mixes the tokens. No bias, like everything else here.-->
+<!--/TRACE-->
+
+<div class="note idea">
+<div class="nh">💡 Why write a class with no forward?</div>
+<p>Honest answer: it groups the four attention parameters under one name so that
+<code>block.img_attn.qkv.weight</code> reads clearly and so checkpoint keys stay tidy, while letting the
+<em>block</em> control exactly how and when each piece is used. FLUX.2's blocks need to interleave
+attention with modulation, RoPE and a custom mask, so a rigid <code>forward(x) → x</code> would not fit
+anyway. It is a pragmatic choice, and once you know it the file stops being confusing: whenever you see
+<code>self.X_attn.</code> followed by a member name, you are looking at parameter access, not a call.</p>
+</div>
+
+<h3 id="p-mod">6.8 · <span class="sig">Modulation</span> — L400</h3>
+<p>This is how the timestep gets its hands on the image. The technique is <strong>adaptive layer
+normalisation</strong> (adaLN), from the DiT paper: instead of letting a normalisation layer use fixed
+learned shifts and scales, we <em>generate</em> them from the conditioning vector.</p>
+
+<!--CODE 400-412 title="model.py" hl="403,404,405,408,409,410,411,412"-->
+
+<!--TRACE-->
+<!--T 403|<code>double</code> means "this modulation feeds a double-stream block", which needs two independent (shift, scale, gate) triples — one for the attention sub-layer and one for the MLP sub-layer.-->
+<!--T 404|Hence the multiplier: 6 output chunks for double blocks, 3 for single blocks.-->
+<!--T 405|A single linear layer, 6144 → multiplier × 6144. For the double-stream image modulation that is 6144 → 36864, i.e. 226 million parameters in one matrix — the largest non-block weight in the file.-->
+<!--T 408|Activate the conditioning vector first. The SiLU here is essential: <code>vec</code> is the output of an MLP and can be negative or huge; the nonlinearity keeps the generated shifts/scales in a sane range.-->
+<!--T 409-410|If the input was a single vector per batch element, <code>out</code> is (B, 6·D); <code>[:, None, :]</code> inserts a length-1 sequence axis so it becomes (B, 1, 6·D) and can broadcast against token tensors of shape (B, L, D) later.-->
+<!--T 411|Slice into <code>multiplier</code> equal chunks along the feature axis. Chunk order is (shift₁, scale₁, gate₁, shift₂, scale₂, gate₂).-->
+<!--T 412|Return the first triple, plus the second triple for double blocks — or <code>None</code>. Careful reading: Python parses this as <code>(out[:3], (out[3:] if is_double else None))</code>, so a single-stream modulation returns a 2-tuple whose second element is <code>None</code>. That is why callers write <code>single_block_mod, _ = self.single_stream_modulation(vec)</code>.-->
+<!--/TRACE-->
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 1040 300" role="img" aria-label="Adaptive layer normalisation: the conditioning vector generates shift, scale and gate that modulate a normalised sub-layer and its residual connection.">
+<defs><marker id="mA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7d8da1"/></marker>
+<marker id="mV" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5fe08a"/></marker></defs>
+<text x="40" y="30" class="ttl">adaLN: one sub-layer, three dials, all turned by the timestep</text>
+
+<!-- main path -->
+<rect x="60" y="120" width="120" height="56" rx="9" fill="#121a26" stroke="#2e4054"/>
+<text x="120" y="144" class="axb" text-anchor="middle">input x</text>
+<text x="120" y="162" class="eq" text-anchor="middle">(B, L, D)</text>
+<path d="M180,148 L228,148" stroke="#7d8da1" stroke-width="1.7" marker-end="url(#mA)"/>
+
+<rect x="230" y="120" width="130" height="56" rx="9" fill="#121a26" stroke="#7ea6ff" stroke-opacity=".55"/>
+<text x="295" y="144" class="axb" text-anchor="middle" fill="#7ea6ff">LayerNorm</text>
+<text x="295" y="162" class="ax" text-anchor="middle">no parameters</text>
+<path d="M360,148 L408,148" stroke="#7d8da1" stroke-width="1.7" marker-end="url(#mA)"/>
+
+<circle cx="430" cy="148" r="17" fill="#121a26" stroke="#5fe08a" stroke-width="2"/>
+<text x="430" y="153" class="axb" text-anchor="middle" fill="#5fe08a">⊙</text>
+<path d="M447,148 L495,148" stroke="#7d8da1" stroke-width="1.7" marker-end="url(#mA)"/>
+
+<rect x="497" y="120" width="150" height="56" rx="9" fill="#182231" stroke="#f6a93b" stroke-opacity=".55"/>
+<text x="572" y="144" class="axb" text-anchor="middle" fill="#f6a93b">attention / MLP</text>
+<text x="572" y="162" class="ax" text-anchor="middle">the real work</text>
+<path d="M647,148 L695,148" stroke="#7d8da1" stroke-width="1.7" marker-end="url(#mA)"/>
+
+<circle cx="717" cy="148" r="17" fill="#121a26" stroke="#5fe08a" stroke-width="2"/>
+<text x="717" y="153" class="axb" text-anchor="middle" fill="#5fe08a">⊙</text>
+<path d="M734,148 L782,148" stroke="#7d8da1" stroke-width="1.7" marker-end="url(#mA)"/>
+
+<circle cx="830" cy="148" r="17" fill="#121a26" stroke="#7d8da1" stroke-width="2"/>
+<text x="830" y="154" class="axb" text-anchor="middle">+</text>
+<path d="M847,148 L900,148" stroke="#7d8da1" stroke-width="1.7" marker-end="url(#mA)"/>
+<rect x="902" y="120" width="110" height="56" rx="9" fill="#121a26" stroke="#2e4054"/>
+<text x="957" y="153" class="axb" text-anchor="middle">output</text>
+
+<!-- residual skip -->
+<path d="M120,176 L120,240 L830,240 L830,167" stroke="#7d8da1" stroke-width="1.5" fill="none" stroke-dasharray="5 4" marker-end="url(#mA)"/>
+<text x="470" y="258" class="ax" text-anchor="middle">residual skip — the gate multiplies the sub-layer's contribution before it is added</text>
+
+<!-- vec path -->
+<rect x="360" y="44" width="120" height="42" rx="9" fill="rgba(95,224,138,.1)" stroke="#5fe08a" stroke-opacity=".6"/>
+<text x="420" y="70" class="axb" text-anchor="middle" fill="#5fe08a">vec</text>
+<path d="M420,86 L420,96 L200,96 L200,70" stroke="#5fe08a" stroke-width="1.5" fill="none" marker-end="url(#mV)"/>
+<rect x="120" y="30" width="160" height="40" rx="9" fill="rgba(95,224,138,.08)" stroke="#5fe08a" stroke-opacity=".4"/>
+<text x="200" y="47" class="ax" text-anchor="middle" fill="#5fe08a">Modulation.lin + SiLU</text>
+<text x="200" y="62" class="eq" text-anchor="middle">→ shift, scale, gate</text>
+<path d="M240,70 L240,104 L430,104 L430,129" stroke="#5fe08a" stroke-width="1.6" fill="none" marker-end="url(#mV)"/>
+<path d="M250,70 L250,112 L717,112 L717,129" stroke="#5fe08a" stroke-width="1.6" fill="none" marker-end="url(#mV)"/>
+<text x="452" y="98" class="eq" fill="#5fe08a">scale: (1+s)·norm(x) + shift</text>
+<text x="740" y="106" class="eq" fill="#5fe08a">gate</text>
+</svg>
+</div>
+<figcaption><span class="figno">FIG 6</span><b>adaLN in one picture.</b> The green dials are generated, not learned
+per-layer: the same <code>vec</code> that encodes "we are 62 % noisy" decides how strongly every
+sub-layer of every block is allowed to speak. A gate initialised near zero lets a block start life as
+the identity function — the "adaLN-Zero" trick that makes very deep transformers trainable.</figcaption>
+</figure>
+
+<h3 id="p-last">6.9 · <span class="sig">LastLayer</span> — L415</h3>
+<p>The exit door. It must turn 6144-dim hidden states back into 128-dim latent tokens, and it gets one
+final chance to let the timestep modulate the result.</p>
+
+<!--CODE 415-434 title="model.py" hl="420,421,422,428,429,430,431,432,433"-->
+
+<!--TRACE-->
+<!--T 420|A final LayerNorm with <code>elementwise_affine=False</code> — pure standardisation, zero parameters. The learned per-channel scaling that a normal LayerNorm would provide is instead supplied dynamically by the modulation below, which is strictly more expressive.-->
+<!--T 421|The one projection out of the model: 6144 → 128, no bias. This is the layer whose output is interpreted as the velocity field.-->
+<!--T 422|A tiny two-layer modulation generator: SiLU then 6144 → 12288, producing exactly two vectors — a shift and a scale. Note it takes <code>vec</code> directly, not a pre-computed modulation: the last layer keeps its own private conditioning weights.-->
+<!--T 428-429|Split into shift and scale, and add the length-1 sequence axis if needed, exactly as in <code>Modulation</code>.-->
+<!--T 431|The adaLN formula once more: <code>(1 + scale) · norm(x) + shift</code>. The "1 +" means a scale of zero leaves the signal untouched — the identity point of the modulation.-->
+<!--T 432-433|Project down to 128 channels and return. Shape goes from (B, L, 6144) to (B, L, 128): one velocity vector per image token.-->
+<!--/TRACE-->
+
+<div class="note beginner">
+<div class="nh">◇ Beginner · recap of section 6</div>
+<p>You now hold every tool the big blocks use: a sinusoidal time code
+(<code>timestep_embedding</code>), a learned conditioner (<code>MLPEmbedder</code>,
+<code>Modulation</code>), a four-axis position system (<code>EmbedND</code>, <code>rope</code>,
+<code>apply_rope</code>), stability norms (<code>RMSNorm</code>, <code>QKNorm</code>), a gated
+nonlinearity (<code>SiLUActivation</code>), an attention parameter bundle (<code>SelfAttention</code>)
+and an exit projection (<code>LastLayer</code>). From here on, nothing new is introduced — only
+combined.</p>
+</div>
+</section>

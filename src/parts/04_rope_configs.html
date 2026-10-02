@@ -1,0 +1,220 @@
+<section id="rope">
+<h2><span class="secno">§ 4</span>Position: the four-axis rotary embedding</h2>
+<p class="section-intro">
+Attention, by itself, is blind to order. Feed it the same tokens shuffled and it returns the same
+answer shuffled. Everything spatial about an image — and everything sequential about a sentence — has
+to be injected deliberately. FLUX.2 does it with <strong>RoPE</strong>, extended to four axes at once.
+</p>
+
+<h3>4.1 · The one-paragraph version of RoPE</h3>
+<p>Rotary Position Embedding (<a href="#refs">Su et al., 2021</a>) works by <em>rotating</em> the query
+and key vectors in 2-dimensional planes before the dot product. Suppose a head has 2 dimensions and a
+token sits at position <em>p</em>. We rotate its query by an angle <em>p·ω</em>:</p>
+
+<div class="mathbox">
+<span class="mm">q</span>(<span class="mm">p</span>) <span class="op">→</span>
+<span style="font-family:var(--serif)">[</span>
+<span class="frac"><span class="top">cos <span class="mm">pω</span></span><span class="bot">sin <span class="mm">pω</span></span></span>
+<span class="frac"><span class="top">−sin <span class="mm">pω</span></span><span class="bot">cos <span class="mm">pω</span></span></span>
+<span style="font-family:var(--serif)">]</span> · <span class="mm">q</span>
+<span class="op" style="padding-left:2.4em">and the magic:</span>
+⟨<span class="mm">R<sub>p</sub> q</span>, <span class="mm">R<sub>p′</sub> k</span>⟩
+<span class="op">depends only on</span> <span class="mm">p − p′</span>
+</div>
+
+<p>Rotations preserve lengths and, crucially, composing two rotations subtracts their angles. So the
+attention score between two tokens automatically encodes their <em>distance</em>, with no extra
+parameters and no fixed maximum sequence length. That relative-distance property is what makes RoPE
+generalise to image sizes never seen in training — essential for a model that must handle anything
+from 512² to 4 MP.</p>
+
+<div class="note proof">
+<div class="nh">◆ Verified · the property holds in this exact implementation</div>
+<p>I rotated a fixed query/key pair with <code>apply_rope</code> at several position pairs and measured
+the dot product. Pairs with the same gap give the same score, to six decimals:</p>
+<p style="font-family:var(--mono);font-size:13.4px;color:var(--gold)">
+gap = 2 : (p=0, p=2) → 4.919082 &nbsp; (p=5, p=7) → 4.919081 &nbsp; (p=13, p=15) → 4.919082<br>
+gap = 3 : (p=0, p=3) → 6.703997 &nbsp; (p=5, p=8) → 6.703996
+</p>
+<p>I also confirmed each produced matrix is a genuine rotation: <code>RᵀR = I</code> to 6×10⁻⁸ and
+<code>det R = +1.000000</code>, and that <code>apply_rope</code> leaves every vector's norm unchanged.</p>
+</div>
+
+<h3>4.2 · FLUX.2's twist: four positions per token</h3>
+<p>A language model needs one position number per token. FLUX.2 needs <em>four</em>, because its tokens
+live in a 3-D volume of images stacked over a "time" axis, plus a separate index for text. Every token
+therefore arrives with a coordinate vector <code>ids</code> of shape
+<span class="shape">(B, L, 4)</span>:</p>
+
+<div class="tbl-wrap">
+<table class="data">
+<thead><tr><th>axis</th><th>index</th><th>meaning</th><th>example values</th><th>RoPE dims it owns</th></tr></thead>
+<tbody>
+<tr><td><strong style="color:var(--vec)">t</strong></td><td class="m">ids[..., 0]</td><td>which image in the stack — separates references from each other and from the canvas</td><td class="m">0 for canvas &amp; text · 10, 20, 30… for refs</td><td class="m">0 – 31</td></tr>
+<tr><td><strong style="color:var(--img)">h</strong></td><td class="m">ids[..., 1]</td><td>row in the latent grid</td><td class="m">0 … 63 at 1 MP</td><td class="m">32 – 63</td></tr>
+<tr><td><strong style="color:var(--ref)">w</strong></td><td class="m">ids[..., 2]</td><td>column in the latent grid</td><td class="m">0 … 63 at 1 MP</td><td class="m">64 – 95</td></tr>
+<tr><td><strong style="color:var(--txt)">l</strong></td><td class="m">ids[..., 3]</td><td>position within the text sequence (dummy 0 for images)</td><td class="m">0 … 511</td><td class="m">96 – 127</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>That is exactly what <code>axes_dim = [32, 32, 32, 32]</code> means: <strong>each of the four axes
+gets 32 of the 128 head dimensions</strong>, i.e. 16 rotation planes each, 64 planes in total. It is also
+why <code>Flux2.__init__</code> refuses to start unless <code>sum(axes_dim) == hidden_size //
+num_heads</code> — the planes have to tile the head exactly.</p>
+
+<!--RAW title="sampling.py · how the coordinate vectors are built"-->
+    # image tokens: sweep (t, h, w) over the grid, l stays 0
+    x_coords = {"t": torch.arange(1), "h": torch.arange(h), "w": torch.arange(w), "l": torch.arange(1)}
+    x_ids = torch.cartesian_prod(x_coords["t"], x_coords["h"], x_coords["w"], x_coords["l"])
+
+    # text tokens: t, h, w are dummies; l sweeps the sentence
+    coords = {"t": torch.arange(1), "h": torch.arange(1), "w": torch.arange(1), "l": torch.arange(_l)}
+    x_ids = torch.cartesian_prod(coords["t"], coords["h"], coords["w"], coords["l"])
+
+    # reference images: each one gets its own slot on the t axis, ten apart
+    t_off = [scale + scale * t for t in torch.arange(0, len(encoded_refs))]     # scale = 10
+<!--/RAW-->
+
+<div class="note idea">
+<div class="nh">💡 Why references sit at t = 10, 20, 30 …</div>
+<p>The canvas and the text both live at <em>t = 0</em>. Each reference image is pushed ten units further
+along the <em>t</em> axis. Because RoPE makes attention scores depend on coordinate <em>differences</em>,
+a reference at t = 20 is "far away" from the canvas at t = 0 in exactly the same mathematical sense
+that token 20 is far from token 0 in a sentence. The model therefore knows, from geometry alone, that
+these tokens are a <em>different image</em>, not a distant part of the canvas — and it can still reach
+them, because attention is global. One coordinate, doing the job that a special "segment embedding"
+would do in older architectures.</p>
+</div>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 1040 400" role="img" aria-label="The 128 head dimensions split into four axes of 32 dimensions each, 16 rotation planes per axis; zoom of one plane showing the rotation.">
+<text x="40" y="32" class="ttl">One attention head = 128 dimensions = 64 rotation planes, dealt out to 4 axes</text>
+
+<!-- the dim bar -->
+<rect x="60" y="66" width="230" height="58" rx="6" fill="rgba(95,224,138,.12)" stroke="#5fe08a" stroke-opacity=".6"/>
+<rect x="290" y="66" width="230" height="58" rx="6" fill="rgba(246,169,59,.12)" stroke="#f6a93b" stroke-opacity=".6"/>
+<rect x="520" y="66" width="230" height="58" rx="6" fill="rgba(177,140,255,.12)" stroke="#b18cff" stroke-opacity=".6"/>
+<rect x="750" y="66" width="230" height="58" rx="6" fill="rgba(53,214,240,.12)" stroke="#35d6f0" stroke-opacity=".6"/>
+<text x="175" y="92" class="axb" text-anchor="middle" fill="#5fe08a">axis t</text>
+<text x="175" y="110" class="eq" text-anchor="middle">dims 0–31</text>
+<text x="405" y="92" class="axb" text-anchor="middle" fill="#f6a93b">axis h (row)</text>
+<text x="405" y="110" class="eq" text-anchor="middle">dims 32–63</text>
+<text x="635" y="92" class="axb" text-anchor="middle" fill="#b18cff">axis w (col)</text>
+<text x="635" y="110" class="eq" text-anchor="middle">dims 64–95</text>
+<text x="865" y="92" class="axb" text-anchor="middle" fill="#35d6f0">axis l (text idx)</text>
+<text x="865" y="110" class="eq" text-anchor="middle">dims 96–127</text>
+
+<text x="60" y="150" class="ax">each axis contributes 16 independent rotation planes → 4 × 16 = 64 planes = 128 dims = head_dim</text>
+
+<!-- zoom into one plane -->
+<path d="M405,124 L405,182" stroke="#f6a93b" stroke-width="1.3" stroke-dasharray="4 3"/>
+<rect x="60" y="186" width="430" height="180" rx="12" fill="#0a0e16" stroke="#2e4054"/>
+<text x="80" y="214" class="axb" fill="#f6a93b">zoom: one rotation plane (2 dimensions)</text>
+
+<circle cx="200" cy="290" r="62" fill="none" stroke="#2e4054" stroke-width="1.4"/>
+<line x1="200" y1="290" x2="252" y2="262" stroke="#7d8da1" stroke-width="2" marker-end="url(#ar)"/>
+<line x1="200" y1="290" x2="222" y2="232" stroke="#f6a93b" stroke-width="2.6" marker-end="url(#arA)"/>
+<path d="M252,262 A60,60 0 0 0 222,232" fill="none" stroke="#f6a93b" stroke-width="1.4" stroke-dasharray="3 3"/>
+<text x="268" y="272" class="ax">q before</text>
+<text x="232" y="222" class="axb" fill="#f6a93b">q rotated by p·ω</text>
+<text x="200" y="378" class="eq" text-anchor="middle">angle = position × ω_i</text>
+
+<text x="520" y="214" class="axb">the frequency ladder ω_i</text>
+<text x="520" y="242" class="ax">Plane 0 of an axis rotates fast:</text>
+<text x="520" y="262" class="eq">ω₀ = 1 / 2000⁰ = 1.000000</text>
+<text x="520" y="290" class="ax">Plane 15 rotates ~1200× slower:</text>
+<text x="520" y="310" class="eq">ω₁₅ = 1 / 2000^(30/32) = 0.000804</text>
+<text x="520" y="342" class="ax">Fast planes resolve fine detail (adjacent pixels);</text>
+<text x="520" y="360" class="ax">slow planes resolve coarse layout (far-apart regions).</text>
+</svg>
+</div>
+<figcaption><span class="figno">FIG 5</span><b>How 128 dimensions become a 4-D coordinate system.</b> The mixed ladder of
+fast and slow frequencies is the same idea as the wheels on an odometer: the fast wheel tells you the
+last digit, the slow wheel tells you how far you have really travelled. Stacking four such odometers —
+one per axis — gives every token an unambiguous address in (image, row, column, text-slot) space.</figcaption>
+</figure>
+
+<div class="widget" id="ropeWidget">
+  <div class="w-head"><span class="w-title">Play with a rotation plane</span><span class="w-badge">interactive</span></div>
+  <div class="ctrl-row">
+    <label>position p</label>
+    <input type="range" id="rwP" min="0" max="64" step="1" value="0">
+    <span class="val" id="rwPv">0</span>
+  </div>
+  <div class="ctrl-row">
+    <label>plane index i</label>
+    <input type="range" id="rwI" min="0" max="15" step="1" value="0">
+    <span class="val" id="rwIv">0 (ω = 1.000)</span>
+  </div>
+  <svg viewBox="0 0 640 260" id="rwSvg" role="img" aria-label="Interactive rotary embedding visualiser">
+    <circle cx="150" cy="130" r="86" fill="none" stroke="#2e4054" stroke-width="1.4"/>
+    <line x1="64" y1="130" x2="236" y2="130" stroke="#1a2532"/>
+    <line x1="150" y1="44" x2="150" y2="216" stroke="#1a2532"/>
+    <line id="rwBase" x1="150" y1="130" x2="236" y2="130" stroke="#7d8da1" stroke-width="2"/>
+    <line id="rwVec" x1="150" y1="130" x2="236" y2="130" stroke="#f6a93b" stroke-width="3"/>
+    <circle id="rwDot" cx="236" cy="130" r="5" fill="#f6a93b"/>
+    <text x="160" y="246" class="ax" text-anchor="middle">unit vector in plane i, rotated by p·ω_i</text>
+    <text x="330" y="60" class="axb">what attention "sees"</text>
+    <text x="330" y="88" class="ax">angle at p:</text><text x="470" y="88" class="eq" id="rwA1">0.000 rad</text>
+    <text x="330" y="114" class="ax">turns made:</text><text x="470" y="114" class="eq" id="rwA2">0.00</text>
+    <text x="330" y="148" class="axb">try this</text>
+    <text x="330" y="174" class="ax" id="rwTip">Plane 0 turns fully every ~6 positions.</text>
+    <text x="330" y="206" class="ax" id="rwTip2">Plane 15 barely moves across the image.</text>
+  </svg>
+</div>
+</section>
+
+<section id="configs">
+<h2><span class="secno">§ 5</span>The three configurations</h2>
+<p class="section-intro">
+The first 49 lines of the file are not code at all — they are three dataclasses, each a list of ten
+numbers. Those numbers <em>are</em> the architecture: everything else in the file is a pure function of
+them.
+</p>
+
+<!--CODE 10-49 title="model.py — the three config dataclasses" hl="16,17"-->
+
+<div class="tbl-wrap">
+<table class="data">
+<thead><tr><th>field</th><th style="text-align:right">FLUX.2 [dev]</th><th style="text-align:right">Klein 9B</th><th style="text-align:right">Klein 4B</th><th>what it controls</th></tr></thead>
+<tbody>
+<tr><td><code>in_channels</code></td><td class="num">128</td><td class="num">128</td><td class="num">128</td><td>width of one latent token — fixed by the shared VAE</td></tr>
+<tr><td><code>context_in_dim</code></td><td class="num">15360</td><td class="num">12288</td><td class="num">7680</td><td>width of one text token — 3 × the teacher VLM's hidden size</td></tr>
+<tr><td><code>hidden_size</code></td><td class="num">6144</td><td class="num">4096</td><td class="num">3072</td><td>the model's internal working width</td></tr>
+<tr><td><code>num_heads</code></td><td class="num">48</td><td class="num">32</td><td class="num">24</td><td>attention heads; head_dim = hidden/heads = <strong>128 for all three</strong></td></tr>
+<tr><td><code>depth</code></td><td class="num">8</td><td class="num">8</td><td class="num">5</td><td>number of double-stream blocks</td></tr>
+<tr><td><code>depth_single_blocks</code></td><td class="num">48</td><td class="num">24</td><td class="num">20</td><td>number of single-stream blocks</td></tr>
+<tr><td><code>axes_dim</code></td><td class="num">[32,32,32,32]</td><td class="num">[32,32,32,32]</td><td class="num">[32,32,32,32]</td><td>RoPE dimensions per axis; must sum to head_dim</td></tr>
+<tr><td><code>theta</code></td><td class="num">2000</td><td class="num">2000</td><td class="num">2000</td><td>RoPE base frequency — low, because coordinates are small integers</td></tr>
+<tr><td><code>mlp_ratio</code></td><td class="num">3.0</td><td class="num">3.0</td><td class="num">3.0</td><td>MLP hidden width = 3 × hidden_size (not the usual 4×)</td></tr>
+<tr><td><code>use_guidance_embed</code></td><td class="num">True</td><td class="num">False</td><td class="num">False</td><td>whether a distilled guidance value is fed into the model</td></tr>
+<tr class="grp"><td>derived</td><td class="num"></td><td class="num"></td><td class="num"></td><td></td></tr>
+<tr><td>head_dim</td><td class="num">128</td><td class="num">128</td><td class="num">128</td><td>also the number of RoPE planes × 2</td></tr>
+<tr><td>MLP hidden width</td><td class="num">18432</td><td class="num">12288</td><td class="num">9216</td><td>int(hidden_size × mlp_ratio)</td></tr>
+<tr><td>total blocks</td><td class="num">56</td><td class="num">32</td><td class="num">25</td><td></td></tr>
+<tr><td><strong>parameters</strong></td><td class="num"><strong>32.22 B</strong></td><td class="num"><strong>9.08 B</strong></td><td class="num"><strong>3.88 B</strong></td><td>counted exactly on meta device</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>5.1 · The two guards in <code>__init__</code></h3>
+<p>The constructor refuses to build a model whose numbers do not add up. Both checks are worth
+understanding rather than skimming:</p>
+
+<!--TRACE-->
+<!--T 58-61|If <code>hidden_size</code> is not divisible by <code>num_heads</code>, the head width would be fractional and the <code>rearrange(... K H D)</code> calls later on would fail with a confusing einops error deep inside the forward pass. Failing here, at construction time, turns that into a one-line message.-->
+<!--T 62-64|<code>pe_dim</code> is the head width. The RoPE machinery builds one rotation matrix per head dimension, split among the four axes by <code>axes_dim</code>. If the split does not exactly cover the head, some dimensions would get no position information at all — silently. So the sum is checked up front. For all three configs: 32+32+32+32 = 128 = hidden_size ÷ num_heads. ✓-->
+<!--/TRACE-->
+
+<div class="note beginner">
+<div class="nh">◇ Beginner · why is theta only 2000?</div>
+<p>Language models use θ = 10 000 or more because their positions run into the thousands and they need
+very slow frequencies to distinguish position 4000 from 4001. FLUX.2's coordinates are tiny by
+comparison — grid indices under ~200, text indices under 512, and a <em>t</em> axis that only ever
+reaches about 100. A smaller base keeps the slowest plane from being uselessly slow over such short
+ranges, so the whole frequency ladder stays inside the range of distances the model actually needs to
+resolve.</p>
+</div>
+</section>

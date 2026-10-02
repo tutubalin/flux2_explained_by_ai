@@ -1,0 +1,306 @@
+<section id="map">
+<h2><span class="secno">§ 0</span>The file at a glance</h2>
+<p class="section-intro">
+Before diving in, here is the entire file on one screen. Fourteen classes and seven module-level
+functions, listed in the order they appear. Click any row to jump to its explanation.
+</p>
+
+<div class="note beginner">
+<div class="nh">◇ Reading order</div>
+<p>The file is written <em>top-down</em> — the giant <code>Flux2</code> class comes first, at line 52,
+and the tiny helpers it depends on come later, near line 800. That is the opposite of how you should
+<em>read</em> it. This article goes <strong>bottom-up</strong>: we build the smallest parts first
+(sections 6.1–6.9), assemble them into blocks (7–9), and only then look at the whole model (10).
+By the time you reach <code>Flux2.forward</code> there will be nothing left in it that you have not
+already met.</p>
+</div>
+
+<div class="filemap">
+  <a class="fm-row" href="#configs"><span class="fm-ln">L11–21</span><span><span class="fm-name">Flux2Params</span><span class="fm-kind kind-cfg">dataclass</span><div class="fm-desc">The 32B flagship configuration — 10 numbers that determine the whole architecture.</div></span></a>
+  <a class="fm-row" href="#configs"><span class="fm-ln">L25–35</span><span><span class="fm-name">Klein9BParams</span><span class="fm-kind kind-cfg">dataclass</span><div class="fm-desc">The 9B "klein" configuration — narrower, fewer single blocks, no guidance embedding.</div></span></a>
+  <a class="fm-row" href="#configs"><span class="fm-ln">L39–49</span><span><span class="fm-name">Klein4BParams</span><span class="fm-kind kind-cfg">dataclass</span><div class="fm-desc">The 4B configuration — 5 double + 20 single blocks.</div></span></a>
+  <a class="fm-row" href="#flux2"><span class="fm-ln">L52–326</span><span><span class="fm-name">Flux2</span><span class="fm-kind kind-cls">nn.Module</span><div class="fm-desc">The model. 275 lines: one <code>__init__</code> that builds everything, and three forward paths.</div></span></a>
+  <a class="fm-row" href="#blend"><span class="fm-ln">L329–343</span><span><span class="fm-name">_blend_mod_triple</span><span class="fm-kind kind-fn">function</span><div class="fm-desc">Gives reference tokens their own shift/scale/gate values inside a mixed sequence.</div></span></a>
+  <a class="fm-row" href="#blend"><span class="fm-ln">L346–353</span><span><span class="fm-name">_blend_double_mods</span><span class="fm-kind kind-fn">function</span><div class="fm-desc">Applies the above to a double-stream block's two modulation pairs.</div></span></a>
+  <a class="fm-row" href="#blend"><span class="fm-ln">L356–372</span><span><span class="fm-name">_blend_single_mods</span><span class="fm-kind kind-fn">function</span><div class="fm-desc">Same, but for the <code>[txt, ref, img]</code> layout used by single-stream blocks.</div></span></a>
+  <a class="fm-row" href="#p-selfattn"><span class="fm-ln">L375–387</span><span><span class="fm-name">SelfAttention</span><span class="fm-kind kind-cls">nn.Module</span><div class="fm-desc">Three linear layers + QK-norm. Notably has <strong>no</strong> <code>forward()</code>.</div></span></a>
+  <a class="fm-row" href="#p-glu"><span class="fm-ln">L390–397</span><span><span class="fm-name">SiLUActivation</span><span class="fm-kind kind-cls">nn.Module</span><div class="fm-desc">A gated activation (SwiGLU): splits its input in half and multiplies.</div></span></a>
+  <a class="fm-row" href="#p-mod"><span class="fm-ln">L400–412</span><span><span class="fm-name">Modulation</span><span class="fm-kind kind-cls">nn.Module</span><div class="fm-desc">Turns the timestep vector into shift/scale/gate — adaptive layer norm.</div></span></a>
+  <a class="fm-row" href="#p-last"><span class="fm-ln">L415–434</span><span><span class="fm-name">LastLayer</span><span class="fm-kind kind-cls">nn.Module</span><div class="fm-desc">The exit door: modulated norm, then one projection back to 128 channels.</div></span></a>
+  <a class="fm-row" href="#single"><span class="fm-ln">L437–521</span><span><span class="fm-name">SingleStreamBlock</span><span class="fm-kind kind-cls">nn.Module</span><div class="fm-desc">48 of these. Attention and MLP fused into one big linear layer each way.</div></span></a>
+  <a class="fm-row" href="#double"><span class="fm-ln">L524–680</span><span><span class="fm-name">DoubleStreamBlock</span><span class="fm-kind kind-cls">nn.Module</span><div class="fm-desc">8 of these. Separate weights for text and image that meet only inside attention.</div></span></a>
+  <a class="fm-row" href="#p-mlp"><span class="fm-ln">L683–691</span><span><span class="fm-name">MLPEmbedder</span><span class="fm-kind kind-cls">nn.Module</span><div class="fm-desc">Linear → SiLU → Linear. Used for the timestep and the guidance value.</div></span></a>
+  <a class="fm-row" href="#p-embednd"><span class="fm-ln">L694–707</span><span><span class="fm-name">EmbedND</span><span class="fm-kind kind-cls">nn.Module</span><div class="fm-desc">Converts 4-axis integer coordinates into rotary position matrices. No parameters.</div></span></a>
+  <a class="fm-row" href="#p-timestep"><span class="fm-ln">L710–731</span><span><span class="fm-name">timestep_embedding</span><span class="fm-kind kind-fn">function</span><div class="fm-desc">Turns one float (the noise level) into a 256-dim sinusoidal fingerprint.</div></span></a>
+  <a class="fm-row" href="#p-norms"><span class="fm-ln">L734–743</span><span><span class="fm-name">RMSNorm</span><span class="fm-kind kind-cls">nn.Module</span><div class="fm-desc">Root-mean-square normalisation, computed in float32.</div></span></a>
+  <a class="fm-row" href="#p-norms"><span class="fm-ln">L746–755</span><span><span class="fm-name">QKNorm</span><span class="fm-kind kind-cls">nn.Module</span><div class="fm-desc">Two RMSNorms, one for queries and one for keys. A training-stability trick.</div></span></a>
+  <a class="fm-row" href="#attention"><span class="fm-ln">L758–815</span><span><span class="fm-name">causal_attn_fn</span><span class="fm-kind kind-fn">function</span><div class="fm-desc">The attention router. Decides who is allowed to look at whom.</div></span></a>
+  <a class="fm-row" href="#p-rope"><span class="fm-ln">L818–825</span><span><span class="fm-name">rope</span><span class="fm-kind kind-fn">function</span><div class="fm-desc">Builds the actual 2×2 rotation matrices from a position index.</div></span></a>
+  <a class="fm-row" href="#p-rope"><span class="fm-ln">L828–833</span><span><span class="fm-name">apply_rope</span><span class="fm-kind kind-fn">function</span><div class="fm-desc">Applies those rotations to queries and keys.</div></span></a>
+</div>
+</section>
+
+<section id="bigpicture">
+<h2><span class="secno">§ 1</span>What FLUX.2 actually is</h2>
+<p class="section-intro">
+You ask for "a red fox in snow at dusk". FLUX.2 does not draw the fox. It starts from pure static
+and, over 50 small corrections, <em>pushes</em> that static until it becomes a fox.
+<code>model.py</code> is the thing that decides which way to push.
+</p>
+
+<p>FLUX.2, released by Black Forest Labs in November 2025, is a <strong>latent flow-matching</strong>
+image model. Three separate networks cooperate:</p>
+
+<ol>
+<li>A <strong>vision-language model</strong> (Mistral-Small-3.2, 24B parameters) that reads your prompt
+and produces a list of meaning-vectors. This is the part with world knowledge — it knows what a fox
+looks like, what "dusk" implies about lighting, and how to spell words you ask it to render.</li>
+<li>A <strong>variational autoencoder</strong> (VAE) that shrinks images by 16× in each spatial
+direction. Instead of pushing around a million pixels, the model pushes around four thousand compact
+latent tokens. This is what makes the whole thing computationally possible.</li>
+<li>The <strong>rectified-flow transformer</strong> — this file — which repeatedly looks at the
+half-finished image plus the meaning-vectors and answers one question: <em>"what should change, and by
+how much?"</em></li>
+</ol>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 1040 800" role="img" aria-label="The FLUX.2 pipeline: three input paths feed the Flux2 transformer, whose velocity output drives an Euler loop, and the result is decoded by the VAE.">
+<defs>
+  <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M0,0 L10,5 L0,10 z" fill="#7d8da1"/></marker>
+  <marker id="arA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M0,0 L10,5 L0,10 z" fill="#f6a93b"/></marker>
+  <marker id="arC" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M0,0 L10,5 L0,10 z" fill="#35d6f0"/></marker>
+  <marker id="arV" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M0,0 L10,5 L0,10 z" fill="#5fe08a"/></marker>
+  <linearGradient id="gMix" x1="0" y1="0" x2="1" y2="0">
+    <stop offset="0" stop-color="#35d6f0"/><stop offset="1" stop-color="#f6a93b"/></linearGradient>
+</defs>
+
+<text x="24" y="30" class="ttl">The whole FLUX.2 pipeline</text>
+<text x="24" y="48" class="lbl-s">Everything outside the big dashed box lives in other files. model.py is only the middle.</text>
+
+<!-- ============ BAND 1: INPUTS ============ -->
+<text x="24" y="86" class="lbl-m" fill="#35d6f0">TEXT PATH</text>
+<rect x="24" y="96" width="296" height="46" rx="10" fill="#121a26" stroke="#22303f"/>
+<rect x="24" y="96" width="4" height="46" rx="2" fill="#35d6f0"/>
+<text x="42" y="117" class="lbl-b">Your prompt</text>
+<text x="42" y="133" class="lbl-s">"a red fox in snow at dusk"</text>
+<path d="M172,142 L172,164" stroke="#35d6f0" stroke-width="1.6" marker-end="url(#arC)"/>
+<rect x="24" y="166" width="296" height="62" rx="10" fill="#121a26" stroke="#35d6f0" stroke-opacity=".45"/>
+<text x="42" y="189" class="lbl-b" fill="#35d6f0">Mistral-Small-3.2 · 24B VLM</text>
+<text x="42" y="206" class="lbl-s">hidden states of layers 10, 20, 30</text>
+<text x="42" y="221" class="lbl-s">are concatenated → 3 × 5120</text>
+<rect x="24" y="242" width="296" height="26" rx="13" fill="rgba(53,214,240,.1)" stroke="#35d6f0" stroke-opacity=".4"/>
+<text x="172" y="259" class="lbl-mb" text-anchor="middle">ctx  (B, 512, 15360)</text>
+
+<text x="372" y="86" class="lbl-m" fill="#b18cff">REFERENCE PATH (optional)</text>
+<rect x="372" y="96" width="296" height="46" rx="10" fill="#121a26" stroke="#22303f"/>
+<rect x="372" y="96" width="4" height="46" rx="2" fill="#b18cff"/>
+<text x="390" y="117" class="lbl-b">0 – 10 reference images</text>
+<text x="390" y="133" class="lbl-s">for editing / multi-reference</text>
+<path d="M520,142 L520,164" stroke="#b18cff" stroke-width="1.6" marker-end="url(#ar)"/>
+<rect x="372" y="166" width="296" height="62" rx="10" fill="#121a26" stroke="#b18cff" stroke-opacity=".45"/>
+<text x="390" y="189" class="lbl-b" fill="#b18cff">FLUX.2 VAE encoder</text>
+<text x="390" y="206" class="lbl-s">8× downsample → 32 channels,</text>
+<text x="390" y="221" class="lbl-s">then 2×2 patchify → 128 channels</text>
+<rect x="372" y="242" width="296" height="26" rx="13" fill="rgba(177,140,255,.1)" stroke="#b18cff" stroke-opacity=".4"/>
+<text x="520" y="259" class="lbl-mb" text-anchor="middle" fill="#b18cff">ref  (B, R, 128)</text>
+
+<text x="720" y="86" class="lbl-m" fill="#f6a93b">CANVAS PATH</text>
+<rect x="720" y="96" width="296" height="46" rx="10" fill="#121a26" stroke="#22303f"/>
+<rect x="720" y="96" width="4" height="46" rx="2" fill="#f6a93b"/>
+<text x="738" y="117" class="lbl-b">Pure Gaussian noise</text>
+<text x="738" y="133" class="lbl-s">at the target size, e.g. 1024²</text>
+<path d="M868,142 L868,164" stroke="#f6a93b" stroke-width="1.6" marker-end="url(#arA)"/>
+<rect x="720" y="166" width="296" height="62" rx="10" fill="#121a26" stroke="#f6a93b" stroke-opacity=".45"/>
+<text x="738" y="189" class="lbl-b" fill="#f6a93b">Flatten the latent grid</text>
+<text x="738" y="206" class="lbl-s">64 × 64 grid = 4096 tokens</text>
+<text x="738" y="221" class="lbl-s">(16× total spatial compression)</text>
+<rect x="720" y="242" width="296" height="26" rx="13" fill="rgba(246,169,59,.1)" stroke="#f6a93b" stroke-opacity=".4"/>
+<text x="868" y="259" class="lbl-mb" text-anchor="middle" fill="#f6a93b">x  (B, 4096, 128)</text>
+
+<!-- ============ BAND 2: THE MODEL ============ -->
+<path d="M172,268 L172,292" stroke="#7d8da1" stroke-width="1.6" marker-end="url(#ar)"/>
+<path d="M520,268 L520,292 L430,292" stroke="#7d8da1" stroke-width="1.6" fill="none" marker-end="url(#ar)"/>
+<path d="M868,268 L868,292 L470,292" stroke="#7d8da1" stroke-width="1.6" fill="none" marker-end="url(#ar)"/>
+
+<rect x="24" y="294" width="992" height="252" rx="16" fill="rgba(246,169,59,.035)" stroke="#f6a93b" stroke-opacity=".55" stroke-dasharray="7 5"/>
+<text x="46" y="320" class="ttl" fill="#f6a93b">src/flux2/model.py · class Flux2 · 32,223,281,152 parameters</text>
+
+<rect x="48" y="340" width="152" height="48" rx="9" fill="#121a26" stroke="#35d6f0" stroke-opacity=".5"/>
+<text x="124" y="360" class="lbl-b" text-anchor="middle" fill="#35d6f0">txt_in</text>
+<text x="124" y="377" class="lbl-m" text-anchor="middle">15360 → 6144</text>
+
+<rect x="48" y="400" width="152" height="48" rx="9" fill="#121a26" stroke="#f6a93b" stroke-opacity=".5"/>
+<text x="124" y="420" class="lbl-b" text-anchor="middle" fill="#f6a93b">img_in</text>
+<text x="124" y="437" class="lbl-m" text-anchor="middle">128 → 6144</text>
+
+<path d="M200,364 L226,380" stroke="#7d8da1" stroke-width="1.5" marker-end="url(#ar)"/>
+<path d="M200,424 L226,408" stroke="#7d8da1" stroke-width="1.5" marker-end="url(#ar)"/>
+
+<rect x="228" y="352" width="188" height="84" rx="10" fill="#182231" stroke="url(#gMix)" stroke-width="1.8"/>
+<text x="322" y="378" class="lbl-b" text-anchor="middle">8 × DoubleStreamBlock</text>
+<text x="322" y="397" class="lbl-s" text-anchor="middle">separate weights for text</text>
+<text x="322" y="412" class="lbl-s" text-anchor="middle">and image; they meet only</text>
+<text x="322" y="427" class="lbl-s" text-anchor="middle">inside joint attention</text>
+
+<path d="M416,394 L444,394" stroke="#7d8da1" stroke-width="1.6" marker-end="url(#ar)"/>
+<rect x="446" y="368" width="104" height="52" rx="9" fill="#121a26" stroke="#2e4054"/>
+<text x="498" y="390" class="lbl-b" text-anchor="middle">concat</text>
+<text x="498" y="407" class="lbl-m" text-anchor="middle">txt ⧺ img</text>
+
+<path d="M550,394 L578,394" stroke="#7d8da1" stroke-width="1.6" marker-end="url(#ar)"/>
+<rect x="580" y="352" width="188" height="84" rx="10" fill="#182231" stroke="#f6a93b" stroke-width="1.8"/>
+<text x="674" y="378" class="lbl-b" text-anchor="middle" fill="#f6a93b">48 × SingleStreamBlock</text>
+<text x="674" y="397" class="lbl-s" text-anchor="middle">one shared set of weights;</text>
+<text x="674" y="412" class="lbl-s" text-anchor="middle">text and image are now</text>
+<text x="674" y="427" class="lbl-s" text-anchor="middle">indistinguishable tokens</text>
+
+<path d="M768,394 L796,394" stroke="#7d8da1" stroke-width="1.6" marker-end="url(#ar)"/>
+<rect x="798" y="368" width="170" height="52" rx="9" fill="#121a26" stroke="#f6a93b" stroke-opacity=".5"/>
+<text x="883" y="390" class="lbl-b" text-anchor="middle">LastLayer</text>
+<text x="883" y="407" class="lbl-m" text-anchor="middle">6144 → 128</text>
+
+<!-- vec / modulation path -->
+<rect x="48" y="470" width="196" height="52" rx="9" fill="#121a26" stroke="#5fe08a" stroke-opacity=".5"/>
+<text x="146" y="491" class="lbl-b" text-anchor="middle" fill="#5fe08a">t  +  guidance g</text>
+<text x="146" y="508" class="lbl-m" text-anchor="middle">→ vec (B, 6144)</text>
+
+<path d="M244,496 L272,496" stroke="#5fe08a" stroke-width="1.6" marker-end="url(#arV)"/>
+<rect x="274" y="470" width="290" height="52" rx="9" fill="#121a26" stroke="#5fe08a" stroke-opacity=".5"/>
+<text x="419" y="491" class="lbl-b" text-anchor="middle" fill="#5fe08a">3 × Modulation  (adaLN)</text>
+<text x="419" y="508" class="lbl-m" text-anchor="middle">→ shift, scale, gate for every block</text>
+
+<path d="M564,496 L592,496" stroke="#5fe08a" stroke-width="1.6" marker-end="url(#arV)"/>
+<rect x="594" y="470" width="374" height="52" rx="9" fill="rgba(95,224,138,.07)" stroke="#5fe08a" stroke-opacity=".35"/>
+<text x="781" y="491" class="lbl-s" text-anchor="middle" fill="#5fe08a">Computed ONCE per step and shared by all 56 blocks —</text>
+<text x="781" y="508" class="lbl-s" text-anchor="middle" fill="#5fe08a">that single choice saves ~11 billion parameters.</text>
+
+<path d="M322,470 L322,438" stroke="#5fe08a" stroke-width="1.4" stroke-dasharray="4 4" marker-end="url(#arV)"/>
+<path d="M674,470 L674,438" stroke="#5fe08a" stroke-width="1.4" stroke-dasharray="4 4" marker-end="url(#arV)"/>
+<path d="M124,470 L124,450" stroke="#5fe08a" stroke-width="1.2" stroke-dasharray="4 4" opacity=".6"/>
+
+<!-- ============ BAND 3: OUTPUT + LOOP ============ -->
+<path d="M883,420 L883,566 L820,566" stroke="#f6a93b" stroke-width="1.8" fill="none" marker-end="url(#arA)"/>
+<rect x="500" y="540" width="318" height="52" rx="10" fill="#121a26" stroke="#f6a93b" stroke-opacity=".55"/>
+<text x="659" y="561" class="lbl-b" text-anchor="middle" fill="#f6a93b">velocity prediction  v</text>
+<text x="659" y="578" class="lbl-m" text-anchor="middle">(B, 4096, 128)</text>
+
+<path d="M500,566 L462,566" stroke="#7d8da1" stroke-width="1.8" marker-end="url(#ar)"/>
+<rect x="96" y="540" width="366" height="52" rx="10" fill="#182231" stroke="#2e4054"/>
+<text x="279" y="561" class="lbl-b" text-anchor="middle">Euler step</text>
+<text x="279" y="579" class="lbl-m" text-anchor="middle" fill="#ffd479">x ← x + (t_prev − t_curr) · v</text>
+
+<path d="M96,566 L58,566 L58,394 L44,394" stroke="#ff7ab8" stroke-width="1.8" fill="none" stroke-dasharray="6 4"/>
+<path d="M58,394 L58,300 L440,300 L440,350" stroke="#ff7ab8" stroke-width="1.8" fill="none" stroke-dasharray="6 4" marker-end="url(#ar)"/>
+<text x="70" y="336" class="lbl-s" fill="#ff7ab8">loop 4 – 50 times</text>
+<text x="70" y="352" class="lbl-s" fill="#ff7ab8">as t falls 1 → 0</text>
+
+<!-- ============ BAND 4: DECODE ============ -->
+<path d="M279,592 L279,640" stroke="#7d8da1" stroke-width="1.6" marker-end="url(#ar)"/>
+<text x="292" y="622" class="lbl-s">when t reaches 0</text>
+<rect x="96" y="642" width="366" height="48" rx="10" fill="#121a26" stroke="#2e4054"/>
+<text x="279" y="663" class="lbl-b" text-anchor="middle">clean latent</text>
+<text x="279" y="680" class="lbl-m" text-anchor="middle">(B, 128, 64, 64)</text>
+
+<path d="M462,666 L500,666" stroke="#7d8da1" stroke-width="1.6" marker-end="url(#ar)"/>
+<rect x="502" y="642" width="230" height="48" rx="10" fill="#121a26" stroke="#b18cff" stroke-opacity=".45"/>
+<text x="617" y="663" class="lbl-b" text-anchor="middle" fill="#b18cff">VAE decoder</text>
+<text x="617" y="680" class="lbl-m" text-anchor="middle">un-patchify, then 8× upsample</text>
+
+<path d="M732,666 L770,666" stroke="#7d8da1" stroke-width="1.6" marker-end="url(#ar)"/>
+<rect x="772" y="638" width="244" height="56" rx="10" fill="rgba(246,169,59,.09)" stroke="#f6a93b" stroke-opacity=".6"/>
+<text x="894" y="661" class="lbl-b" text-anchor="middle" fill="#f6a93b">your image</text>
+<text x="894" y="679" class="lbl-m" text-anchor="middle">(3, 1024, 1024)</text>
+
+<text x="24" y="742" class="lbl-s">Only the dashed box is model.py. Everything else lives in autoencoder.py, text_encoder.py and sampling.py —</text>
+<text x="24" y="760" class="lbl-s">but you need to see them to understand what model.py's inputs and outputs actually mean.</text>
+</svg>
+</div>
+<div class="legend">
+  <span class="li"><span class="sw" style="background:#35d6f0"></span>text tokens</span>
+  <span class="li"><span class="sw" style="background:#b18cff"></span>reference-image tokens</span>
+  <span class="li"><span class="sw" style="background:#f6a93b"></span>image / canvas tokens</span>
+  <span class="li"><span class="sw" style="background:#5fe08a"></span>time &amp; guidance signal</span>
+  <span class="li"><span class="sw" style="background:#ff7ab8"></span>the sampling loop</span>
+</div>
+<figcaption><span class="figno">FIG 1</span><b>The complete FLUX.2 pipeline.</b> Note that the transformer is called
+over and over — 50 times for FLUX.2 [dev], just 4 times for the distilled klein models. Each call moves
+the image a little closer to finished. The three coloured paths at the top are the three kinds of
+"token" the transformer consumes; the green path at the bottom is the tiny signal that tells it
+<em>how finished</em> the image currently is.</figcaption>
+</figure>
+
+<h3>1.1 · What "32 billion parameters" is actually spent on</h3>
+<p>Here is the exact budget. I counted it by building each config on PyTorch's <code>meta</code>
+device — a special device that creates tensors with shapes but no data, so you can inspect a 32B model
+on a laptop — and I also derived each number by hand from the layer dimensions. Both agree exactly.</p>
+
+<div class="tbl-wrap">
+<table class="data">
+<thead><tr><th>Component</th><th>What it is</th><th style="text-align:right">Parameters</th><th style="text-align:right">Share</th></tr></thead>
+<tbody>
+<tr class="grp"><td colspan="4">The transformer blocks — 97.5 % of the model</td></tr>
+<tr><td><code>single_blocks</code> × 48</td><td>Fused attention + MLP, shared weights for all tokens</td><td class="num">23,555,223,552</td><td class="num">73.1 %</td></tr>
+<tr><td><code>double_blocks</code> × 8</td><td>Separate image and text weights that meet in attention</td><td class="num">7,851,741,184</td><td class="num">24.4 %</td></tr>
+<tr class="grp"><td colspan="4">Conditioning — 1.8 %</td></tr>
+<tr><td><code>double_stream_modulation_img</code></td><td>6144 → 36864 (six shift/scale/gate vectors)</td><td class="num">226,492,416</td><td class="num">0.70 %</td></tr>
+<tr><td><code>double_stream_modulation_txt</code></td><td>Same, for the text stream</td><td class="num">226,492,416</td><td class="num">0.70 %</td></tr>
+<tr><td><code>single_stream_modulation</code></td><td>6144 → 18432 (three vectors)</td><td class="num">113,246,208</td><td class="num">0.35 %</td></tr>
+<tr class="grp"><td colspan="4">Entrance and exit — 0.7 %</td></tr>
+<tr><td><code>txt_in</code></td><td>15360 → 6144, no bias</td><td class="num">94,371,840</td><td class="num">0.29 %</td></tr>
+<tr><td><code>final_layer</code></td><td>adaLN modulation + 6144 → 128 projection</td><td class="num">76,283,904</td><td class="num">0.24 %</td></tr>
+<tr><td><code>time_in</code></td><td>256 → 6144 → 6144</td><td class="num">39,321,600</td><td class="num">0.12 %</td></tr>
+<tr><td><code>guidance_in</code></td><td>Identical shape to <code>time_in</code></td><td class="num">39,321,600</td><td class="num">0.12 %</td></tr>
+<tr><td><code>img_in</code></td><td>128 → 6144, no bias — the smallest layer in the model</td><td class="num">786,432</td><td class="num">0.002 %</td></tr>
+<tr><td><strong>Total</strong></td><td></td><td class="num"><strong>32,223,281,152</strong></td><td class="num"><strong>100 %</strong></td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="note proof">
+<div class="nh">◆ Verified · the numbers are exact, not rounded</div>
+<p>The count above is <code>32,223,281,152</code> — that is why FLUX.2 is advertised as "32B".
+My closed-form formula reproduces it perfectly for all three configs:</p>
+<p style="font-family:var(--mono);font-size:13.4px;color:var(--gold)">
+single_block = 4h² + 3h·m + 2·head_dim<br>
+double_block = 2·(4h² + 3h·m) + 4·head_dim<br>
+total = depth·double + depth_single·single + embeddings
+</p>
+<p>with <span class="shape">h = 6144</span> <span class="shape">m = 18432</span>
+<span class="shape">head_dim = 128</span>. For klein-9B it predicts 9,078,581,248 and for klein-4B
+3,875,544,576 — both exact.</p>
+</div>
+
+<div class="twocol">
+<div class="card">
+<h5><span class="tag" style="background:var(--img)"></span>A double block costs exactly 2× a single block</h5>
+<p>981,467,648 versus 490,733,824. Not a coincidence: a double block carries <em>two</em> complete
+sets of attention and MLP weights (one for text, one for image), while a single block carries one set
+shared by everything. This is why FLUX.2 can afford only 8 double blocks but 48 single ones.</p>
+</div>
+<div class="card">
+<h5><span class="tag" style="background:var(--vec)"></span>The whole model has no bias terms at all</h5>
+<p>I enumerated every parameter: <strong>0</strong> of the 32.2 billion are biases. All 171 linear
+layers use <code>bias=False</code>, and all 81 <code>LayerNorm</code>s use
+<code>elementwise_affine=False</code>. The only non-matrix parameters are 128 RMSNorm scale vectors of
+length 128 — 16,384 values in total, about 0.00005 % of the model.</p>
+</div>
+<div class="card">
+<h5><span class="tag" style="background:var(--ref)"></span>Modulation is global, not per-block</h5>
+<p>In the original DiT and in FLUX.1, <em>every</em> block owned its own adaLN modulation matrix.
+FLUX.2 hoists them out: there are exactly three <code>Modulation</code> modules in the entire network,
+computed once per step and handed to all 56 blocks. Had each block kept its own, the modulation alone
+would have cost roughly 11 billion extra parameters.</p>
+</div>
+<div class="card">
+<h5><span class="tag" style="background:var(--txt)"></span>There is no dropout anywhere</h5>
+<p>Zero <code>nn.Dropout</code> modules. At 32B parameters trained on a very large dataset,
+regularisation by dropout is unnecessary — the model is far from overfitting. Inference and training
+graphs are therefore identical, which also makes the code simpler to read.</p>
+</div>
+</div>
+</section>

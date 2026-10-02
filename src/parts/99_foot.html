@@ -1,0 +1,87 @@
+</main>
+</div>
+<script>
+(function () {
+  "use strict";
+
+  /* ---------- reading progress + topbar ---------- */
+  var prog = document.getElementById("progress");
+  var topbar = document.getElementById("topbar");
+  function onScroll() {
+    var h = document.documentElement;
+    var max = h.scrollHeight - h.clientHeight;
+    prog.style.width = (max > 0 ? (h.scrollTop / max) * 100 : 0) + "%";
+    topbar.classList.toggle("show", h.scrollTop > 420);
+    spy();
+  }
+
+  /* ---------- scroll spy ---------- */
+  var links = Array.prototype.slice.call(document.querySelectorAll("#toc a[href^='#']"));
+  var targets = links
+    .map(function (a) { return document.getElementById(a.getAttribute("href").slice(1)); })
+    .filter(Boolean);
+  var current = null;
+  function spy() {
+    var y = window.scrollY + 140;
+    var idx = -1;
+    for (var i = 0; i < targets.length; i++) {
+      if (targets[i].offsetTop <= y) idx = i;
+    }
+    if (idx === current) return;
+    current = idx;
+    links.forEach(function (a, i) { a.classList.toggle("active", i === idx); });
+    if (idx >= 0) {
+      var el = links[idx];
+      var toc = document.getElementById("toc");
+      var r = el.getBoundingClientRect(), tr = toc.getBoundingClientRect();
+      if (r.top < tr.top + 60 || r.bottom > tr.bottom - 60) {
+        el.scrollIntoView({ block: "nearest" });
+      }
+    }
+  }
+
+  /* ---------- mobile contents drawer ---------- */
+  var toc = document.getElementById("toc");
+  document.getElementById("menuBtn").addEventListener("click", function () {
+    toc.classList.toggle("open");
+  });
+  links.forEach(function (a) {
+    a.addEventListener("click", function () { toc.classList.remove("open"); });
+  });
+
+  /* ---------- RoPE playground ---------- */
+  var THETA = 2000, DIM = 32, TAU = Math.PI * 2;
+  var P = document.getElementById("rwP"), I = document.getElementById("rwI");
+  if (P && I) {
+    var Pv = document.getElementById("rwPv"), Iv = document.getElementById("rwIv");
+    var vec = document.getElementById("rwVec"), dot = document.getElementById("rwDot");
+    var A1 = document.getElementById("rwA1"), A2 = document.getElementById("rwA2");
+    var T1 = document.getElementById("rwTip"), T2 = document.getElementById("rwTip2");
+    var CX = 150, CY = 130, R = 86;
+    function omega(i) { return Math.pow(THETA, -(2 * i) / DIM); }
+    function draw() {
+      var p = +P.value, i = +I.value, w = omega(i), ang = p * w;
+      var x = CX + R * Math.cos(ang), y = CY - R * Math.sin(ang);
+      vec.setAttribute("x2", x.toFixed(2)); vec.setAttribute("y2", y.toFixed(2));
+      dot.setAttribute("cx", x.toFixed(2)); dot.setAttribute("cy", y.toFixed(2));
+      Pv.textContent = p;
+      Iv.textContent = i + " (ω = " + w.toFixed(6) + ")";
+      A1.textContent = (ang % TAU).toFixed(3) + " rad";
+      A2.textContent = (ang / TAU).toFixed(2);
+      T1.textContent = i === 0
+        ? "Plane 0 turns fully every ~6 positions."
+        : "full turn every " + (TAU / w).toFixed(0) + " positions";
+      T2.textContent = "4096 positions = " + ((4096 * w) / TAU).toFixed(1) + " turns";
+    }
+    P.addEventListener("input", draw);
+    I.addEventListener("input", draw);
+    draw();
+  }
+
+  window.addEventListener("scroll", onScroll, { passive: true });
+  window.addEventListener("resize", onScroll);
+  onScroll();
+})();
+</script>
+</body>
+</html>
