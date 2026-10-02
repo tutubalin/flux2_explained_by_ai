@@ -28,7 +28,7 @@ src = pathlib.Path(sys.argv[1]).read_text()
 outdir = pathlib.Path(sys.argv[2] if len(sys.argv) > 2 else "qa"); outdir.mkdir(parents=True, exist_ok=True)
 svgs = re.findall(r"<svg\b.*?</svg>", src, re.S)
 print(f"found {len(svgs)} svg elements")
-want = sys.argv[2] if len(sys.argv) > 2 else None
+want = sys.argv[3] if len(sys.argv) > 3 else None
 for i, s in enumerate(svgs):
     if want and want not in s:
         continue

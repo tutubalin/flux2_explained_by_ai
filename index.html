@@ -555,6 +555,8 @@ how much?"</em></li>
     <path d="M0,0 L10,5 L0,10 z" fill="#35d6f0"/></marker>
   <marker id="arV" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
     <path d="M0,0 L10,5 L0,10 z" fill="#5fe08a"/></marker>
+  <marker id="arR" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M0,0 L10,5 L0,10 z" fill="#b18cff"/></marker>
   <linearGradient id="gMix" x1="0" y1="0" x2="1" y2="0">
     <stop offset="0" stop-color="#35d6f0"/><stop offset="1" stop-color="#f6a93b"/></linearGradient>
 </defs>
@@ -603,12 +605,14 @@ how much?"</em></li>
 <text x="868" y="259" class="lbl-mb" text-anchor="middle" style="fill:#f6a93b">x  (B, 4096, 128)</text>
 
 <!-- ============ BAND 2: THE MODEL ============ -->
-<path d="M172,268 L172,292" stroke="#7d8da1" stroke-width="1.6" marker-end="url(#ar)"/>
-<path d="M520,268 L520,292 L430,292" stroke="#7d8da1" stroke-width="1.6" fill="none" marker-end="url(#ar)"/>
-<path d="M868,268 L868,292 L470,292" stroke="#7d8da1" stroke-width="1.6" fill="none" marker-end="url(#ar)"/>
+<path d="M172,268 L172,338" stroke="#35d6f0" stroke-width="1.6" marker-end="url(#arC)"/>
+<path d="M520,268 L520,320 L148,320 L148,398" stroke="#b18cff" stroke-width="1.6" fill="none" marker-end="url(#arR)"/>
+<path d="M868,268 L868,280 L1000,280 L1000,534 L36,534 L36,416 L46,416" stroke="#f6a93b" stroke-width="1.6" fill="none" marker-end="url(#arA)"/>
 
 <rect x="24" y="294" width="992" height="252" rx="16" fill="rgba(246,169,59,.035)" stroke="#f6a93b" stroke-opacity=".55" stroke-dasharray="7 5"/>
-<text x="46" y="320" class="ttl" style="fill:#f6a93b">src/flux2/model.py · class Flux2 · 32,223,281,152 parameters</text>
+<rect x="560" y="276" width="290" height="36" rx="9" fill="#121a26" stroke="#f6a93b" stroke-opacity=".55"/>
+<text x="572" y="291" class="lbl-b" style="fill:#f6a93b">src/flux2/model.py · class Flux2</text>
+<text x="572" y="305" class="lbl-m">32,223,281,152 parameters</text>
 
 <rect x="48" y="340" width="152" height="48" rx="9" fill="#121a26" stroke="#35d6f0" stroke-opacity=".5"/>
 <text x="124" y="360" class="lbl-b" text-anchor="middle" style="fill:#35d6f0">txt_in</text>
@@ -661,26 +665,23 @@ how much?"</em></li>
 
 <path d="M322,470 L322,438" stroke="#5fe08a" stroke-width="1.4" stroke-dasharray="4 4" marker-end="url(#arV)"/>
 <path d="M674,470 L674,438" stroke="#5fe08a" stroke-width="1.4" stroke-dasharray="4 4" marker-end="url(#arV)"/>
-<path d="M124,470 L124,450" stroke="#5fe08a" stroke-width="1.2" stroke-dasharray="4 4" opacity=".6"/>
 
 <!-- ============ BAND 3: OUTPUT + LOOP ============ -->
-<path d="M883,420 L883,566 L820,566" stroke="#f6a93b" stroke-width="1.8" fill="none" marker-end="url(#arA)"/>
-<rect x="500" y="540" width="318" height="52" rx="10" fill="#121a26" stroke="#f6a93b" stroke-opacity=".55"/>
-<text x="659" y="561" class="lbl-b" text-anchor="middle" style="fill:#f6a93b">velocity prediction  v</text>
-<text x="659" y="578" class="lbl-m" text-anchor="middle">(B, 4096, 128)</text>
+<path d="M883,420 L883,576 L820,576" stroke="#f6a93b" stroke-width="1.8" fill="none" marker-end="url(#arA)"/>
+<rect x="500" y="550" width="318" height="52" rx="10" fill="#121a26" stroke="#f6a93b" stroke-opacity=".55"/>
+<text x="659" y="571" class="lbl-b" text-anchor="middle" style="fill:#f6a93b">velocity prediction  v</text>
+<text x="659" y="588" class="lbl-m" text-anchor="middle">(B, 4096, 128)</text>
 
-<path d="M500,566 L462,566" stroke="#7d8da1" stroke-width="1.8" marker-end="url(#ar)"/>
-<rect x="96" y="540" width="366" height="52" rx="10" fill="#182231" stroke="#2e4054"/>
-<text x="279" y="561" class="lbl-b" text-anchor="middle">Euler step</text>
-<text x="279" y="579" class="lbl-m" text-anchor="middle" style="fill:#ffd479">x ← x + (t_prev − t_curr) · v</text>
+<path d="M500,576 L462,576" stroke="#7d8da1" stroke-width="1.8" marker-end="url(#ar)"/>
+<rect x="96" y="550" width="366" height="52" rx="10" fill="#182231" stroke="#2e4054"/>
+<text x="279" y="571" class="lbl-b" text-anchor="middle">Euler step</text>
+<text x="279" y="589" class="lbl-m" text-anchor="middle" style="fill:#ffd479">x ← x + (t_prev − t_curr) · v</text>
 
-<path d="M96,566 L58,566 L58,394 L44,394" stroke="#ff7ab8" stroke-width="1.8" fill="none" stroke-dasharray="6 4"/>
-<path d="M58,394 L58,300 L440,300 L440,350" stroke="#ff7ab8" stroke-width="1.8" fill="none" stroke-dasharray="6 4" marker-end="url(#ar)"/>
-<text x="70" y="336" class="lbl-s" style="fill:#ff7ab8">loop 4 – 50 times</text>
-<text x="70" y="352" class="lbl-s" style="fill:#ff7ab8">as t falls 1 → 0</text>
+<path d="M96,576 L40,576 L40,432 L46,432" stroke="#ff7ab8" stroke-width="1.8" fill="none" stroke-dasharray="6 4" marker-end="url(#ar)"/>
+<text x="52" y="463" class="lbl-s" style="fill:#ff7ab8">loop 4 – 50 times · t falls 1 → 0</text>
 
 <!-- ============ BAND 4: DECODE ============ -->
-<path d="M279,592 L279,640" stroke="#7d8da1" stroke-width="1.6" marker-end="url(#ar)"/>
+<path d="M279,602 L279,640" stroke="#7d8da1" stroke-width="1.6" marker-end="url(#ar)"/>
 <text x="292" y="622" class="lbl-s">when t reaches 0</text>
 <rect x="96" y="642" width="366" height="48" rx="10" fill="#121a26" stroke="#2e4054"/>
 <text x="279" y="663" class="lbl-b" text-anchor="middle">clean latent</text>
