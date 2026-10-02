@@ -171,6 +171,11 @@ li::marker{color:var(--muted)}
 .note.beginner{border-color:rgba(53,214,240,.3);background:linear-gradient(150deg,rgba(53,214,240,.075),rgba(53,214,240,.015))}
 .note.beginner .nh{color:var(--txt)}
 .dim{color:var(--muted);font-size:.9em}
+/* ◇ inference badge: marks a statement about *why* the code is the way it is,
+   i.e. something the file itself does not say. Numeric/structural claims are never badged. */
+.spec{display:inline-block;font:700 10px/1 var(--sans);letter-spacing:.09em;text-transform:uppercase;
+  color:var(--gold);border:1px solid rgba(255,212,121,.42);background:rgba(255,212,121,.08);
+  border-radius:999px;padding:3px 7px 2px;margin:0 3px;vertical-align:1.5px;white-space:nowrap}
 .mathblk{display:block;font-family:var(--mono);font-size:14px;color:var(--gold);
   letter-spacing:.01em;line-height:1.7}
 
@@ -393,7 +398,7 @@ footer a{color:var(--text2)}
 <div id="topbar">
   <button class="tb-btn" id="menuBtn">☰ Contents</button>
   <span class="tb-title">FLUX.2 <span style="color:var(--img)">model.py</span> explained</span>
-  <span class="tb-sub">834 lines · 14 classes · 36 functions</span>
+  <span class="tb-sub">833 lines · 14 classes · 36 functions</span>
   <span class="tb-spacer"></span>
   <button class="tb-btn" onclick="window.scrollTo({top:0,behavior:'smooth'})">↑ Top</button>
 </div>

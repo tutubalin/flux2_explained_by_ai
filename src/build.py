@@ -6,7 +6,7 @@ Gotcha: a CSS rule like `svg .lbl-b { fill: var(--text) }` overrides an element'
 So when a <text> element carries BOTH a fill-setting class and a fill attribute,
 we promote the attribute to an inline style, which wins over the stylesheet.
 """
-import os, re, pathlib, sys
+import os, re, pathlib, subprocess, sys
 HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import codex
@@ -80,3 +80,21 @@ for t in ("section", "div", "figure", "table", "svg", "main", "aside"):
 
 OUT.write_text(html)
 print(f"\nwrote {OUT}  ({OUT.stat().st_size/1024:.1f} KB)")
+
+# ---------------------------------------------------------------- content QA
+# Three static checks over the *parts* (not the built page), because the article's
+# whole claim is that its quoted line numbers and annotations match the real file:
+#   qa_trace     every annotation describes lines that contain what it talks about
+#   qa_coverage  every non-blank line of model.py is shown somewhere
+#   qa_linerefs  every "L455" in the prose points at a plausible line
+#   verify4      re-derives every quoted number from model.py and greps the page for it
+qa_fail = 0
+sys.stdout.flush()          # keep the QA output in order when stdout is a pipe
+QA = [("qa_trace.py", PARTS), ("qa_coverage.py", PARTS), ("qa_linerefs.py", PARTS),
+      ("verify4.py", OUT)]        # verify4 also greps the page it just wrote
+for script, arg in QA:
+    print()
+    qa_fail |= subprocess.run([sys.executable, str(HERE / "ref" / script), str(arg)]).returncode
+if qa_fail:
+    print("\n!! content QA reported problems — see above")
+sys.exit(qa_fail)

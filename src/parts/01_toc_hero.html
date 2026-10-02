@@ -30,10 +30,10 @@
     <a href="#p-last">7.10 · LastLayer</a>
 
     <div class="toc-h">The big pieces</div>
-    <a href="#attention">8 · causal_attn_fn — the mask</a>
+    <a href="#attention">8 · causal_attn_fn — the router</a>
     <a href="#single">9 · SingleStreamBlock</a>
     <a href="#double">10 · DoubleStreamBlock</a>
-    <a href="#flux2">11 · Flux2.forward</a>
+    <a href="#flux2">11 · Flux2 — init + three forwards</a>
     <a href="#blend">12 · Blending modulations</a>
     <a href="#kvcache">13 · The KV cache paths</a>
 
@@ -50,7 +50,7 @@
   <div class="kicker">A complete walkthrough · black-forest-labs/flux2 · src/flux2/model.py</div>
   <h1 class="title">FLUX.2, <span class="mono">model.py</span>,<br>every single line.</h1>
   <p class="lede">
-    This is the 834-line file that defines a <strong>32-billion-parameter image generator</strong>.
+    This is the 833-line file that defines a <strong>32-billion-parameter image generator</strong>.
     It has no training code, no diffusion schedulers, no VAE — just the transformer that sits in the
     middle of FLUX.2 and predicts, at every step, <em>which direction to push the image</em>.
     Below, every class, every function and every line is explained from first principles, with
@@ -63,7 +63,7 @@
   </p>
 
   <div class="statgrid">
-    <div class="stat a"><div class="n">834</div><div class="l">lines of Python</div></div>
+    <div class="stat a"><div class="n">833</div><div class="l">lines of Python</div></div>
     <div class="stat b"><div class="n">14</div><div class="l">classes</div></div>
     <div class="stat c"><div class="n">36</div><div class="l">functions &amp; methods</div></div>
     <div class="stat d"><div class="n">32.22B</div><div class="l">parameters (verified)</div></div>
@@ -78,8 +78,18 @@
     its git blob hash is <code>9b1f5b50f8a966d6f4b9ed33b6f125695dc707f0</code>, matching
     <code>black-forest-labs/flux2@main</code>. I instantiated all three model configs on PyTorch's
     <code>meta</code> device to count parameters exactly, ran a miniature FLUX.2 end-to-end to trace
-    real tensor shapes, derived the attention mask empirically by feeding one-hot values through it,
-    and measured the KV-cache error as exactly <code>0.000e+00</code>. The scripts are in
-    <code>verify/</code> in this repository.</p>
+    real tensor shapes, derived the attention isolation pattern empirically by feeding one-hot vectors through the router,
+    and measured the KV-cache error as exactly <code>0.000e+00</code>. The scripts are
+    <code>src/ref/verify1.py … verify4.py</code> in this repository.</p>
+    <p>Two further checks run at <em>build</em> time, because this page quotes real line numbers all the
+    way through. Three checkers run on every build and any of them fails the build:
+    <code>src/ref/qa_trace.py</code> verifies that every line-by-line annotation points at lines
+    containing the identifiers it talks about, <code>src/ref/qa_coverage.py</code> verifies that all
+    692 non-blank lines of the file are shown somewhere, and <code>src/ref/qa_linerefs.py</code> checks
+    all 80 <code>L455</code>-style references in the prose. All three are clean.</p>
+    <p>One convention to know: numbers and structure are checked against the code, but the file carries
+    almost no comments, so a statement about <em>why</em> the authors chose something is marked
+    <span class="spec">inference</span>. There are eleven such marks in 833 lines' worth of
+    explanation — everything else is in the source.</p>
   </div>
 </header>

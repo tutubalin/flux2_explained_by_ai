@@ -1,6 +1,6 @@
 """Analytical parameter formulas + real-world cost numbers for the article."""
 import sys, math
-sys.path.insert(0, "/home/user/ref")
+sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent))
 import torch
 import model as M
 from sampling_ref import get_schedule, compute_empirical_mu
@@ -55,21 +55,28 @@ print("  => the shift pushes timesteps toward t=1 (the noisy end); stronger for 
 
 print()
 print("=" * 78)
-print("FLOPs (matmul only, per denoising step, batch=1)")
+print("FLOPs (matmul only, per denoising step, batch=1, FLUX.2 [dev])")
 print("=" * 78)
-h, nh, r = 6144, 48, 3.0
+h, nh, r, DEPTH, DSINGLE = 6144, 48, 3.0, 8, 48
 m = int(h*r)
-dbl_lin = 2*(4*h*h + 3*h*m)      # weights touched per double block
-sgl_lin = 4*h*h + 3*h*m
-for n_txt, n_img in [(512, 4096), (512, 16384)]:
-    L = n_txt + n_img
-    f_dbl = 8  * (2*L*dbl_lin + 4*L*L*h)     # 2 = MAC->FLOP
-    f_sgl = 48 * (2*L*sgl_lin + 4*L*L*h)
-    tot = f_dbl + f_sgl
-    print(f"  {n_img:,d} img + {n_txt} txt tokens (L={L:,d}):")
-    print(f"     linear layers  : {(f_dbl+f_sgl - 8*4*L*L*h - 48*4*L*L*h)/1e12:8.1f} TFLOPs")
-    print(f"     attention QK+AV: {(8*4*L*L*h + 48*4*L*L*h)/1e12:8.1f} TFLOPs")
+# MACs a *token* pays in one block. A double block has two streams, but each token only
+# ever passes through ONE of them (image tokens the image weights, text tokens the text
+# weights) -- and one stream costs exactly the same as a whole single block:
+#   qkv 3h^2 + proj h^2 + mlp (h*2m + m*h) = 4h^2 + 3hm.
+per_token = 4*h*h + 3*h*m
+print(f"  MACs per token per block (single block, or ONE stream of a double block): {per_token:,}")
+for W, H in [(512,512), (1024,1024), (1360,768), (2048,2048)]:
+    n_img = (W//16)*(H//16); n_txt = 512; L = n_img + n_txt
+    lin = 2 * (DEPTH + DSINGLE) * L * per_token      # 2 = MAC->FLOP
+    att = 2 * (DEPTH + DSINGLE) * 2 * L * L * h      # q.k^T and weights.v per block
+    tot = lin + att
+    print(f"  {W}x{H}: {n_img:,} img + {n_txt} txt (L={L:,})")
+    print(f"     linear layers  : {lin/1e12:8.1f} TFLOPs")
+    print(f"     attention QK+AV: {att/1e12:8.1f} TFLOPs")
     print(f"     TOTAL / step   : {tot/1e12:8.1f} TFLOPs   ->  x50 steps = {50*tot/1e15:.2f} PFLOPs")
+print("  NB multiplying a double block's FULL parameter count by every token double-counts:")
+print(f"     that (wrong) method gives {2*DEPTH*L*2*per_token/1e12 + 2*DSINGLE*L*per_token/1e12:.1f}"
+      f" TFLOPs of 'linear' work at 2048^2 instead of {2*DEPTH*L*per_token/1e12:.1f}.")
 
 print()
 print("=" * 78)
@@ -77,8 +84,34 @@ print("MEMORY")
 print("=" * 78)
 for name, n in [("FLUX.2 [dev]", 32_223_281_152), ("Klein 9B", 9_078_581_248), ("Klein 4B", 3_875_544_576)]:
     print(f"  {name:>14s}: bf16 {n*2/1e9:6.1f} GB | fp8 {n/1e9:5.1f} GB | int4 {n*0.5/1e9:5.1f} GB")
-print("\n  KV cache for ref tokens (Klein 9B, 4 refs @1024x1024, bf16):")
-h9, nb9 = 4096, 8+24
-nref = 4 * (1024//16)**2
-print(f"     ref tokens = {nref:,d};  per block 2*K/V*nref*h*2 bytes = {2*2*nref*h9*2/1e6:.1f} MB")
-print(f"     all {nb9} blocks: {nb9*2*2*nref*h9*2/1e9:.2f} GB")
+print("\n  KV cache for reference tokens: bytes = n_blocks * 2 (K and V) * n_ref * hidden * 2 (bf16)")
+# one reference capped at 2024^2 px (sampling.py L58) then centre-cropped to a multiple of 16
+one_ref  = (2016//16)**2          # = 15,876 tokens
+four_ref = 4 * (1024//16)**2      # = 16,384 tokens
+for label, p in [("FLUX.2 [dev]", M.Flux2Params()), ("Klein 9B", M.Klein9BParams()), ("Klein 4B", M.Klein4BParams())]:
+    nb = p.depth + p.depth_single_blocks
+    per_tok = nb * 2 * p.hidden_size * 2
+    print(f"     {label:>14s}: {nb} blocks, hidden {p.hidden_size} -> {per_tok/1e6:.3f} MB per ref token;"
+          f"  1 ref ({one_ref:,d} tok) = {one_ref*per_tok/1e9:.2f} GB;"
+          f"  4 refs ({four_ref:,d} tok) = {four_ref*per_tok/1e9:.2f} GB")
+
+print()
+print("=" * 78)
+print("SHARED vs PER-BLOCK MODULATION (section 1.1)")
+print("=" * 78)
+p = M.Flux2Params(); h = p.hidden_size
+shared = 2*(6*h*h) + 3*h*h
+per_block = p.depth*2*(6*h*h) + p.depth_single_blocks*(3*h*h)
+print(f"  3 shared Modulation matrices : {shared:,} parameters")
+print(f"  one per block (8 double x 2 triples of 6h^2, 48 single x 3h^2): {per_block:,}")
+print(f"  => sharing saves {per_block-shared:,} parameters ({(per_block-shared)/1e9:.2f} B)")
+
+print()
+print("=" * 78)
+print("STEPS ABOVE t=0.7 (sections 2.3 / 14.1)")
+print("=" * 78)
+for ns, L in [(50, 4096), (50, 16384), (8, 4096)]:
+    s = get_schedule(ns, L)
+    print(f"  steps={ns:>3d} seq_len={L:>6,d} mu={compute_empirical_mu(L, ns):.4f}: "
+          f"{sum(1 for z in s[:-1] if z > 0.7)} of {ns} above 0.7, "
+          f"{sum(1 for z in s[:-1] if z > 0.9)} above 0.9")

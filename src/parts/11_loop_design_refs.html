@@ -6,14 +6,30 @@ timestep, which way is clean?" The loop lives in <code>sampling.py</code>, and i
 fit in your head.
 </p>
 
-<!--RAW title="sampling.py · denoise() — the Euler loop"-->
-<pre>
-<span class="k">for</span> i, t <span class="k">in</span> <span class="f">enumerate</span>(timesteps):
-    t_curr, t_prev = t / num_steps, (timesteps[i + <span class="n">1</span>] <span class="k">if</span> i + <span class="n">1</span> &lt; <span class="f">len</span>(timesteps) <span class="k">else</span> <span class="n">0</span>) / num_steps
-    pred = model(img, ids, t_curr, ctx, ctx_ids, guidance)   <span class="c"># ← the file you just read</span>
-    img = img + (t_prev - t_curr) * pred                     <span class="c"># one Euler step towards clean</span>
-</pre>
+<!--RAW title="sampling.py · denoise(), L283–307 — the real Euler loop (condensed, comments added)"-->
+    guidance_vec = torch.full((img.shape[0],), guidance, device=img.device, dtype=img.dtype)
+    for t_curr, t_prev in zip(timesteps[:-1], timesteps[1:]):
+        t_vec = torch.full((img.shape[0],), t_curr, dtype=img.dtype, device=img.device)
+        img_input = img
+        img_input_ids = img_ids
+        if img_cond_seq is not None:                 # reference images, if this run has any
+            img_input = torch.cat((img_input, img_cond_seq), dim=1)
+            img_input_ids = torch.cat((img_input_ids, img_cond_seq_ids), dim=1)
+        pred = model(x=img_input, x_ids=img_input_ids, timesteps=t_vec,
+                     ctx=txt, ctx_ids=txt_ids, guidance=guidance_vec)
+        if img_input_ids is not None:
+            pred = pred[:, : img.shape[1]]           # keep only the canvas rows
+        img = img + (t_prev - t_curr) * pred         # the only line that changes the image
+    return img
 <!--/RAW-->
+
+<p>This is the unabbreviated version of the three lines quoted in §2.2. Two details the abridgement
+hid: <code>zip(timesteps[:-1], timesteps[1:])</code> is how the loop pairs each step with the next one
+(no index arithmetic, and it simply stops after the last pair), and the reference tokens — when there are
+any — are concatenated onto the canvas <em>before</em> the call and sliced back off the prediction
+afterwards. <code>denoise</code> calls <code>model(...)</code>, i.e. <code>Flux2.forward</code>, which
+always passes <code>num_ref_tokens=0</code>: on this path the references are ordinary image tokens
+(§11.4).</p>
 
 <p>Read the update rule slowly, because it is the whole of rectified flow: the model predicts a
 <em>velocity</em> — the direction and speed at which the image should move — and the sampler takes one
@@ -22,11 +38,19 @@ landing exactly on the clean latent, which the autoencoder then decodes into pix
 injected anywhere: this is an ordinary differential equation being integrated, not a stochastic
 process.</p>
 
-<h3>14.1 · Which timesteps? The logit-normal schedule</h3>
-<p>The step times are not evenly spaced. <code>get_schedule</code> draws them from a logit-normal
-distribution shifted by <code>mu</code>, which depends only on the number of image tokens — bigger
-images get their steps concentrated differently. For a 4096-token image (1024²) with 8 steps the
-times are</p>
+<h3>14.1 · Which timesteps? A deterministic, shifted ladder</h3>
+<p>The step times are not evenly spaced — but they are not random either.
+<code>get_schedule(num_steps, image_seq_len)</code> (<code>sampling.py</code> L244–248) builds a uniform
+ladder <code>torch.linspace(1, 0, num_steps + 1)</code> and warps every rung through the shift function
+of §2.3, <span class="shape">t′ = e<sup>μ</sup> / (e<sup>μ</sup> + (1/t − 1)<sup>σ</sup>)</span> with
+σ = 1. Same run in, same run out — there is no sampling and no seed.</p>
+<p>μ comes from <code>compute_empirical_mu</code> (<code>sampling.py</code> L251–266) and depends
+on <strong>two</strong> things.
+Above 4300 image tokens it is a straight line in the token count,
+<code>μ = 0.00016927·L + 0.45666666</code>. At or below 4300 tokens it interpolates between two fitted
+lines — one calibrated for a 10-step run, one for a 200-step run — so <em>the step count matters too</em>:
+fewer steps ⇒ larger μ ⇒ the few steps you have are pushed harder into the noisy end. For a 4096-token
+image (1024²) with 8 steps, μ = 2.27 and the times are</p>
 <div class="tbl-wrap">
 <table class="data">
 <thead><tr><th>step</th><th>0</th><th>1</th><th>2</th><th>3</th><th>4</th><th>5</th><th>6</th><th>7</th></tr></thead>
@@ -39,22 +63,47 @@ times are</p>
 structure decisions, then takes one long stride from 0.58 to 0. See <a href="#flow">FIG 3</a> for the
 full curve family.</p>
 
+<div class="note warn">
+<div class="nh">⚠ Gotcha · "logit-normal" is a training word, not an inference word</div>
+<p>The SD3 paper <em>samples</em> its training timesteps from a logit-normal distribution, and that
+phrase is often reused for inference schedules. Nothing here is sampled or normal-distributed: the
+inference schedule is a fixed monotone warp of a uniform ladder, and the warp's μ is fitted empirically
+(per <code>compute_empirical_mu</code>'s own name) rather than drawn. The two ideas are related — the
+shift concentrates steps where training concentrated probability — but they are not the same
+statement.</p>
+</div>
+
 <h3>14.2 · What a step costs</h3>
 <p>Attention is quadratic in sequence length and the block matmuls are linear, so the cost of a step is
-dominated by token count. Counting the two matmuls of every block plus the attention FLOPs:</p>
+dominated by token count. The counting rule, applied to the dev configuration:</p>
+<div class="note math">
+<div class="nh">Σ How these numbers are computed</div>
+<p><span class="mathblk">FLOPs = 2 × (MACs in the blocks + MACs in the attention)</span></p>
+<p style="margin-top:8px">A token crossing a <em>single</em> block touches <code>linear1</code>
+(6144 × 55 296) and <code>linear2</code> (24 576 × 6144) = 490 733 568 MACs. A token crossing a
+<em>double</em> block touches only <em>one</em> of its two streams — image tokens the image weights, text
+tokens the text weights — and one stream costs exactly the same 490 733 568 MACs
+(qkv + proj + two MLP matrices). So the matmul term is <span class="shape">56 × L × 490 733 568</span>,
+not <span class="shape">56 × L × 981 467 648</span>: multiplying the double block's <em>full</em>
+parameter count by every token would count each token twice.</p>
+<p style="margin-top:8px">Attention adds <span class="shape">56 × 2 × L² × 6144</span> MACs (one
+<code>q·k</code> and one <code>weights·v</code> per block, over the whole joint sequence of
+L = image + 512 text tokens). Elementwise work — norms, SiLU, residuals — is excluded; it is under a
+percent.</p>
+</div>
 <div class="tbl-wrap">
 <table class="data">
 <thead><tr><th>output size</th><th style="width:130px">image tokens</th><th style="width:170px">with 512 text tokens</th><th style="width:180px">TFLOPs per step</th><th style="width:180px">50 steps</th></tr></thead>
 <tbody>
-<tr><td>512 × 512</td><td class="num">1 024</td><td class="num">1 536</td><td class="num">112.5</td><td class="num">5.63 P</td></tr>
-<tr><td>1024 × 1024</td><td class="num">4 096</td><td class="num">4 608</td><td class="num">318.7</td><td class="num">15.93 P</td></tr>
-<tr><td>1360 × 768 <span class="dim">(CLI default)</span></td><td class="num">4 080</td><td class="num">4 592</td><td class="num">317.7</td><td class="num">15.88 P</td></tr>
-<tr><td>2048 × 2048</td><td class="num">16 384</td><td class="num">16 896</td><td class="num">1 454.2</td><td class="num">72.71 P</td></tr>
+<tr><td>512 × 512</td><td class="num">1 024</td><td class="num">1 536</td><td class="num">87.7</td><td class="num">4.38 P</td></tr>
+<tr><td>1024 × 1024</td><td class="num">4 096</td><td class="num">4 608</td><td class="num">282.5</td><td class="num">14.12 P</td></tr>
+<tr><td>1360 × 768 <span class="dim">(CLI default)</span></td><td class="num">4 080</td><td class="num">4 592</td><td class="num">281.4</td><td class="num">14.07 P</td></tr>
+<tr><td>2048 × 2048</td><td class="num">16 384</td><td class="num">16 896</td><td class="num">1 321.5</td><td class="num">66.08 P</td></tr>
 </tbody>
 </table>
 </div>
-<p>Quadrupling the pixels multiplies the work by ~4.6× — the attention term growing as the square is
-exactly the extra 0.6. This table is also the honest explanation of the KV cache's value: at 512² with
+<p>Quadrupling the pixels multiplies the work by ~4.7× — the attention term growing as the square is
+where the extra 0.7 comes from (at 4 MP it is already 30 % of the step). This table is also the honest explanation of the KV cache's value: at 512² with
 four references the reference tokens <em>quadruple</em> the sequence, and removing them from 49 of the
 50 steps is worth the 2.66× measured in §13.</p>
 
@@ -77,7 +126,7 @@ anywhere in the file.</p>
 <section id="design">
 <h2><span class="secno">§ 15</span>Why the file looks like this — twelve design decisions</h2>
 <p class="section-intro">
-Reading 834 lines you meet a lot of choices that look arbitrary until you see the reason. Here they
+Reading 833 lines you meet a lot of choices that look arbitrary until you see the reason. Here they
 are, collected.
 </p>
 
@@ -88,14 +137,14 @@ are, collected.
 <tr><td><b>Fused projections</b></td><td>L453, L459</td><td>One matrix produces q, k, v <em>and</em> the MLP input; another consumes attention and MLP output together. Five matmuls become two, and on a GPU fewer, bigger matmuls are dramatically more efficient.</td></tr>
 <tr><td><b>Modulation computed once</b></td><td>L132–134</td><td>56 blocks × 3 vectors would mean 168 MLP calls per step; sharing them costs 3 and gives every block the same conditioning signal.</td></tr>
 <tr><td><b>Parameter-free norms + adaLN</b></td><td>L464, L470</td><td>LayerNorm's own gain/bias would fight the modulation. Setting <code>elementwise_affine=False</code> everywhere (81 norms) makes the timestep the sole owner of scale and shift.</td></tr>
-<tr><td><b>No biases anywhere</b></td><td>all Linears</td><td>171 linear layers, all <code>bias=False</code>. At this scale biases contribute nothing measurable and cost memory bandwidth.</td></tr>
-<tr><td><b>fp32 at the edges</b></td><td>L433, L831</td><td>The network runs in bf16 but the final prediction and the RoPE rotation are cast to fp32: the sampler integrates 50 steps, and tiny systematic errors would accumulate.</td></tr>
+<tr><td><b>No biases anywhere</b></td><td>all Linears</td><td>171 linear layers, all <code>bias=False</code> — verifiable by grepping the file. <span class="spec">inference</span> The likely reason is that every linear here is followed or preceded by a normalisation whose shift is generated per token, which a constant bias adds nothing to.</td></tr>
+<tr><td><b>fp32 for the delicate arithmetic</b></td><td>L722–726, L741, L825, L829–832</td><td>The network runs in bf16, but three things are computed in float32 and cast back: the sinusoidal frequency ladder, the RMSNorm statistics (<code>x.float()</code> then <code>.to(x_dtype)</code>) and the RoPE rotations (<code>.float()</code> then <code>type_as</code>). Note what is <em>not</em> in this list: <code>LastLayer</code> — the prediction leaves the model in the working dtype.</td></tr>
 <tr><td><b>4-axis RoPE instead of 1-D</b></td><td>L694–707</td><td>Images are 2-D and references are separated in "time". Four rotation planes with equal dimension splits let one mechanism encode <code>(t, h, w, l)</code> without learned position tables.</td></tr>
-<tr><td><b>A mask instead of two attentions</b></td><td>L808–811</td><td>Reference isolation could have been a separate code path; expressing it as one boolean mask keeps a single, auditable attention call per configuration.</td></tr>
-<tr><td><b>8 double + 48 single</b></td><td>L96–103</td><td>Cross-modal weights are only needed while the two streams learn to relate; afterwards shared weights are cheaper. FLUX.1's 19+38 moved to 8+48 — the trade keeps paying.</td></tr>
-<tr><td><b>Cache as a dict of lists</b></td><td>L260–264</td><td>Plain Python structures, one entry per block in block order. No abstraction layer, no registry — the simplest thing that makes <code>cache["double_blocks"][i]</code> obvious.</td></tr>
-<tr><td><b>Dead code left in place</b></td><td>L446, L449</td><td><code>self.scale</code> and <code>self.hidden_dim</code> are never read. They survive from an older hand-written attention; deleting them would break checkpoint key compatibility.</td></tr>
-<tr><td><b><code>assert</code> for shape checks</b></td><td>L63, L528</td><td>Divisibility of hidden by heads is a programming error, not a runtime condition — assert documents it and vanishes under <code>-O</code>.</td></tr>
+<tr><td><b>Isolation by slicing, not by masking</b></td><td>L802–813</td><td>No boolean mask tensor is ever built. The uncached branch makes <em>two</em> dense attention calls — txt+img over all keys, then ref over ref — and the cached branch needs only one, because the reference queries are gone. Same rule (FIG 11), expressed as concatenations.</td></tr>
+<tr><td><b>8 double + 48 single</b></td><td>L16–17, built at L76–96</td><td><code>depth = 8</code> and <code>depth_single_blocks = 48</code> are config fields, consumed by the two <code>ModuleList</code> comprehensions in <code>__init__</code>. A double block costs exactly 2× a single one, so depth on the shared side is twice as cheap. FLUX.1 used 19+38; FLUX.2 moves further along that trade.</td></tr>
+<tr><td><b>Cache as a dict of lists</b></td><td>L260–264</td><td>Plain Python structures, one entry per block in block order. No abstraction layer, no registry — the simplest thing that makes <code>kv_cache["double_blocks"][i]</code> obvious.</td></tr>
+<tr><td><b>Dead code left in place</b></td><td>L446, L449</td><td><code>self.hidden_dim</code> and <code>self.scale</code> are never read again after <code>__init__</code>. They are a plain Python int and float — not parameters, not buffers — so they appear in no <code>state_dict</code> and cost nothing but a line each. <span class="spec">inference</span> They look like leftovers from a hand-written attention that <code>scaled_dot_product_attention</code> replaced.</td></tr>
+<tr><td><b>Two different guard styles</b></td><td>L58–64, L534, L819</td><td><code>Flux2.__init__</code> raises <code>ValueError</code> with a formatted message; <code>DoubleStreamBlock.__init__</code> and <code>rope</code> use bare <code>assert</code>s (the only two in the file), which document a programming error and vanish under <code>python -O</code>. Same requirement, three sites, two mechanisms.</td></tr>
 <tr><td><b>No dropout, no stochasticity</b></td><td>—</td><td>An inference-only file. Everything deterministic means the KV-cache proof of §13 holds exactly, in floating point, forever.</td></tr>
 </tbody>
 </table>
@@ -119,23 +168,23 @@ ever get lost, this is the map back.
 <tr><td class="m">39</td><td><code>Klein4BParams</code></td><td>The 4B preset: hidden 3072, 5 double + 20 single blocks.</td></tr>
 <tr class="grp"><td colspan="3">the model</td></tr>
 <tr><td class="m">52</td><td><code>Flux2</code></td><td>The transformer: embedders, modulation MLPs, 8 double + N single blocks, final layer.</td></tr>
-<tr><td class="m">53</td><td><code>Flux2.__init__</code></td><td>Builds every submodule; validates hidden % heads == 0.</td></tr>
+<tr><td class="m">53</td><td><code>Flux2.__init__</code></td><td>Two guards, then builds every submodule — traced in §11.1.</td></tr>
 <tr><td class="m">115</td><td><code>Flux2.forward</code></td><td>Plain text→image pass, sequence <code>[txt, img]</code>.</td></tr>
 <tr><td class="m">170</td><td><code>Flux2.forward_kv_extract</code></td><td>Step 0 with references; returns prediction + KV cache.</td></tr>
 <tr><td class="m">267</td><td><code>Flux2.forward_kv_cached</code></td><td>Steps 1…N−1; references come from the cache.</td></tr>
 <tr class="grp"><td colspan="3">module-level helpers</td></tr>
-<tr><td class="m">329</td><td><code>_blend_mod_triple</code></td><td>Splice two (shift, scale, gate) triples into a per-token tensor.</td></tr>
-<tr><td class="m">346</td><td><code>_blend_double_mods</code></td><td>Same, wrapped for the double blocks' single-triple modulation.</td></tr>
+<tr><td class="m">329</td><td><code>_blend_mod_triple</code></td><td>Splice one (shift, scale, gate) triple into a per-token tensor: first <code>num_ref</code> rows from the reference version, the rest from the image version.</td></tr>
+<tr><td class="m">346</td><td><code>_blend_double_mods</code></td><td>Applies that to <em>both</em> triples a double block's image modulation carries (attention and MLP); the text modulation is never blended.</td></tr>
 <tr><td class="m">356</td><td><code>_blend_single_mods</code></td><td>Same for the single blocks' three-region layout <code>[txt, ref, img]</code>.</td></tr>
 <tr><td class="m">710</td><td><code>timestep_embedding</code></td><td>Scalar → sinusoidal vector of dimension <code>dim</code>.</td></tr>
-<tr><td class="m">758</td><td><code>causal_attn_fn</code></td><td>Masked attention: references sealed off from everything else.</td></tr>
+<tr><td class="m">758</td><td><code>causal_attn_fn</code></td><td>Attention router: references sealed off by slicing — two dense calls uncached, one cached. No mask tensor.</td></tr>
 <tr><td class="m">818</td><td><code>rope</code></td><td>Positions → per-token rotation matrices (…, n, dim/2, 2, 2).</td></tr>
 <tr><td class="m">828</td><td><code>apply_rope</code></td><td>Apply those rotations to q and k in fp32.</td></tr>
 <tr class="grp"><td colspan="3">small modules</td></tr>
 <tr><td class="m">375</td><td><code>SelfAttention</code></td><td>Container for one attention's qkv + proj weights (no forward!).</td></tr>
 <tr><td class="m">390</td><td><code>SiLUActivation</code></td><td>SwiGLU gate: <code>silu(x₁)·x₂</code> after <code>chunk(2, -1)</code>.</td></tr>
 <tr><td class="m">400</td><td><code>Modulation</code></td><td>condition vector → (shift, scale, gate) [×2], with the <code>[:, None, :]</code> fix-up.</td></tr>
-<tr><td class="m">415</td><td><code>LastLayer</code></td><td>Final adaLN + linear to patch channels; casts to fp32.</td></tr>
+<tr><td class="m">415</td><td><code>LastLayer</code></td><td>Final adaLN (shift and scale, no gate) + the one linear back to 128 latent channels.</td></tr>
 <tr><td class="m">683</td><td><code>MLPEmbedder</code></td><td>linear → SiLU → linear; lifts the timestep embedding to hidden size.</td></tr>
 <tr><td class="m">694</td><td><code>EmbedND</code></td><td>Per-axis RoPE frequencies → concatenated rotation matrices.</td></tr>
 <tr><td class="m">734</td><td><code>RMSNorm</code></td><td>Root-mean-square normalisation with a learned gain.</td></tr>
@@ -162,7 +211,7 @@ ever get lost, this is the map back.
 <tbody>
 <tr><td><code>in_channels</code></td><td class="num">128</td><td>Latent channels per patch after the VAE's 16× compression.</td></tr>
 <tr><td><code>axes_dim</code></td><td class="num">[32, 32, 32, 32]</td><td>Rotation planes per position axis (t, h, w, l).</td></tr>
-<tr><td><code>theta</code></td><td class="num">2000</td><td>RoPE base frequency — ten times smaller than an LLM's 10 000.</td></tr>
+<tr><td><code>theta</code></td><td class="num">2000</td><td>RoPE base frequency — five times smaller than the 10 000 common in LLMs (§6.1).</td></tr>
 <tr><td><code>mlp_ratio</code></td><td class="num">3.0</td><td>MLP width multiplier (before the SwiGLU doubling).</td></tr>
 <tr><td><code>head_dim</code></td><td class="num">128</td><td>hidden ÷ heads, identical in every configuration.</td></tr>
 <tr><td><code>ref timestep</code></td><td class="num">0.0</td><td>References are always "clean"; makes the cache exact.</td></tr>
@@ -178,14 +227,16 @@ ever get lost, this is the map back.
 <ul>
 <li><b>The source.</b> black-forest-labs/flux2, <code>src/flux2/model.py</code> — the file this article walks through, line by line. Also <code>sampling.py</code>, <code>autoencoder.py</code>, <code>text_encoder.py</code> and <code>docs/flux2_klein_kv_cache.md</code> in the same repository.</li>
 <li><b>FLUX.2 technical write-up.</b> Black Forest Labs, "FLUX.2" blog post (bfl.ai/blog/flux-2) and the accompanying representation-comparison note — the closest thing to a paper; there is no arXiv preprint for FLUX.2 itself.</li>
-<li><b>Scaling Rectified Flow Transformers (SD3 / MM-DiT).</b> Esser et al., 2024 — arXiv:2403.03206. The double-stream block, the shared modulation and the logit-normal timestep sampling all come from here.</li>
+<li><b>Scaling Rectified Flow Transformers (SD3 / MM-DiT).</b> Esser et al., 2024 — arXiv:2403.03206. Where the double-stream block comes from — two weight sets meeting in one joint attention — together with rectified-flow training, the timestep-shift formula of §2.3 and logit-normal timestep <em>sampling during training</em>. What does <em>not</em> come from SD3: the hybrid double-then-single stack (SD3 is double-stream throughout) and the single shared modulation (SD3 modulates per block, as DiT does).</li>
 <li><b>RoPE.</b> Su et al., "RoFormer: Enhanced Transformer with Rotary Position Embedding", arXiv:2104.09864 — the rotation mechanism generalised to four axes in §5.</li>
 <li><b>SwiGLU.</b> Shazeer, "GLU Variants Improve Transformer", arXiv:2002.05202 — the <code>silu(x₁)·x₂</code> gate of §7.2.</li>
 <li><b>adaLN.</b> Peebles &amp; Xie, "Scalable Diffusion Models with Transformers" (DiT), arXiv:2212.09748 — adaptive layer norm with shift/scale/gate from a condition vector.</li>
-<li><b>Demystifying FLUX.</b> arXiv:2507.09595 — an independent architecture review of the FLUX family, useful for the FLUX.1 → FLUX.2 differences (19+38 → 8+48 blocks, Mistral-3 replacing T5+CLIP).</li>
+<li><b>Demystifying Flux Architecture.</b> arXiv:2507.09595, July 2025 — an independent review of <em>FLUX.1</em>, written before FLUX.2 existed. Read it for FLUX.1's design (and for the hybrid double/single recipe FLUX.2 inherits); it says nothing about this file. The FLUX.1 → FLUX.2 deltas quoted in §1 (19+38 → 8+48 blocks, Mistral-Small-3.2 replacing T5-XXL + CLIP) come from BFL's own release material, not from this paper.</li>
 <li><b>QK-norm.</b> Henry et al., "Query-Key Normalization for Transformers", 2020 — the stability trick behind §7.7.</li>
 </ul>
 <p class="dim" style="margin-top:18px">All numerical claims in this article — parameter counts, token
 counts, FLOPs, cache sizes, mask patterns, rotation orthogonality and the bit-exactness of the KV
-cache — were computed or measured directly from the repository's code, not copied from documentation.</p>
+cache — were computed or measured directly from the repository's code, not copied from documentation.
+Statements about <em>why</em> the authors made a choice are a different kind of claim: the file carries
+almost no comments, so those are marked <span class="spec">inference</span> wherever they appear.</p>
 </section>

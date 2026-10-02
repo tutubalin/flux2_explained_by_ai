@@ -58,9 +58,9 @@ left = grid(70, 110, rows_full,
 rows_c = [r for r in rows_full if r != "ref"]
 right = grid(560, 110, rows_c, lambda i, j: True)
 
-svg = f'''<svg viewBox="0 0 1040 430" role="img" aria-label="Attention mask: text and image tokens attend to everything, reference tokens attend only to themselves; with the KV cache the reference rows simply vanish from the query side while their keys stay available.">
+svg = f'''<svg viewBox="0 0 1040 430" role="img" aria-label="Attention isolation pattern: text and image tokens attend to everything, reference tokens attend only to themselves; with the KV cache the reference rows simply vanish from the query side while their keys stay available.">
 <text x="40" y="30" class="ttl">Who is allowed to look at whom</text>
-<text x="70" y="66" class="axb">without cache · forward()</text>
+<text x="70" y="66" class="axb">without cache · forward_kv_extract()</text>
 <text x="70" y="84" class="ax">queries ↓ · keys →</text>
 {labels(70, 110, rows_full)}{left}
 <text x="560" y="66" class="axb">with cache · forward_kv_cached()</text>
@@ -77,9 +77,10 @@ fig = f'''<figure>
 <div class="fig">
 {svg}
 </div>
-<figcaption><span class="figno">FIG 11</span><b>The mask, measured.</b> I fed one-hot values through
-<code>causal_attn_fn</code> and read back which key each query actually mixed: on the left is what came
-out. Text and image rows are completely dense — every token sees every token, in both directions. The
+<figcaption><span class="figno">FIG 11</span><b>The isolation rule, measured.</b> I fed one-hot values
+through <code>causal_attn_fn</code> and read back which key each query actually mixed: on the left is what
+came out. (No mask tensor exists anywhere in the code — this pattern is what the <em>slicing</em> of §8.2
+produces, and it is drawn as a grid only because a grid is the easiest way to see it.) Text and image rows are completely dense — every token sees every token, in both directions. The
 reference block is an isolated island: references read each other and nothing else. On the right, the
 cached variant: the reference <em>rows</em> are gone (we no longer compute their outputs) but their
 <em>columns</em> remain, supplied from the cache, so text and image still see them exactly as before.</figcaption>

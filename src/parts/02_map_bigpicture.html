@@ -5,14 +5,26 @@ Before diving in, here is the entire file on one screen. Fourteen classes and se
 functions, listed in the order they appear. Click any row to jump to its explanation.
 </p>
 
+<p>The file starts with seven lines of imports, and they are the whole of its dependency list — no
+local modules, no configuration files, nothing hidden:</p>
+
+<!--CODE 1-7 title="model.py · the complete import block" hl="1,2,4,5,6,7"-->
+
+<p><code>math</code> is used exactly once (the <code>log</code> in <code>timestep_embedding</code>, §7.1).
+<code>dataclass</code> and <code>field</code> build the three configuration objects (§6).
+<code>torch</code>, <code>nn</code> and <code>F</code> supply the layers and
+<code>scaled_dot_product_attention</code> (§8). <code>Tensor</code> is imported as a name so the type
+hints read <code>x: Tensor</code>. And <code>rearrange</code>, from einops, does every reshape in the
+file — including the one that splits 6144 features into 48 heads of 128 (§9).</p>
+
 <div class="note beginner">
 <div class="nh">◇ Reading order</div>
 <p>The file is written <em>top-down</em> — the giant <code>Flux2</code> class comes first, at line 52,
 and the tiny helpers it depends on come later, near line 800. That is the opposite of how you should
-<em>read</em> it. This article goes <strong>bottom-up</strong>: we build the smallest parts first
-(sections 6.1–6.9), assemble them into blocks (7–9), and only then look at the whole model (10).
-By the time you reach <code>Flux2.forward</code> there will be nothing left in it that you have not
-already met.</p>
+<em>read</em> it. This article goes <strong>bottom-up</strong>: the prerequisites first (flow, tokens,
+attention, position — §2–§6), then the eleven small parts (§7.1–7.10), then the attention router and the
+two block types assembled from them (§8–§10), and only then the whole model (§11). By the time you reach
+<code>Flux2.forward</code> there will be nothing left in it that you have not already met.</p>
 </div>
 
 <div class="filemap">
@@ -181,7 +193,7 @@ how much?"</em></li>
 <path d="M564,496 L592,496" stroke="#5fe08a" stroke-width="1.6" marker-end="url(#arV)"/>
 <rect x="594" y="470" width="374" height="52" rx="9" fill="rgba(95,224,138,.07)" stroke="#5fe08a" stroke-opacity=".35"/>
 <text x="781" y="491" class="lbl-s" text-anchor="middle" fill="#5fe08a">Computed ONCE per step and shared by all 56 blocks —</text>
-<text x="781" y="508" class="lbl-s" text-anchor="middle" fill="#5fe08a">that single choice saves ~11 billion parameters.</text>
+<text x="781" y="508" class="lbl-s" text-anchor="middle" fill="#5fe08a">that single choice saves ~8.5 billion parameters.</text>
 
 <path d="M322,470 L322,438" stroke="#5fe08a" stroke-width="1.4" stroke-dasharray="4 4" marker-end="url(#arV)"/>
 <path d="M674,470 L674,438" stroke="#5fe08a" stroke-width="1.4" stroke-dasharray="4 4" marker-end="url(#arV)"/>
@@ -294,8 +306,11 @@ length 128 — 16,384 values in total, about 0.00005 % of the model.</p>
 <h5><span class="tag" style="background:var(--ref)"></span>Modulation is global, not per-block</h5>
 <p>In the original DiT and in FLUX.1, <em>every</em> block owned its own adaLN modulation matrix.
 FLUX.2 hoists them out: there are exactly three <code>Modulation</code> modules in the entire network,
-computed once per step and handed to all 56 blocks. Had each block kept its own, the modulation alone
-would have cost roughly 11 billion extra parameters.</p>
+computed once per step and handed to all 56 blocks. Had each block kept its own — a 6144 → 36864 matrix
+per stream for the 8 double blocks and a 6144 → 18432 matrix for each of the 48 single ones — the
+modulation would have cost <strong>9 059 696 640</strong> parameters instead of the
+<strong>566 231 040</strong> the three shared matrices cost: about <strong>8.5 billion extra</strong>,
+over a quarter of the whole model.</p>
 </div>
 <div class="card">
 <h5><span class="tag" style="background:var(--txt)"></span>There is no dropout anywhere</h5>

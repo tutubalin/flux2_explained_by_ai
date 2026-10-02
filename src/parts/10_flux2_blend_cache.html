@@ -11,14 +11,40 @@ understanding the whole inference design.
 <table class="data">
 <thead><tr><th style="width:190px">method</th><th style="width:170px">sequence layout</th><th>when it is used</th><th style="width:150px">returns</th></tr></thead>
 <tbody>
-<tr><td><code>forward</code> <span class="dim">L115</span></td><td><code>[txt, img]</code><br><span class="dim">no references at all</span></td><td>Plain text-to-image. Calls the blocks' <code>forward_kv_extract</code> with <code>num_ref_tokens=0</code>, which makes the masking a no-op.</td><td>velocity prediction</td></tr>
+<tr><td><code>forward</code> <span class="dim">L115</span></td><td><code>[txt, img]</code><br><span class="dim">no references at all</span></td><td>Plain text-to-image. Calls the blocks' <code>forward_kv_extract</code> with <code>num_ref_tokens=0</code>, which makes the isolation rule a no-op — with zero reference tokens there is nothing to seal off.</td><td>velocity prediction</td></tr>
 <tr><td><code>forward_kv_extract</code> <span class="dim">L170</span></td><td><code>[txt, ref, img]</code></td><td>Step 0 of a reference-guided run. Computes everything in full <em>and</em> saves each block's reference keys/values.</td><td>prediction + <code>kv_cache</code></td></tr>
 <tr><td><code>forward_kv_cached</code> <span class="dim">L267</span></td><td><code>[txt, img]</code>, cache holds ref</td><td>Steps 1…N−1 of the same run. Skips all reference computation.</td><td>prediction</td></tr>
 </tbody>
 </table>
 </div>
 
-<h3>11.1 · <code>forward</code> — the simple path</h3>
+<h3>11.1 · <code>__init__</code> — the 61 lines where everything is created</h3>
+<p>Before the three forwards, one listing that the rest of the article has been referring to all along.
+Every submodule in the network — every single one — is instantiated inside these lines; nothing else in
+the file constructs a module. Read it as the parts list of §7–§10 being assembled:</p>
+
+<!--CODE 52-113 title="model.py · Flux2.__init__" hl="56,57,58,62,65,66,67,68,69,70,72,73,74,76,82,87,93,98,103,108,110"-->
+
+<!--TRACE-->
+<!--T 53-54|One argument: a params dataclass (§6). Every number that follows comes out of it, which is why the three configurations differ only in which dataclass they hand over.-->
+<!--T 56-57|128 channels in, 128 channels out — and note where the second number comes from: <code>out_channels = params.in_channels</code>. The model predicts a velocity in the same latent space it reads, so there is only ever one such number to keep.-->
+<!--T 58-64|The two guards of §6.1, verbatim: <code>hidden_size % num_heads</code> and <code>sum(axes_dim) == hidden_size // num_heads</code>, each raising <code>ValueError</code> with a message that names the offending numbers.-->
+<!--T 65-66|Store the width (6144) and the head count (48). Their quotient — 128 — is the <code>head_dim</code> that every later layer is sized by.-->
+<!--T 67|The position machine of §7.5, built from the head width <code>pe_dim</code> computed at L62, the base <code>theta</code> (2000) and the four-axis split <code>axes_dim</code> ([32, 32, 32, 32]). Zero parameters.-->
+<!--T 68|The entrance for image tokens: 128 latent numbers per patch up to the network width. At 786 432 parameters this is the smallest matrix in the model.-->
+<!--T 69|The §7.3 embedder that turns the 256-dim sinusoidal noise code of §7.1 into the condition vector <code>vec</code>.-->
+<!--T 70|The entrance for text: the three-layer 15360-wide feature sandwich of §3.3 down to network width.-->
+<!--T 72-74|Guidance is optional and config-driven (§6): only the guidance-distilled dev model sets <code>use_guidance_embed</code>, and only then is a second <code>MLPEmbedder</code> built for the guidance scalar. Its output is <em>added</em> to <code>vec</code>, so the two signals share every downstream weight.-->
+<!--T 76-85|<code>depth</code> (8) copies of <code>DoubleStreamBlock</code> (§10) in an <code>nn.ModuleList</code> — a list that registers its contents as submodules, so their parameters show up in <code>state_dict()</code> under <code>double_blocks.0…7</code>.-->
+<!--T 87-96|<code>depth_single_blocks</code> (48) copies of <code>SingleStreamBlock</code> (§9), keys <code>single_blocks.0…47</code>. Together with the eight above, the 56 blocks that hold 97.5 % of the parameters (§1.1).-->
+<!--T 98-108|The whole network's adaLN (§7.9), in three modules: two <code>double=True</code> (six vectors each — one triple for the image stream's attention and MLP, one for the text stream's) and one <code>double=False</code> (three vectors). This is the sharing that saves ~8.5 billion parameters.-->
+<!--T 110-113|The exit door of §7.10, sized 6144 → <code>out_channels</code> = 128.-->
+<!--/TRACE-->
+
+<p class="dim">Everything above is a part you have already met: §7.1–§7.10 supply the small modules,
+§9–§10 the blocks. From here on the class only <em>runs</em> them.</p>
+
+<h3>11.2 · <code>forward</code> — the simple path</h3>
 <!--CODE 115-168 title="model.py" hl="124,126,127,128,129,130,132,133,134,136,137,139,140,142,143,150,153,154,156,162,165,167"-->
 
 <!--TRACE-->
@@ -28,14 +54,14 @@ understanding the whole inference design.
 <!--T 132-134|Pre-compute all modulation vectors <em>once</em>, before any block runs. This is the efficiency win of the shared design: 56 blocks × 3 vectors would be 168 modulation MLP calls if done per block; here there are exactly 3. Note <code>single_block_mod, _</code> — the single-stream modulation's second triple is discarded.-->
 <!--T 136-137|Project both streams into the network width: image patches 128 → 6144, text features 15360 → 6144.-->
 <!--T 139-140|Build the two sets of RoPE rotation matrices.-->
-<!--T 142-151|Run the eight double blocks. Each returns <code>(img, txt, cache)</code> and the cache is thrown away (<code>_</code>) because there is nothing to cache. <code>num_ref_tokens=0</code> makes the attention mask degenerate to plain dense attention.-->
+<!--T 142-151|Run the eight double blocks. Each returns <code>(img, txt, cache)</code> and the cache is thrown away (<code>_</code>) because there is nothing to cache. <code>num_ref_tokens=0</code> makes the router degenerate into one plain dense attention call.-->
 <!--T 153-154|<strong>The streams merge.</strong> Text tokens are placed <em>first</em>, image tokens second, and the position matrices are concatenated in the same order (<code>dim=2</code>, because <code>pe</code> has shape (B, 1, L, 64, 2, 2) — the token axis is 2, not 1).-->
 <!--T 156-163|Run the 48 single blocks over the unified sequence, passing <code>num_txt_tokens</code> so each block knows where text ends.-->
 <!--T 165|Discard the text half of the output. Text was context, not content: the model only ever predicts velocity for image tokens.-->
 <!--T 167|The final AdaLN + linear turns the 6144-dim features back into 128 channels of latent velocity, and casts to fp32 for the sampler's arithmetic.-->
 <!--/TRACE-->
 
-<h3>11.2 · <code>forward_kv_extract</code> — step 0, with references</h3>
+<h3>11.3 · <code>forward_kv_extract</code> — step 0, with references</h3>
 <!--CODE 170-265 title="model.py" hl="189,190,192,193,196,197,198,200,201,202,203,206,207,208,210,211,213,214,216,217,220,221,223,224,225,232,234,236,237,240,241,242,245,246,247,254,257,258,260,261,262,263,265"-->
 
 <!--TRACE-->
@@ -46,7 +72,7 @@ understanding the whole inference design.
 <!--T 206-211|Five modulation computations: the three real ones, plus a reference-specific double-image modulation and single modulation. There is deliberately <em>no</em> reference-specific text modulation — text is text, whatever the timestep.-->
 <!--T 213-217|Project the concatenated <code>[ref, img]</code> latents and the text, and build both position tensor sets.-->
 <!--T 220-221|The double blocks see the image stream as <code>[ref, img]</code>, so their modulation must be per-token: reference tokens get <code>ref_double_mod</code>, canvas tokens get the real one. <code>_blend_double_mods</code> (§12) does the splicing.-->
-<!--T 223-234|Run the eight double blocks, this time <em>keeping</em> each block's cache in a list, and passing the real <code>num_ref_tokens</code> so the masking actually isolates the references.-->
+<!--T 223-234|Run the eight double blocks, this time <em>keeping</em> each block's cache in a list, and passing the real <code>num_ref_tokens</code> so the router actually isolates the references.-->
 <!--T 236-237|Merge the streams exactly as in <code>forward</code>. Because the image stream is already <code>[ref, img]</code>, the merged sequence is <code>[txt, ref, img]</code> — the layout <code>causal_attn_fn</code> expects.-->
 <!--T 240-243|Blend the single-block modulation into three pieces this time: text gets the real modulation, references get theirs, canvas gets the real one.-->
 <!--T 245-254|Run the 48 single blocks, collecting a cache from each.-->
@@ -54,31 +80,38 @@ understanding the whole inference design.
 <!--T 260-265|Bundle the two cache lists and the reference count into a dict. Storing <code>num_ref_tokens</code> inside the cache is what lets <code>forward_kv_cached</code> be called without that argument.-->
 <!--/TRACE-->
 
-<h3>11.3 · <code>forward_kv_cached</code> — steps 1…N−1</h3>
+<h3>11.4 · <code>forward_kv_cached</code> — steps 1…N−1</h3>
 <p>The third forward is a mirror of the second with three differences: no <code>x_seq_concat</code>
 argument, no reference modulation, and the cache supplied instead of built.</p>
 
-<!--CODE 267-326 title="model.py" hl="279,283,284,286,292,293,296,302,303,310,311,312,313,315,316,317,318,319,321,322,323,324,326"-->
+<!--CODE 267-326 title="model.py" hl="277,278,279,281,283,284,286,287,288,290,291,292,294,295,297,298,300,301,308,311,312,314,315,320,323,324,325,326"-->
 
 <!--TRACE-->
-<!--T 279|The reference count now comes out of the cache rather than in through the signature.-->
+<!--T 277-281|Read the signature and the docstring together: there is no <code>x_seq_concat</code> argument and no <code>num_ref_tokens</code>. The reference count now comes <em>out of the cache</em> — each block recovers it from the shape of its stored keys (L519, L677). The only count read here is the text length, needed at the very end to strip the text rows back off.-->
 <!--T 283-284|Only one condition vector is computed. No <code>ref_vec</code>, no <code>ref_double_mod</code>, no <code>ref_single_mod</code> — the reference tokens are not present, so nothing needs conditioning them.-->
-<!--T 286|Guidance is added to <code>vec</code> only.-->
-<!--T 292-293|<strong>The double blocks get their image modulation unblended.</strong> Every image token in this pass is a canvas token, so the single uniform modulation is correct for all of them. This is the subtlest line in the file: the same parameter is a 2-D broadcast tensor here and a 3-D per-token tensor in <code>forward_kv_extract</code>, and both work because of the <code>[:, None, :]</code> fix-up in <code>Modulation</code>.-->
-<!--T 296|The image input is just the noisy canvas — no concatenation with references.-->
-<!--T 302-303|Each double block receives <em>its own</em> cached entry (<code>double_block_cache[i]</code>) and returns the new image and text states.-->
-<!--T 310|Merge streams as before; the result is <code>[txt, img]</code>, which is precisely the layout the cached attention branch expects.-->
-<!--T 312-313|Again no blending — one uniform modulation for the whole unified sequence.-->
-<!--T 315-321|The 48 single blocks, each with its cache entry.-->
-<!--T 322-326|Strip the text tokens, apply the final layer, return the prediction. No cache is returned: nothing new was learned about the references.-->
+<!--T 286-288|Guidance is added to <code>vec</code> only — there is no <code>ref_vec</code> in this path to add it to.-->
+<!--T 290-292|<strong>The double blocks get their image modulation unblended.</strong> Every image token in this pass is a canvas token, so the single uniform modulation is correct for all of them. This is the subtlest line in the file: the same parameter is a 2-D broadcast tensor here and a 3-D per-token tensor in <code>forward_kv_extract</code>, and both work because of the <code>[:, None, :]</code> fix-up in <code>Modulation</code>.-->
+<!--T 294-295|The image input is just the noisy canvas — no concatenation with references, because the references are not in this sequence at all. Text is projected as always.-->
+<!--T 297-298|Position matrices for canvas and text, built exactly as in the other two forwards.-->
+<!--T 300-309|The eight double blocks, each receiving <em>its own</em> cached entry (<code>kv_cache["double_blocks"][i]</code>, paired by <code>enumerate</code>) and returning the new image and text states. No cache comes back.-->
+<!--T 311-312|Merge streams as before; the result is <code>[txt, img]</code>, which is precisely the layout the cached branch of §8.1 expects.-->
+<!--T 314-321|The 48 single blocks, each with its own cache entry — and again no blending, because one uniform modulation is correct for the whole unified sequence.-->
+<!--T 323-326|Strip the text tokens, apply the final layer, return the prediction. No cache is returned: nothing new was learned about the references.-->
 <!--/TRACE-->
 
 <div class="note warn">
 <div class="nh">⚠ The two cached paths are <em>not</em> interchangeable</div>
-<p>Because <code>denoise</code> lays the sequence out as <code>[img, ref]</code> while
-<code>denoise_cached</code> uses <code>[ref, img]</code>, the attention masks differ and the two produce
-slightly different images. That is why the KV-cache variant is shipped as its own checkpoint
-(<code>flux.2-klein-9b-kv</code>) rather than as a flag on the normal one.</p>
+<p><code>sampling.py</code> can drive references two ways, and they are <em>not</em> the same
+computation. <code>denoise</code> concatenates the references onto the canvas and calls
+<code>forward()</code>, which hard-codes <code>num_ref_tokens=0</code> (L150, L162): nothing is isolated,
+the references attend to the noisy canvas, they are conditioned at the <em>current</em> timestep, and they
+are recomputed on all 50 steps. <code>denoise_cached</code> calls <code>forward_kv_extract</code> once and
+<code>forward_kv_cached</code> thereafter, where the references are sealed off (§8.2) and conditioned at
+<code>t = 0.0</code>. Different mathematics ⇒ different images, which is why the cached variant ships as
+its own checkpoint (<code>flux.2-klein-9b-kv</code>) rather than as a flag on the normal one.</p>
+<p>Token <em>order</em> is not what distinguishes them. Positions travel with their tokens through RoPE,
+so <code>[img, ref]</code> and <code>[ref, img]</code> describe the same computation up to a permutation of
+rows. What matters is whether the references are isolated and frozen.</p>
 </div>
 </section>
 
@@ -93,23 +126,30 @@ Three tiny module-level functions that solve one problem: a modulation vector is
 <!--CODE 329-343 title="model.py" hl="329,330,331,332,333,334,335,336,337,338,339,340,341,342,343"-->
 
 <!--TRACE-->
-<!--T 340-341|If either modulation is 2-D — shape (B, D), the broadcast form — insert a token axis to make it (B, 1, D). After this both operands have three dimensions and can be <code>expand</code>ed to a common shape.-->
-<!--T 342|<code>expand</code> materialises the broadcast <em>without copying</em>: it returns a view with stride 0 on the token axis. Cheap and safe to read.-->
-<!--T 343|Stitch them together along the token axis: <code>num_ref</code> reference values followed by <code>num_img</code> image values. The result is a real (B, L, D) tensor that the blocks can index per token.-->
+<!--T 329-330|One function, one job: given the image stream's triple and the reference triple, produce a single per-token tensor whose first <code>num_ref</code> rows come from the reference and whose remaining rows come from the image. <code>seq_len</code> is the length of the <em>image</em> stream, references included.-->
+<!--T 331-332|Walk the three vectors — shift, scale, gate — in lockstep with <code>zip</code>, and collect the results in a list. Everything below happens once per vector.-->
+<!--T 333-335|If either modulation is 2-D — shape (B, D), the broadcast form produced by <code>Modulation</code> at L409–410 — insert a token axis to make it (B, 1, D). After this both operands have three dimensions and can be <code>expand</code>ed to a common shape.-->
+<!--T 336-342|One <code>torch.cat</code> of two <code>expand</code>ed pieces, along the token axis (<code>dim=1</code>). <code>expand</code> materialises a broadcast <em>without copying</em> — a view with stride 0 on the token axis. The reference vector is stretched to <code>num_ref</code> rows; the image vector is stretched to the full <code>seq_len</code> and then sliced <em>from</em> <code>num_ref</code> onwards, so its first <code>num_ref</code> rows — the ones that belong to the references — are dropped rather than duplicated. What comes out is <code>num_ref</code> reference rows followed by <code>seq_len − num_ref</code> canvas rows.-->
+<!--T 343|Return the three spliced vectors as a tuple again — the same shape the blocks expect from <code>Modulation</code>, only now per-token instead of broadcast.
 <!--/TRACE-->
 
-<!--CODE 346-353 title="model.py" hl="347,353"-->
+<!--CODE 346-353 title="model.py" hl="346,347,348,349,350,351,352,353"-->
 
 <!--TRACE-->
-<!--T 347|<code>mod_tuple</code> is the <em>whole</em> return value of <code>Modulation.forward</code> — a pair <code>(triple, None_or_triple)</code>. Passing the tuple rather than the first element is easy to get wrong when calling this by hand.-->
-<!--T 353|Blend the first triple only and re-wrap it in a one-element tuple, preserving the shape of the original return value. Double blocks always get <code>multiplier=6</code> and therefore always have <code>out2 is None</code>, so only one triple exists to blend.-->
+<!--T 346-347|A double block's <em>image</em> modulation is a <strong>pair of triples</strong>, because <code>Modulation(double=True)</code> uses <code>multiplier=6</code> and returns <code>(out[:3], out[3:])</code> (§7.9): one triple for the attention sub-layer, one for the MLP sub-layer. This helper blends both.-->
+<!--T 348-349|Unpack the pair on both sides — the live modulation and the reference one.-->
+<!--T 350-353|Two calls to <code>_blend_mod_triple</code> with the same <code>num_ref</code> and <code>seq_len</code>, returned as a pair of blended triples: exactly the shape <code>DoubleStreamBlock._prepare_qkv</code> unpacks at L570. Worth noticing what is <em>not</em> blended: the text modulation. <code>forward_kv_extract</code> calls this only for <code>double_block_mod_img</code> (L221), because the text stream contains no reference tokens and can stay a single broadcast value.
 <!--/TRACE-->
 
-<!--CODE 356-372 title="model.py" hl="371,372"-->
+<!--CODE 356-372 title="model.py" hl="356,357,358,359,360,361,362,363,364,365,366,367,368,369,370,371,372"-->
 
 <!--TRACE-->
-<!--T 371|<code>shift, scale, gate = mod_tuple[0]</code> — the single-stream modulation <em>does</em> have a second triple (<code>multiplier=3</code>), and <code>_blend_mod_triple</code> returns it as <code>out2</code>.-->
-<!--T 372|But <code>_blend_single_mods</code> returns only the first triple, discarding the second. That is consistent with how it is consumed: <code>single_block_mod, _ = self.single_stream_modulation(vec)</code> throws the second triple away at the source, and <code>SingleStreamBlock._qkv</code> unpacks exactly three values.-->
+<!--T 356-357|The single blocks run <em>after</em> the two streams have merged, so their sequence is <code>[txt, ref, img]</code> — three regions, not two — and the function cannot reuse <code>_blend_mod_triple</code>.-->
+<!--T 358-359|<code>single_mod</code> is one triple: <code>Modulation(double=False)</code> has <code>multiplier=3</code> and its second element is <code>None</code>, already thrown away at the call site (<code>single_block_mod, _ = …</code>, L208). So the <code>zip</code> runs three times, once per shift/scale/gate.-->
+<!--T 360-362|The same 2-D fix-up as before: give a broadcast (B, D) modulation a token axis.-->
+<!--T 363-365|Two expands of one vector each: the image modulation to the full merged length <code>seq_len</code>, the reference modulation to <code>num_ref</code> rows.-->
+<!--T 366-371|Now three pieces in <code>[txt, ref, img]</code> order: the first <code>num_txt</code> rows of the image modulation (text gets the <em>real</em> modulation — there is no reference-specific text conditioning), then the reference rows, then everything from <code>num_txt + num_ref</code> on, which is the canvas.-->
+<!--T 372|Return one blended triple — matching what <code>SingleStreamBlock._qkv</code> unpacks at L469 (<code>mod_shift, mod_scale, mod_gate = mod</code>).
 <!--/TRACE-->
 
 <div class="note idea">
@@ -147,7 +187,7 @@ make sense together.
 <rect x="310" y="104" width="120" height="42" rx="6" fill="rgba(246,169,59,.14)" stroke="#f6a93b"/>
 <text x="370" y="130" class="ax" text-anchor="middle" fill="#f6a93b">img</text>
 <text x="250" y="186" class="eq" text-anchor="middle">all three groups get full q, k, v</text>
-<text x="250" y="206" class="eq" text-anchor="middle">ref attends only to ref (masked)</text>
+<text x="250" y="206" class="eq" text-anchor="middle">ref attends only to ref (sealed off)</text>
 <text x="250" y="226" class="eq" text-anchor="middle">ref modulation frozen at t = 0.0</text>
 <text x="250" y="248" class="eq" text-anchor="middle" fill="#a9b8c9">→ prediction <tspan fill="#b18cff">+ kv_cache</tspan></text>
 
@@ -185,7 +225,7 @@ the references, but nothing about them is ever recomputed.</figcaption>
 <table class="data">
 <thead><tr><th style="width:270px">condition</th><th style="width:180px">where it lives</th><th>what it guarantees</th></tr></thead>
 <tbody>
-<tr><td><b>1 · References are isolated</b><br><span class="dim">ref queries attend only to ref keys</span></td><td><code>causal_attn_fn</code><br>L808–811</td><td>No information from the changing canvas can reach a reference token's hidden state. Without this, step 1's references would differ from step 0's and the cache would be wrong.</td></tr>
+<tr><td><b>1 · References are isolated</b><br><span class="dim">ref queries attend only to ref keys</span></td><td><code>causal_attn_fn</code><br>L810–811</td><td>No information from the changing canvas can reach a reference token's hidden state. Without this, step 1's references would differ from step 0's and the cache would be wrong.</td></tr>
 <tr><td><b>2 · References are clean</b><br><span class="dim"><code>ref_fixed_timestep = 0.0</code></span></td><td><code>forward_kv_extract</code><br>L198, L210–211</td><td>The reference modulation vector is a constant. Even though <code>vec</code> changes every step, <code>ref_vec</code> never does — so the reference tokens are transformed identically each time.</td></tr>
 <tr><td><b>3 · Reference inputs are constant</b><br><span class="dim">clean VAE latents, fixed <code>t = 10, 20, 30…</code></span></td><td><code>sampling.py</code><br><code>encode_image_refs</code>, <code>prc_img</code></td><td>The reference latents are never noised and their position IDs never move, so the <em>input</em> to block 0 is identical on every step.</td></tr>
 </tbody>
@@ -211,7 +251,12 @@ precision. The formula is</p>
 <div class="nh">Σ Memory</div>
 <p><span class="mathblk">bytes = n_blocks × 2 (K and V) × n_ref_tokens × hidden_size × 2 (bf16)</span></p>
 <p style="margin-top:6px">with <code>n_ref_tokens</code> capped by <code>sampling.py</code> at 1024²
-pixels per reference when there is more than one, and 2024² when there is exactly one.</p>
+pixels per reference when there is more than one, and 2024² when there is exactly one
+(<code>sampling.py</code> L56–58 — that <code>2024**2</code> is what the upstream file literally says and
+is almost certainly a typo for 2048²; the numbers below reproduce it faithfully). Each cap is then
+centre-cropped to a multiple of 16, so a single 2024²-capped square reference really contributes
+2016² ÷ 256 = <strong>15 876</strong> tokens, and four 1024²-capped references contribute
+4 × 4096 = <strong>16 384</strong>.</p>
 </div>
 
 <div class="tbl-wrap">
@@ -239,7 +284,8 @@ reference when there are several: four references at 1024² occupy barely more c
 </table>
 </div>
 <p>The pattern is exactly what the token arithmetic predicts. At 512² the canvas is only 1024 tokens, so
-four references at 4096 tokens <em>dominate</em> the sequence — removing them removes most of the work.
+four references at 1024² add 4 × 4096 = 16 384 tokens to a 1024-token canvas: the references are
+<em>94 % of the sequence</em>, so removing them removes most of the work.
 At 1440² the canvas is 8100 tokens and the references are a minority, so the same trick saves
 proportionally less. The cache pays off precisely when you are doing reference-guided work at modest
 resolution.</p>

@@ -82,7 +82,7 @@ few steps are needed — this is why the distilled klein models manage with only
 <h3>2.2 · Reading the sampling step</h3>
 <p>With that picture in mind, the denoising loop in <code>sampling.py</code> is three lines:</p>
 
-<!--RAW title="sampling.py · denoise() — the whole Euler loop"-->
+<!--RAW title="sampling.py · denoise() — the whole Euler loop (condensed)"-->
     guidance_vec = torch.full((img.shape[0],), guidance, device=img.device, dtype=img.dtype)
     for t_curr, t_prev in zip(timesteps[:-1], timesteps[1:]):
         t_vec = torch.full((img.shape[0],), t_curr, dtype=img.dtype, device=img.device)
@@ -94,7 +94,7 @@ few steps are needed — this is why the distilled klein models manage with only
     return img
 <!--/RAW-->
 
-<p>Line 212 is exactly the pink arrow in Figure 2. <code>t_curr</code> is where we are,
+<p>The <code>img = img + …</code> line — <code>sampling.py</code>:305 — is exactly the pink arrow in FIG 2. <code>t_curr</code> is where we are,
 <code>t_prev</code> is where we want to be next (always a smaller number), <code>pred</code> is the
 velocity <em>v</em> that <code>Flux2.forward</code> just returned. Multiplying velocity by the time
 difference gives the displacement. Nothing else happens — no noise is injected, no variance schedule
@@ -171,7 +171,7 @@ are the <em>actual</em> schedules produced by <code>get_schedule</code>, plotted
 </div>
 <figcaption><span class="figno">FIG 3</span><b>Curves, not straight lines.</b> Every schedule hugs the top of the plot —
 the noisy end — and only dives toward 0 at the very last steps. The 4-megapixel curve (green) hugs it
-hardest: at 4 MP the first 40 of 50 steps all happen above t = 0.7. That is the model spending its
+hardest: at 4 MP, 46 of the 50 steps happen above t = 0.7. That is the model spending its
 budget on global structure. The dashed diagonal is the naive uniform schedule for comparison.</figcaption>
 </figure>
 
@@ -180,8 +180,11 @@ budget on global structure. The dashed diagonal is the naive uniform schedule fo
 <p><code>model.py</code> never sees the schedule; it only ever receives <em>one</em> value of <em>t</em>
 per call, via the argument named <code>timesteps</code>. So whenever you read
 "timestep" in this file, think: <em>"a single float telling the model how noisy its input currently
-is"</em>. Because of the shift above, that float is usually above 0.7 in practice — which is why
-<code>timestep_embedding</code> multiplies it by 1000 before doing anything (§7.1).</p>
+is"</em>. Because of the shift above, that float spends most of the run in a narrow band near 1 —
+39 of the 50 steps at 1 MP sit above <code>t = 0.7</code> — so the model has to resolve very fine
+differences inside it, which is one more reason the scalar is expanded into 128 frequencies (§7.1)
+rather than fed in raw. The <code>× 1000</code> inside <code>timestep_embedding</code> is a separate
+matter: a scale convention, not a consequence of the schedule.</p>
 </div>
 </section>
 
@@ -194,8 +197,11 @@ happens.
 </p>
 
 <h3>3.1 · Three stages of compression</h3>
-<p>The VAE in <code>autoencoder.py</code> does two of the three stages; the third happens in
-<code>sampling.py</code> before the call:</p>
+<p>Two of the three stages happen inside the VAE, in <code>autoencoder.py</code>'s
+<code>encode()</code>: the convolutional 8× downsample to 32 channels, and the 2×2 patchify that folds
+four latent cells into one 128-number token. The third — flattening that 2-D grid of tokens into a plain
+sequence and attaching the position ids — is <code>sampling.py</code>'s <code>prc_img</code>, run just
+before the model is called:</p>
 
 <figure>
 <div class="fig">
@@ -267,8 +273,10 @@ can chew on — and this is exactly why <code>Flux2Params.in_channels</code> is 
 would be over a million tokens: 10¹² attention pairs per layer, utterly impossible. As 4096 tokens it
 is 21 million pairs — expensive but feasible on real hardware. The latent space is a compression
 scheme that throws away perceptually irrelevant detail (exact sub-pixel noise) while keeping
-everything a human would notice. FLUX.2's VAE was retrained specifically to make that trade better at
-high resolution than FLUX.1's.</p>
+everything a human would notice. One detail worth knowing, because it explains a shape you will see in
+<code>autoencoder.py</code>: the 128-channel latent is normalised by a running-statistics
+<code>BatchNorm2d(128, affine=False, eps=1e-4)</code> inside the autoencoder (<code>autoencoder.py</code> L293–325) — no per-channel
+scale/shift factors for the transformer to carry around.</p>
 </div>
 
 <h3>3.2 · How many tokens is that, really?</h3>
@@ -294,7 +302,7 @@ modulation (§15), and the choice of 48 cheap single-stream blocks over expensiv
 prompt, and then <em>three of its internal layers</em> — layers 10, 20 and 30 — are pulled out and
 stacked side by side:</p>
 
-<!--RAW title="text_encoder.py · Mistral3SmallEmbedder.forward — the layer sandwich"-->
+<!--RAW title="text_encoder.py · Mistral3SmallEmbedder.forward — the layer sandwich (condensed)"-->
     OUTPUT_LAYERS_MISTRAL = [10, 20, 30]      # which VLM layers to read
 
     out = torch.stack([output.hidden_states[k] for k in OUTPUT_LAYERS_MISTRAL], dim=1)
@@ -324,6 +332,8 @@ Klein 4B      : Qwen3-4B,           layers [ 9,18,27], hidden 2560 → 3 × 2560
 <p>For editing and multi-reference generation, reference images go through the same VAE encoder and
 the same patchify, and their tokens are simply <em>appended to the sequence</em>. Up to ten references
 are supported; to keep the cost sane the pipeline caps reference pixels at 1024² each when there are
-several, and 2024² when there is only one. The only thing that distinguishes a reference token from a
-canvas token is its <em>position id</em> — which is the subject of the next section.</p>
+several, and 2024² when there is only one (<code>sampling.py</code> L56–58 spells it
+<code>2024**2</code>, which is what upstream says — almost certainly a typo for 2048²). The only thing
+that distinguishes a reference token from a canvas token is its <em>position id</em> — which is the
+subject of §5.</p>
 </section>

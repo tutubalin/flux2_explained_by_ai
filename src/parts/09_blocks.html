@@ -1,19 +1,19 @@
-<h3>8.1 · The cached branch (L770–786)</h3>
+<h3>8.1 · The cached branch (L772–786)</h3>
 <!--TRACE-->
-<!--T 770-773|Pull the stored reference keys and values out of the cache. They were computed once, on step 0, and are reused verbatim on every later step.-->
-<!--T 775-780|Slice the current step's q/k/v into a text part and an image part. In this branch the incoming sequence is <code>[txt, img]</code> — the references are <em>not</em> present, which is the entire point of the cache.-->
-<!--T 782|Re-unite the queries: text and image queries are processed together as <code>[txt, img]</code>.-->
-<!--T 783-784|But the <em>keys and values</em> are re-assembled as <code>[txt, ref, img]</code>, with the cached reference slice spliced back into the middle. The queries therefore still get to look at the references — without the references ever being recomputed.-->
+<!--T 772-774|The whole function is one <code>if</code>: is a cache present? If so, pull the stored reference keys and values out of it. They were computed once, on step 0, and are reused verbatim on every later step.-->
+<!--T 776-781|Slice the current step's q/k/v into a text part and an image part. In this branch the incoming sequence is <code>[txt, img]</code> — the references are <em>not</em> present, which is the entire point of the cache.-->
+<!--T 783|Re-unite the queries: text and image queries are processed together as <code>[txt, img]</code>.-->
+<!--T 784-785|But the <em>keys and values</em> are re-assembled as <code>[txt, ref, img]</code>, with the cached reference slice spliced back into the middle. The queries therefore still get to look at the references — without the references ever being recomputed.-->
 <!--T 786|One dense, unmasked attention call over all of them: softmax over (n_txt + n_ref + n_img) keys for every query.-->
 <!--/TRACE-->
 
-<h3>8.2 · The uncached branch (L788–813)</h3>
+<h3>8.2 · The uncached branch (L789–815)</h3>
 <!--TRACE-->
-<!--T 790-791|Compute the reference slice boundaries: references occupy positions <code>[num_txt, num_txt + num_ref)</code> of the combined sequence. This is the layout contract of the whole file — always <code>[txt, ref, img]</code>.-->
-<!--T 793-800|Cut q, k and v into three contiguous parts each: text, reference, image. Pure slicing; no arithmetic.-->
-<!--T 802-804|Text and image queries are concatenated and attend to <em>all</em> keys — text, reference and image alike. This is the dense, bidirectional core of the model: every canvas token can read every word of your prompt and every patch of every reference.-->
-<!--T 805-806|Split that result back into a text half and an image half, preserving row order.-->
-<!--T 808-811|The isolation rule, in one line: reference queries attend <strong>only to reference keys</strong>. Their outputs are updated and handed to the next layer (and eventually discarded), but their hidden states can never be contaminated by the noisy canvas — which is exactly why they are identical at every denoising step, and therefore cacheable.-->
+<!--T 789-790|Compute the reference slice boundaries: references occupy positions <code>[num_txt, num_txt + num_ref)</code> of the combined sequence. This is the layout contract of the whole file — always <code>[txt, ref, img]</code>.-->
+<!--T 792-800|Cut q, k and v into three contiguous parts each: text, reference, image. Pure slicing; no arithmetic.-->
+<!--T 802-806|Text and image queries are concatenated and attend to <em>all</em> keys — text, reference and image alike, in one dense <code>scaled_dot_product_attention</code> call. This is the bidirectional core of the model: every canvas token can read every word of your prompt and every patch of every reference. Note what is <em>not</em> here: no boolean mask tensor is ever built. The allowed/forbidden pattern of FIG 11 is produced by <em>which slices are concatenated</em>, not by a mask argument.-->
+<!--T 807-808|Split that result back into a text half and an image half, preserving row order: the first <code>ref_start</code> rows are text, the rest are canvas. The reference queries were deliberately left out of this call.-->
+<!--T 810-811|The isolation rule, in one line: reference queries attend <strong>only to reference keys</strong>. Their outputs are updated and handed to the next layer (and eventually discarded), but their hidden states can never be contaminated by the noisy canvas — which is exactly why they are identical at every denoising step, and therefore cacheable.-->
 <!--T 813|Stitch <code>[attn_txt, attn_ref, attn_img]</code> back into the original <code>[txt, ref, img]</code> order so the caller's own slicing keeps working.-->
 <!--T 815|Flatten the head axis back into the feature axis: <code>(B, H, L, D) → (B, L, H·D)</code>. Every consumer of this function expects tokens-as-rows with heads folded in.-->
 <!--/TRACE-->
@@ -155,8 +155,8 @@ mathematics. The MLP branch simply waits while attention runs; both halves meet 
 
 <!--TRACE-->
 <!--T 495-496|Build q/k/v and rotate q and k by the position matrices. In a single-stream block this happens over the <em>whole</em> mixed sequence — text, references and canvas together.-->
-<!--T 498-503|Carve out the reference slice of k and v and copy it (<code>.clone()</code>) into this block's cache entry. The clone matters: without it the cache would alias the live activations and be silently overwritten by the next layer's computation.-->
-<!--T 505|Run the masked attention of §8.-->
+<!--T 498-503|Carve out the reference slice of k and v and copy it (<code>.clone()</code>) into this block's cache entry. A slice like this is a <em>view</em> — it shares storage with the full <code>k</code>. Cloning gives the cache its own memory, so the 4608-token tensor it was cut from can be freed as soon as this step ends instead of being kept alive by the cache for the rest of the run.-->
+<!--T 505|Run the attention router of §8.-->
 <!--T 506|Combine and return, together with the cache.-->
 <!--T 517-519|The cached path is identical except that the reference count is not an argument any more — it is recovered from the cached tensor's own shape (<code>shape[2]</code> is the token axis of k). A neat bit of self-describing state.-->
 <!--T 520-521|Attention with the cache spliced in, then the same gated residual.-->
@@ -255,54 +255,57 @@ again and each finishes with its own projection and its own MLP. Eight of these 
 modalities to talk; then the 48 single-stream blocks let them merge completely.</figcaption>
 </figure>
 
-<!--CODE 525-567 title="model.py · DoubleStreamBlock.__init__" hl="526,528,531,532,534,539,540,547,548,553,554"-->
+<!--CODE 524-567 title="model.py · DoubleStreamBlock.__init__" hl="531,532,534,537,538,540,545,546,547,548,549,552,553,558,559,565,566"-->
 
 <!--TRACE-->
-<!--T 526|MLP width, 3 × hidden, exactly as in the single block.-->
-<!--T 528|A hard <code>assert</code> rather than a raised <code>ValueError</code> — the one place the file uses assert. Same divisibility requirement as in <code>Flux2.__init__</code>, repeated here so the block is safe to construct on its own.-->
-<!--T 531-532|<code>img_norm1</code>: the image stream's pre-attention norm, parameter-free. <code>mlp_mult_factor = 2</code>, the SwiGLU doubling, again.-->
-<!--T 534-537|The image stream's <em>own</em> attention parameter bundle — its own qkv matrix and its own output projection, completely separate from the text stream's.-->
-<!--T 539-545|The image stream's pre-MLP norm and its own MLP: linear(6144 → 36864) → SwiGLU → linear(18432 → 6144).-->
-<!--T 547-551|The mirror image for text: <code>txt_norm1</code> and <code>txt_attn</code>, a second full attention parameter bundle.-->
-<!--T 553-562|And the text stream's norm2 + MLP. In total a double block owns <em>two</em> of everything a single block owns one of — which is exactly why it costs twice as much (981 467 648 vs 490 733 824 parameters).-->
+<!--T 531-532|MLP width, 3 × hidden = 18 432, exactly as in the single block. Note that <code>mlp_ratio</code> has no default here (the single block defaults it to 4.0): <code>Flux2.__init__</code> always passes the config's 3.0.-->
+<!--T 533-534|A hard <code>assert</code> rather than a raised <code>ValueError</code> — one of only two asserts in the file (the other guards <code>rope</code> at L819, §7.4). It repeats the divisibility requirement that <code>Flux2.__init__</code> checks with a <code>ValueError</code> at L58, so the block is also safe to construct on its own.-->
+<!--T 536-538|<code>img_norm1</code>: the image stream's pre-attention norm, parameter-free. <code>mlp_mult_factor = 2</code>, the SwiGLU doubling of §7.2, again.-->
+<!--T 540-543|The image stream's <em>own</em> attention parameter bundle — its own qkv matrix and its own output projection (§7.8), completely separate from the text stream's.-->
+<!--T 545-550|The image stream's pre-MLP norm and its own MLP: linear(6144 → 36864) → SwiGLU → linear(18432 → 6144).-->
+<!--T 552-556|The mirror image for text: <code>txt_norm1</code> and <code>txt_attn</code>, a second full attention parameter bundle.-->
+<!--T 558-567|And the text stream's norm2 + MLP — the same three layers as the image side, spelled out over ten lines because the first linear is written across four of them. In total a double block owns <em>two</em> of everything a single block owns one of, which is exactly why it costs twice as much: 981 467 648 vs 490 733 824 parameters.
 <!--/TRACE-->
 
-<!--CODE 569-612 title="model.py · _prepare_qkv" hl="570,571,573,574,575,576,579,580,582,583,584,585,588,589,590,591,592,594,595,596,597,599,600,601,603,604,612"-->
+<!--CODE 569-612 title="model.py · _prepare_qkv" hl="570,571,573,574,575,576,579,580,582,583,584,587,588,590,591,592,594,595,596,598,599,601,602,603,604,605,606,607,608,609,612"-->
 
 <!--TRACE-->
-<!--T 570-577|Unpack eight modulation vectors at once: two triples for the image stream (attention and MLP) and two for the text stream. They all came from the same <code>vec</code> but through two different <code>Modulation</code> matrices, so the image and text streams are modulated independently.-->
+<!--T 570-576|Unpack eight modulation vectors at once: two triples for the image stream (attention and MLP) and two for the text stream. They all came from the same <code>vec</code> but through two different <code>Modulation</code> matrices, so the image and text streams are modulated independently.-->
 <!--T 579-580|Image side: standardise with <code>img_norm1</code>, then apply the image stream's first scale and shift.-->
 <!--T 582-584|Project to qkv with the image stream's <em>own</em> matrix, split into heads, and QK-normalise. Note the pattern is repeated verbatim for text four lines later — the symmetry of this method is its best documentation.-->
-<!--T 588-591|The identical sequence for the text stream, using <code>txt_norm1</code> and <code>txt_attn</code>.-->
+<!--T 586-592|The identical sequence for the text stream, using <code>txt_norm1</code> and <code>txt_attn</code>.-->
 <!--T 594-596|<strong>The meeting point.</strong> Text queries are concatenated <em>in front of</em> image queries, and likewise for keys and values, along the token axis. From here on there is one sequence; attention cannot tell that two different weight sets produced it.-->
-<!--T 599-600|Remember where the boundary is (<code>num_txt_tokens</code>) and build the combined position tensor <code>pe_full = cat(pe_ctx, pe)</code> in the same order, so each token gets rotated by its own coordinates.-->
-<!--T 603-611|Bundle the eight modulation vectors into one tuple in a fixed order, so <code>_apply_residuals</code> can unpack them positionally later. The order is a contract between the two methods; read them together.-->
+<!--T 598-599|Remember where the boundary is (<code>num_txt_tokens</code>) and build the combined position tensor <code>pe_full = cat(pe_ctx, pe)</code> in the same order, so each token gets rotated by its own coordinates.-->
+<!--T 601-610|Bundle the eight modulation vectors into one tuple in a fixed order, so <code>_apply_residuals</code> can unpack them positionally later. The order is a contract between the two methods; read them together. Notice which four are <em>missing</em>: <code>img_mod1_shift</code>, <code>img_mod1_scale</code>, <code>txt_mod1_shift</code> and <code>txt_mod1_scale</code> were already consumed above, at L580 and L588.-->
 <!--/TRACE-->
 
-<!--CODE 614-635 title="model.py · _apply_residuals" hl="625,626,627,629,630,631,633,634"-->
+<!--CODE 614-635 title="model.py · _apply_residuals" hl="615,616,617,618,619,620,621,622,623,626,627,628,631,632,633,635"-->
 
 <!--TRACE-->
-<!--T 625|Image residual 1: the attention output is projected with the image stream's own <code>proj</code>, gated by <code>img_mod1_gate</code>, and added.-->
-<!--T 626-628|Image residual 2: normalise the <em>updated</em> image tokens, modulate with the second triple, run the image MLP, gate, add. Note the nesting: the MLP sees the post-attention image, not the original.-->
-<!--T 630-634|The exact mirror for text. Four residuals per block, each independently gated — eight chances per block for the timestep to dial a sub-layer up or down.-->
+<!--T 615-624|Unpack the eight-vector tuple in exactly the order <code>_prepare_qkv</code> packed it (L601–610). Nothing is recomputed here; this method is pure arithmetic on values that already exist.-->
+<!--T 626|Image residual 1: the attention output is projected with the image stream's own <code>proj</code>, gated by <code>img_mod1_gate</code>, and added.-->
+<!--T 627-629|Image residual 2: normalise the <em>updated</em> image tokens, modulate with the second triple, run the image MLP, gate, add. Note the nesting: the MLP sees the post-attention image, not the original.-->
+<!--T 631-635|The exact mirror for text, then return both streams. Four residuals per block, each independently gated — four dials per block for the timestep to turn.
 <!--/TRACE-->
 
-<!--CODE 637-680 title="model.py · the double block's two forwards" hl="644,645,647,648,649,650,651,652,655,656,657,658,670,671,673,674,676,677,678"-->
+<!--CODE 637-680 title="model.py · the double block's two forwards" hl="648,649,651,652,653,654,655,658,659,660,661,673,674,675,677,678,679,680"-->
 
 <!--TRACE-->
-<!--T 644-645|Prepare and rotate. Because the concatenation put text first, <code>pe_full</code> (text positions then image positions) lines up with <code>q</code> and <code>k</code> exactly.-->
-<!--T 647-652|Slice the reference part of k and v into this block's cache. In a double block the reference tokens live inside the <em>image</em> stream (they are image tokens), so the slice starts at <code>num_txt_tokens</code> — the references sit immediately after the text block in the joint sequence.-->
-<!--T 655-656|Run the masked attention over the joint sequence and split the result back at the text boundary: everything before it is <code>txt_attn</code>, everything from it on is <code>img_attn</code>.-->
-<!--T 657-658|Apply the four gated residuals and return both streams plus the cache.-->
-<!--T 670-678|The cached variant: same preparation and rotation, but the reference count comes from the cache and the attention call receives the cached k/v. The text stream is recomputed from scratch every step — only the reference slice is frozen.-->
+<!--T 648-649|Prepare and rotate. Because the concatenation put text first, <code>pe_full</code> (text positions then image positions) lines up with <code>q</code> and <code>k</code> exactly.-->
+<!--T 651-656|Slice the reference part of k and v into this block's cache. In a double block the reference tokens live inside the <em>image</em> stream (they are image tokens), so the slice starts at <code>num_txt_tokens</code> — the references sit immediately after the text block in the joint sequence.-->
+<!--T 658-659|Run the routing attention of §8 over the joint sequence — with a real <code>num_ref_tokens</code>, so the references are sealed off — and split the result back at the text boundary: everything before it is <code>txt_attn</code>, everything from it on is <code>img_attn</code>.-->
+<!--T 660-661|Apply the four gated residuals and return both streams plus the cache.-->
+<!--T 673-680|The cached variant, line for line: same preparation (L674) and rotation (L675), but the reference count is read back out of the cache's own shape (L677), the attention call receives the cached k/v (L678), and only the two streams come back — no cache is produced, because nothing new was learned about the references. The text stream is recomputed from scratch every step; only the reference slice is frozen.
 <!--/TRACE-->
 
 <div class="note beginner">
 <div class="nh">◇ Why only eight of these?</div>
 <p>Double-stream blocks are where cross-modal understanding is <em>built</em>; single-stream blocks are
-where it is <em>refined</em>. Empirically (and this is the central scaling result of the SD3 paper) a
-few joint-weight blocks followed by many shared-weight blocks buys most of the quality at a fraction
-of the cost. FLUX.1 used 19 double + 38 single; FLUX.2 moved even further along that trade, to
-8 + 48 — spending its extra parameters on the cheap side of the boundary.</p>
+where it is <em>refined</em>. The hybrid recipe itself is FLUX.1's, not SD3's — SD3's MM-DiT is
+double-stream all the way down — and no public ablation says where the optimum lies. What the file
+does show is the direction of travel: FLUX.1 used 19 double + 38 single, FLUX.2 uses 8 + 48,
+spending its extra depth on the cheap side of the boundary. <span class="spec">inference</span> A
+double block costs exactly 2× a single one, so at equal parameter budget more single blocks means
+more layers.</p>
 </div>
 </section>

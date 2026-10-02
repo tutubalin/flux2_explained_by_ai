@@ -144,8 +144,10 @@ runs this lookup simultaneously; on a GPU the whole exchange is three matrix mul
 width is sliced into <em>H</em> independent sub-lookups called <b>heads</b>: FLUX.2 [dev] splits its
 6144 dimensions into 48 heads of 128 dimensions each (§6), and every head runs its own private copy of
 §4.3 on its own slice — its own q, k, v, its own scores, its own weights. The head outputs are
-concatenated back into one vector and mixed by a final projection. Nothing coordinates the heads;
-training discovers that head 17 tracks colour match while head 31 tracks vertical adjacency.</p>
+concatenated back into one vector and mixed by a final projection. Nothing in the code coordinates the
+heads — the 48 slices are just 48 independent lookups that happen to be computed in one batched
+matmul — and what each head ends up specialising in is a property of the trained weights, not of this
+file.</p>
 <p>Remember the number <b>128</b>: it is <code>head_dim</code>, the width of one head's query and key —
 and therefore the size of everything in this section. It appears again in the norms (§7.7), in the
 rotation planes (§5) and in every parameter count in this article.</p>
