@@ -180,10 +180,10 @@ ever get lost, this is the map back.
 <li><b>FLUX.2 technical write-up.</b> Black Forest Labs, "FLUX.2" blog post (bfl.ai/blog/flux-2) and the accompanying representation-comparison note — the closest thing to a paper; there is no arXiv preprint for FLUX.2 itself.</li>
 <li><b>Scaling Rectified Flow Transformers (SD3 / MM-DiT).</b> Esser et al., 2024 — arXiv:2403.03206. The double-stream block, the shared modulation and the logit-normal timestep sampling all come from here.</li>
 <li><b>RoPE.</b> Su et al., "RoFormer: Enhanced Transformer with Rotary Position Embedding", arXiv:2104.09864 — the rotation mechanism generalised to four axes in §4.</li>
-<li><b>SwiGLU.</b> Shazeer, "GLU Variants Improve Transformer", arXiv:2002.05202 — the <code>silu(x₁)·x₂</code> gate of §6.6.</li>
+<li><b>SwiGLU.</b> Shazeer, "GLU Variants Improve Transformer", arXiv:2002.05202 — the <code>silu(x₁)·x₂</code> gate of §6.2.</li>
 <li><b>adaLN.</b> Peebles &amp; Xie, "Scalable Diffusion Models with Transformers" (DiT), arXiv:2212.09748 — adaptive layer norm with shift/scale/gate from a condition vector.</li>
 <li><b>Demystifying FLUX.</b> arXiv:2507.09595 — an independent architecture review of the FLUX family, useful for the FLUX.1 → FLUX.2 differences (19+38 → 8+48 blocks, Mistral-3 replacing T5+CLIP).</li>
-<li><b>QK-norm.</b> Henry et al., "Query-Key Normalization for Transformers", 2020 — the stability trick behind §6.5.</li>
+<li><b>QK-norm.</b> Henry et al., "Query-Key Normalization for Transformers", 2020 — the stability trick behind §6.7.</li>
 </ul>
 <p class="dim" style="margin-top:18px">All numerical claims in this article — parameter counts, token
 counts, FLOPs, cache sizes, mask patterns, rotation orthogonality and the bit-exactness of the KV
