@@ -1463,19 +1463,152 @@ and, when <code>use_guidance_embed</code> is set, as <code>guidance_in</code> fo
 Their outputs are simply <em>added</em>, so both signals share every downstream modulation weight.</p>
 
 <h3 id="p-embednd">6.3 · <span class="sig">EmbedND</span> — L694</h3>
-<p>This is the entry point of the position system. It takes the coordinate tensor
-<span class="shape">(B, L, 4)</span> from §4 and returns rotation matrices. It owns <strong>no
-parameters at all</strong> — it is pure trigonometry.</p>
+<p>Every token that enters FLUX.2 carries a small address: four numbers, one per position axis
+(§4). <code>EmbedND</code> is the machine that turns those addresses into something attention can
+actually use — a stack of rotation matrices, one per rotation plane of the head. It owns
+<strong>no parameters at all</strong>: no weights, no tables, just trigonometry, recomputed from
+scratch on every call.</p>
 
-<div class="codeblock"><div class="cb-head"><span class="dot"></span><span class="fname">src/flux2/model.py</span><span class="ln">lines 694–707 · 14 lines</span></div><pre><table class="lineno"><tbody><tr><td class="ln-col">694</td><td class="code-col"><span class="k">class</span> <span class="t">EmbedND</span><span class="p">(</span><span class="t">nn</span><span class="p">.</span>Module<span class="p">)</span><span class="o">:</span></td></tr><tr><td class="ln-col">695</td><td class="code-col">    <span class="k">def</span> <span class="f">__init__</span><span class="p">(</span><span class="self">self</span><span class="p">,</span> dim<span class="o">:</span> <span class="t">int</span><span class="p">,</span> theta<span class="o">:</span> <span class="t">int</span><span class="p">,</span> axes_dim<span class="o">:</span> <span class="t">list</span><span class="p">[</span><span class="t">int</span><span class="p">]</span><span class="p">)</span><span class="o">:</span></td></tr><tr><td class="ln-col">696</td><td class="code-col">        <span class="f">super</span><span class="p">(</span><span class="p">)</span><span class="p">.</span><span class="f">__init__</span><span class="p">(</span><span class="p">)</span></td></tr><tr><td class="ln-col">697</td><td class="code-col">        <span class="self">self</span><span class="p">.</span>dim <span class="o">=</span> dim</td></tr><tr><td class="ln-col">698</td><td class="code-col">        <span class="self">self</span><span class="p">.</span>theta <span class="o">=</span> theta</td></tr><tr><td class="ln-col">699</td><td class="code-col">        <span class="self">self</span><span class="p">.</span>axes_dim <span class="o">=</span> axes_dim</td></tr><tr><td class="ln-col">700</td><td class="code-col">&nbsp;</td></tr><tr><td class="ln-col">701</td><td class="code-col">    <span class="k">def</span> <span class="f">forward</span><span class="p">(</span><span class="self">self</span><span class="p">,</span> ids<span class="o">:</span> <span class="t">Tensor</span><span class="p">)</span> <span class="p">-&gt;</span> <span class="t">Tensor</span><span class="o">:</span></td></tr><tr class="hl"><td class="ln-col">702</td><td class="code-col">        emb <span class="o">=</span> <span class="t">torch</span><span class="p">.</span><span class="f">cat</span><span class="p">(</span></td></tr><tr class="hl"><td class="ln-col">703</td><td class="code-col">            <span class="p">[</span><span class="f">rope</span><span class="p">(</span>ids<span class="p">[</span><span class="p">...</span><span class="p">,</span> i<span class="p">]</span><span class="p">,</span> <span class="self">self</span><span class="p">.</span>axes_dim<span class="p">[</span>i<span class="p">]</span><span class="p">,</span> <span class="self">self</span><span class="p">.</span>theta<span class="p">)</span> <span class="k">for</span> i <span class="k">in</span> <span class="f">range</span><span class="p">(</span><span class="f">len</span><span class="p">(</span><span class="self">self</span><span class="p">.</span>axes_dim<span class="p">)</span><span class="p">)</span><span class="p">]</span><span class="p">,</span></td></tr><tr class="hl"><td class="ln-col">704</td><td class="code-col">            dim<span class="o">=</span><span class="o">-</span><span class="n">3</span><span class="p">,</span></td></tr><tr><td class="ln-col">705</td><td class="code-col">        <span class="p">)</span></td></tr><tr><td class="ln-col">706</td><td class="code-col">&nbsp;</td></tr><tr class="hl"><td class="ln-col">707</td><td class="code-col">        <span class="k">return</span> emb<span class="p">.</span><span class="f">unsqueeze</span><span class="p">(</span><span class="n">1</span><span class="p">)</span></td></tr></tbody></table></pre></div>
+<h4 style="margin:18px 0 8px;font-size:15px">What goes in</h4>
+<p>One tensor, <code>ids</code>, of shape <span class="shape">(B, L, 4)</span>: a batch of L tokens,
+each with its four coordinates as floats. Concretely, a row looks like this:</p>
+<div class="tbl-wrap">
+<table class="data">
+<thead><tr><th>token</th><th style="width:70px">t</th><th style="width:70px">h</th><th style="width:70px">w</th><th style="width:70px">l</th><th>why</th></tr></thead>
+<tbody>
+<tr><td>a canvas token at row 17, column 42</td><td class="m">0</td><td class="m">17</td><td class="m">42</td><td class="m">0</td><td>the image being drawn lives at t = 0; text slot unused</td></tr>
+<tr><td>the same pixel of reference image #3</td><td class="m">30</td><td class="m">17</td><td class="m">42</td><td class="m">0</td><td>references sit ten t-units apart: 10, 20, 30…</td></tr>
+<tr><td>the 6th word of the prompt</td><td class="m">0</td><td class="m">0</td><td class="m">0</td><td class="m">5</td><td>text has no pixels: t, h, w are dummies, l sweeps the sentence</td></tr>
+</tbody>
+</table>
+</div>
+<p>The constructor also takes three settings: <code>dim = 128</code> (the head width — stored, and
+then never used again; the real budget comes from <code>axes_dim</code>), <code>theta = 2000</code>
+(the frequency base), and <code>axes_dim = [32, 32, 32, 32]</code> — how many of the 128 head
+dimensions each axis owns.</p>
 
-<div class="trace"><div class="tr-row"><div class="tr-ln"><span>L697–699</span></div><div class="tr-body"><div class="tr-code">        <span class="self">self</span><span class="p">.</span>dim <span class="o">=</span> dim<br>        <span class="self">self</span><span class="p">.</span>theta <span class="o">=</span> theta<br>        <span class="self">self</span><span class="p">.</span>axes_dim <span class="o">=</span> axes_dim</div><div class="tr-note">Store the three settings. <code>dim</code> (128, the head width) is actually never used again after the constructor's validation — the real work is driven by <code>axes_dim</code>. Keeping it is harmless documentation.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L702–705</span></div><div class="tr-body"><div class="tr-code">        emb <span class="o">=</span> <span class="t">torch</span><span class="p">.</span><span class="f">cat</span><span class="p">(</span><br>            <span class="p">[</span><span class="f">rope</span><span class="p">(</span>ids<span class="p">[</span><span class="p">...</span><span class="p">,</span> i<span class="p">]</span><span class="p">,</span> <span class="self">self</span><span class="p">.</span>axes_dim<span class="p">[</span>i<span class="p">]</span><span class="p">,</span> <span class="self">self</span><span class="p">.</span>theta<span class="p">)</span> <span class="k">for</span> i <span class="k">in</span> <span class="f">range</span><span class="p">(</span><span class="f">len</span><span class="p">(</span><span class="self">self</span><span class="p">.</span>axes_dim<span class="p">)</span><span class="p">)</span><span class="p">]</span><span class="p">,</span><br>            dim<span class="o">=</span><span class="o">-</span><span class="n">3</span><span class="p">,</span><br>        <span class="p">)</span></div><div class="tr-note">A list comprehension over the four axes. For axis <em>i</em> it slices that axis's coordinates — <code>ids[..., i]</code>, shape (B, L) — and hands them to <code>rope</code> together with that axis's dimension budget (32) and θ. The four results, each (B, L, 16, 2, 2), are concatenated along <code>dim=-3</code>, the axis holding the rotation planes: 4 × 16 = 64 planes → (B, L, 64, 2, 2).</div></div></div><div class="tr-row"><div class="tr-ln"><span>L707</span></div><div class="tr-body"><div class="tr-code">        <span class="k">return</span> emb<span class="p">.</span><span class="f">unsqueeze</span><span class="p">(</span><span class="n">1</span><span class="p">)</span></div><div class="tr-note"><code>unsqueeze(1)</code> inserts a head axis, giving (B, <strong>1</strong>, L, 64, 2, 2). Every head uses the <em>same</em> rotations, so the size-1 axis broadcasts across all 48 heads for free during <code>apply_rope</code>.</div></div></div></div>
+<h4 style="margin:18px 0 8px;font-size:15px">What happens inside — four slices, four ropes, one glue</h4>
+<p><b>Step 1 — slice off one column.</b> <code>ids[..., i]</code> takes axis <em>i</em>'s coordinate
+for every token at once: a <span class="shape">(B, L)</span> tensor of plain positions. For i = 1
+that is the list of all row numbers; for i = 3 the list of word indices.</p>
+<p><b>Step 2 — rope that column.</b> Each slice is handed to <code>rope</code> (§6.4) together with
+that axis's dimension budget, <code>axes_dim[i] = 32</code>. <code>rope</code> pairs those 32
+dimensions into 16 rotation planes and writes one 2×2 rotation matrix per plane per token — the
+matrix from §4.1, with angle <em>position × ω</em> of that plane. Output per axis:
+<span class="shape">(B, L, 16, 2, 2)</span> = batch × token × plane × 2×2 matrix.</p>
+<p><b>Step 3 — glue the four bundles together.</b> <code>torch.cat([...], dim=-3)</code> stacks the
+four bundles of planes end-to-end along the <em>plane</em> axis: 16 + 16 + 16 + 16 = 64 planes,
+giving <span class="shape">(B, L, 64, 2, 2)</span>. Why <code>dim=-3</code>? Count axes from the
+right: −1 is the matrix column, −2 the matrix row, −3 the plane. Concatenating at −3 leaves every
+2×2 matrix untouched and simply lines the planes up in axis order — t's 16 planes first, then h's,
+then w's, then l's. That order is a contract: plane <em>j</em> of this output is exactly the rotation
+that <code>apply_rope</code> will apply to dimensions <em>(2j, 2j+1)</em> of q and k, which is
+precisely the dim-split drawn in <a href="#rope">FIG 7</a>.</p>
+<p><b>Step 4 — make room for heads.</b> <code>unsqueeze(1)</code> inserts a size-1 axis at position
+1: <span class="shape">(B, 1, L, 64, 2, 2)</span>. All 48 heads of a layer share the same rotations,
+so a size-1 axis lets one computed copy broadcast across every head for free during
+<code>apply_rope</code> — the rotations are computed once per token, not once per token per head.</p>
+
+<div class="codeblock"><div class="cb-head"><span class="dot"></span><span class="fname">src/flux2/model.py</span><span class="ln">lines 694–707 · 14 lines</span></div><pre><table class="lineno"><tbody><tr><td class="ln-col">694</td><td class="code-col"><span class="k">class</span> <span class="t">EmbedND</span><span class="p">(</span><span class="t">nn</span><span class="p">.</span>Module<span class="p">)</span><span class="o">:</span></td></tr><tr><td class="ln-col">695</td><td class="code-col">    <span class="k">def</span> <span class="f">__init__</span><span class="p">(</span><span class="self">self</span><span class="p">,</span> dim<span class="o">:</span> <span class="t">int</span><span class="p">,</span> theta<span class="o">:</span> <span class="t">int</span><span class="p">,</span> axes_dim<span class="o">:</span> <span class="t">list</span><span class="p">[</span><span class="t">int</span><span class="p">]</span><span class="p">)</span><span class="o">:</span></td></tr><tr><td class="ln-col">696</td><td class="code-col">        <span class="f">super</span><span class="p">(</span><span class="p">)</span><span class="p">.</span><span class="f">__init__</span><span class="p">(</span><span class="p">)</span></td></tr><tr class="hl"><td class="ln-col">697</td><td class="code-col">        <span class="self">self</span><span class="p">.</span>dim <span class="o">=</span> dim</td></tr><tr class="hl"><td class="ln-col">698</td><td class="code-col">        <span class="self">self</span><span class="p">.</span>theta <span class="o">=</span> theta</td></tr><tr class="hl"><td class="ln-col">699</td><td class="code-col">        <span class="self">self</span><span class="p">.</span>axes_dim <span class="o">=</span> axes_dim</td></tr><tr><td class="ln-col">700</td><td class="code-col">&nbsp;</td></tr><tr><td class="ln-col">701</td><td class="code-col">    <span class="k">def</span> <span class="f">forward</span><span class="p">(</span><span class="self">self</span><span class="p">,</span> ids<span class="o">:</span> <span class="t">Tensor</span><span class="p">)</span> <span class="p">-&gt;</span> <span class="t">Tensor</span><span class="o">:</span></td></tr><tr class="hl"><td class="ln-col">702</td><td class="code-col">        emb <span class="o">=</span> <span class="t">torch</span><span class="p">.</span><span class="f">cat</span><span class="p">(</span></td></tr><tr class="hl"><td class="ln-col">703</td><td class="code-col">            <span class="p">[</span><span class="f">rope</span><span class="p">(</span>ids<span class="p">[</span><span class="p">...</span><span class="p">,</span> i<span class="p">]</span><span class="p">,</span> <span class="self">self</span><span class="p">.</span>axes_dim<span class="p">[</span>i<span class="p">]</span><span class="p">,</span> <span class="self">self</span><span class="p">.</span>theta<span class="p">)</span> <span class="k">for</span> i <span class="k">in</span> <span class="f">range</span><span class="p">(</span><span class="f">len</span><span class="p">(</span><span class="self">self</span><span class="p">.</span>axes_dim<span class="p">)</span><span class="p">)</span><span class="p">]</span><span class="p">,</span></td></tr><tr class="hl"><td class="ln-col">704</td><td class="code-col">            dim<span class="o">=</span><span class="o">-</span><span class="n">3</span><span class="p">,</span></td></tr><tr><td class="ln-col">705</td><td class="code-col">        <span class="p">)</span></td></tr><tr><td class="ln-col">706</td><td class="code-col">&nbsp;</td></tr><tr class="hl"><td class="ln-col">707</td><td class="code-col">        <span class="k">return</span> emb<span class="p">.</span><span class="f">unsqueeze</span><span class="p">(</span><span class="n">1</span><span class="p">)</span></td></tr></tbody></table></pre></div>
+
+<div class="trace"><div class="tr-row"><div class="tr-ln"><span>L695–699</span></div><div class="tr-body"><div class="tr-code">    <span class="k">def</span> <span class="f">__init__</span><span class="p">(</span><span class="self">self</span><span class="p">,</span> dim<span class="o">:</span> <span class="t">int</span><span class="p">,</span> theta<span class="o">:</span> <span class="t">int</span><span class="p">,</span> axes_dim<span class="o">:</span> <span class="t">list</span><span class="p">[</span><span class="t">int</span><span class="p">]</span><span class="p">)</span><span class="o">:</span><br>        <span class="f">super</span><span class="p">(</span><span class="p">)</span><span class="p">.</span><span class="f">__init__</span><span class="p">(</span><span class="p">)</span><br>        <span class="self">self</span><span class="p">.</span>dim <span class="o">=</span> dim<br>        <span class="self">self</span><span class="p">.</span>theta <span class="o">=</span> theta<br>        <span class="self">self</span><span class="p">.</span>axes_dim <span class="o">=</span> axes_dim</div><div class="tr-note">The constructor stores its three settings verbatim and creates <em>no weights at all</em> — this module's state dict is empty. <code>dim</code> (128) is kept purely as documentation: after <code>__init__</code> nothing reads it again, because <code>axes_dim</code> is what actually budgets the dimensions.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L702–705</span></div><div class="tr-body"><div class="tr-code">        emb <span class="o">=</span> <span class="t">torch</span><span class="p">.</span><span class="f">cat</span><span class="p">(</span><br>            <span class="p">[</span><span class="f">rope</span><span class="p">(</span>ids<span class="p">[</span><span class="p">...</span><span class="p">,</span> i<span class="p">]</span><span class="p">,</span> <span class="self">self</span><span class="p">.</span>axes_dim<span class="p">[</span>i<span class="p">]</span><span class="p">,</span> <span class="self">self</span><span class="p">.</span>theta<span class="p">)</span> <span class="k">for</span> i <span class="k">in</span> <span class="f">range</span><span class="p">(</span><span class="f">len</span><span class="p">(</span><span class="self">self</span><span class="p">.</span>axes_dim<span class="p">)</span><span class="p">)</span><span class="p">]</span><span class="p">,</span><br>            dim<span class="o">=</span><span class="o">-</span><span class="n">3</span><span class="p">,</span><br>        <span class="p">)</span></div><div class="tr-note">The entire forward pass is one expression: a list comprehension over the four axes. <code>ids[..., i]</code> slices column <em>i</em> — shape (B, L), plain positions; <code>rope</code> turns it into (B, L, 16, 2, 2); and <code>torch.cat(..., dim=-3)</code> glues the four bundles along the plane axis (counted from the right: −1 = matrix column, −2 = matrix row, −3 = plane), yielding (B, L, 64, 2, 2) with every 2×2 matrix left intact.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L707</span></div><div class="tr-body"><div class="tr-code">        <span class="k">return</span> emb<span class="p">.</span><span class="f">unsqueeze</span><span class="p">(</span><span class="n">1</span><span class="p">)</span></div><div class="tr-note"><code>unsqueeze(1)</code> inserts the size-1 head axis: (B, 1, L, 64, 2, 2). One computed copy of the rotations then broadcasts across all 48 heads inside <code>apply_rope</code>.</div></div></div></div>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 1040 540" role="img" aria-label="EmbedND diagram: the four coordinate columns of ids are sliced, each runs through rope producing 16 rotation planes, the four bundles are concatenated along the plane axis into 64 planes, and a head axis of size 1 is inserted.">
+<text x="40" y="28" class="ttl">EmbedND — four coordinate columns in, one stack of 64 rotation planes out</text>
+
+<!-- input ids -->
+<rect x="40" y="60" width="200" height="150" rx="10" fill="#121a26" stroke="#2e4054"/>
+<text x="60" y="84" class="axb">ids  (B, L, 4)</text>
+<text x="90" y="104" class="axb" text-anchor="middle" style="fill:#5fe08a">t</text>
+<text x="130" y="104" class="axb" text-anchor="middle" style="fill:#f6a93b">h</text>
+<text x="170" y="104" class="axb" text-anchor="middle" style="fill:#b18cff">w</text>
+<text x="210" y="104" class="axb" text-anchor="middle" style="fill:#35d6f0">l</text>
+<text x="90" y="126" class="eq" text-anchor="middle">0</text><text x="130" y="126" class="eq" text-anchor="middle">17</text><text x="170" y="126" class="eq" text-anchor="middle">42</text><text x="210" y="126" class="eq" text-anchor="middle">0</text>
+<text x="90" y="148" class="eq" text-anchor="middle">30</text><text x="130" y="148" class="eq" text-anchor="middle">17</text><text x="170" y="148" class="eq" text-anchor="middle">42</text><text x="210" y="148" class="eq" text-anchor="middle">0</text>
+<text x="90" y="170" class="eq" text-anchor="middle">0</text><text x="130" y="170" class="eq" text-anchor="middle">0</text><text x="170" y="170" class="eq" text-anchor="middle">0</text><text x="210" y="170" class="eq" text-anchor="middle">5</text>
+<text x="90" y="196" class="eq" text-anchor="middle">one row per token</text>
+<text x="252" y="126" class="eq">canvas token, row 17 col 42</text>
+<text x="252" y="148" class="eq">same pixel of reference #3 (t = 30)</text>
+<text x="252" y="170" class="eq">text token 5 (t, h, w are dummies)</text>
+
+<!-- fan-out arrows -->
+<path d="M90,210 L150,248" stroke="#5fe08a" stroke-width="1.5" fill="none" marker-end="url(#arV)"/>
+<path d="M130,210 L390,248" stroke="#f6a93b" stroke-width="1.5" fill="none" marker-end="url(#arA)"/>
+<path d="M170,210 L630,248" stroke="#b18cff" stroke-width="1.5" fill="none" marker-end="url(#arR)"/>
+<path d="M210,210 L870,248" stroke="#35d6f0" stroke-width="1.5" fill="none" marker-end="url(#arC)"/>
+
+<!-- four rope boxes -->
+<rect x="40" y="250" width="220" height="64" rx="9" fill="#121a26" stroke="#5fe08a" stroke-opacity=".55"/>
+<text x="150" y="272" class="axb" text-anchor="middle" style="fill:#5fe08a">rope(t column, 32, θ)</text>
+<text x="150" y="289" class="eq" text-anchor="middle">32 dims → 16 planes</text>
+<text x="150" y="304" class="eq" text-anchor="middle">→ (B, L, 16, 2, 2)</text>
+<rect x="280" y="250" width="220" height="64" rx="9" fill="#121a26" stroke="#f6a93b" stroke-opacity=".55"/>
+<text x="390" y="272" class="axb" text-anchor="middle" style="fill:#f6a93b">rope(h column, 32, θ)</text>
+<text x="390" y="289" class="eq" text-anchor="middle">32 dims → 16 planes</text>
+<text x="390" y="304" class="eq" text-anchor="middle">→ (B, L, 16, 2, 2)</text>
+<rect x="520" y="250" width="220" height="64" rx="9" fill="#121a26" stroke="#b18cff" stroke-opacity=".55"/>
+<text x="630" y="272" class="axb" text-anchor="middle" style="fill:#b18cff">rope(w column, 32, θ)</text>
+<text x="630" y="289" class="eq" text-anchor="middle">32 dims → 16 planes</text>
+<text x="630" y="304" class="eq" text-anchor="middle">→ (B, L, 16, 2, 2)</text>
+<rect x="760" y="250" width="220" height="64" rx="9" fill="#121a26" stroke="#35d6f0" stroke-opacity=".55"/>
+<text x="870" y="272" class="axb" text-anchor="middle" style="fill:#35d6f0">rope(l column, 32, θ)</text>
+<text x="870" y="289" class="eq" text-anchor="middle">32 dims → 16 planes</text>
+<text x="870" y="304" class="eq" text-anchor="middle">→ (B, L, 16, 2, 2)</text>
+
+<!-- glue -->
+<path d="M150,314 L157,356" stroke="#7d8da1" stroke-width="1.5" marker-end="url(#ar)"/>
+<path d="M390,314 L392,356" stroke="#7d8da1" stroke-width="1.5" marker-end="url(#ar)"/>
+<path d="M630,314 L627,356" stroke="#7d8da1" stroke-width="1.5" marker-end="url(#ar)"/>
+<path d="M870,314 L862,356" stroke="#7d8da1" stroke-width="1.5" marker-end="url(#ar)"/>
+<text x="510" y="342" class="ax" text-anchor="middle">torch.cat(…, dim=-3) — glue the plane bundles end-to-end, 2×2 matrices untouched</text>
+
+<rect x="40" y="360" width="235" height="46" rx="0" fill="rgba(95,224,138,.14)" stroke="#5fe08a" stroke-opacity=".6"/>
+<rect x="275" y="360" width="235" height="46" rx="0" fill="rgba(246,169,59,.14)" stroke="#f6a93b" stroke-opacity=".6"/>
+<rect x="510" y="360" width="235" height="46" rx="0" fill="rgba(177,140,255,.14)" stroke="#b18cff" stroke-opacity=".6"/>
+<rect x="745" y="360" width="235" height="46" rx="0" fill="rgba(53,214,240,.14)" stroke="#35d6f0" stroke-opacity=".6"/>
+<text x="157" y="380" class="ax" text-anchor="middle" style="fill:#5fe08a">planes 0–15</text>
+<text x="157" y="396" class="eq" text-anchor="middle">axis t</text>
+<text x="392" y="380" class="ax" text-anchor="middle" style="fill:#f6a93b">planes 16–31</text>
+<text x="392" y="396" class="eq" text-anchor="middle">axis h</text>
+<text x="627" y="380" class="ax" text-anchor="middle" style="fill:#b18cff">planes 32–47</text>
+<text x="627" y="396" class="eq" text-anchor="middle">axis w</text>
+<text x="862" y="380" class="ax" text-anchor="middle" style="fill:#35d6f0">planes 48–63</text>
+<text x="862" y="396" class="eq" text-anchor="middle">axis l</text>
+
+<!-- zoom + final shape -->
+<rect x="40" y="440" width="110" height="38" fill="#0a0e16" stroke="#2e4054"/>
+<rect x="150" y="440" width="110" height="38" fill="#0a0e16" stroke="#2e4054"/>
+<rect x="40" y="478" width="110" height="38" fill="#0a0e16" stroke="#2e4054"/>
+<rect x="150" y="478" width="110" height="38" fill="#0a0e16" stroke="#2e4054"/>
+<text x="95" y="464" class="eq" text-anchor="middle">cos θ</text>
+<text x="205" y="464" class="eq" text-anchor="middle">−sin θ</text>
+<text x="95" y="502" class="eq" text-anchor="middle">sin θ</text>
+<text x="205" y="502" class="eq" text-anchor="middle">cos θ</text>
+<text x="280" y="462" class="ax">each of the 64 planes is a 2×2 rotation like this</text>
+<text x="280" y="480" class="eq">θ = the token's position on that axis × the plane's ω</text>
+<text x="280" y="502" class="eq">plane j will spin dims (2j, 2j+1) of q and k</text>
+
+<path d="M862,406 L862,436" stroke="#7d8da1" stroke-width="1.6" marker-end="url(#ar)"/>
+<rect x="700" y="440" width="280" height="44" rx="9" fill="#182231" stroke="#2e4054"/>
+<text x="840" y="458" class="axb" text-anchor="middle">unsqueeze(1)</text>
+<text x="840" y="474" class="eq" text-anchor="middle">→ (B, 1, L, 64, 2, 2) — 1 broadcasts to 48 heads</text>
+</svg>
+</div>
+<figcaption><span class="figno">FIG 8</span><b>Inside EmbedND.</b> The four coordinate columns are sliced apart,
+each runs through <code>rope</code> on its own dimension budget, and the four bundles of 16 rotation
+planes are glued end-to-end along the plane axis. The colour order — t, h, w, l — is not cosmetic: it
+is the same dim-split as FIG 7, and it is what lets <code>apply_rope</code> pair plane <em>j</em> with
+head dimensions <em>(2j, 2j+1)</em> without any bookkeeping.</figcaption>
+</figure>
 
 <div class="note proof">
 <div class="nh">◆ Verified · shapes through EmbedND</div>
 <p style="font-family:var(--mono);font-size:13.4px">
 EmbedND(dim=128, axes_dim=[32,32,32,32])(ids of shape (1, 7, 4))<br>
-&nbsp;&nbsp;→ (1, 1, 7, 64, 2, 2) &nbsp;=&nbsp; (batch, head, token, plane, row, col)
+&nbsp;&nbsp;→ (1, 1, 7, 64, 2, 2) &nbsp;=&nbsp; (batch, head, token, plane, row, col)<br>
+and for the real thing: ids (1, 4608, 4) → pe (1, 1, 4608, 64, 2, 2), 1.18 M floats, zero parameters
 </p>
 </div>
 
@@ -1615,7 +1748,7 @@ learned shifts and scales, we <em>generate</em> them from the conditioning vecto
 <text x="740" y="106" class="eq" style="fill:#5fe08a">gate</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 8</span><b>adaLN in one picture.</b> The green dials are generated, not learned
+<figcaption><span class="figno">FIG 9</span><b>adaLN in one picture.</b> The green dials are generated, not learned
 per-layer: the same <code>vec</code> that encodes "we are 62 % noisy" decides how strongly every
 sub-layer of every block is allowed to speak. A gate initialised near zero lets a block start life as
 the identity function — the "adaLN-Zero" trick that makes very deep transformers trainable.</figcaption>
@@ -1679,7 +1812,7 @@ of §12 mathematically exact. Read the name as "references are sealed", not as "
 <text x="660" y="414" class="ax">coloured cells = attended</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 9</span><b>The mask, measured.</b> I fed one-hot values through
+<figcaption><span class="figno">FIG 10</span><b>The mask, measured.</b> I fed one-hot values through
 <code>causal_attn_fn</code> and read back which key each query actually mixed: on the left is what came
 out. Text and image rows are completely dense — every token sees every token, in both directions. The
 reference block is an isolated island: references read each other and nothing else. On the right, the
@@ -1792,7 +1925,7 @@ fused MLP over it.
 <text x="430" y="450" class="ax" text-anchor="middle">residual skip — added after the gate, unchanged</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 10</span><b>The single-stream block.</b> The design trick is the fusion:
+<figcaption><span class="figno">FIG 11</span><b>The single-stream block.</b> The design trick is the fusion:
 <code>linear1</code> computes the queries, keys, values <em>and</em> the MLP's input in one matrix
 multiply, and <code>linear2</code> consumes the attention output and the gated MLP output together.
 Two big matmuls per block instead of five smaller ones — much better GPU utilisation, identical
@@ -1898,7 +2031,7 @@ other.
 <path d="M992,100 L972,100 M992,326 L972,326 M992,414 L972,414" stroke="#5fe08a" stroke-width="1.3" fill="none" stroke-dasharray="4 4" marker-end="url(#dV)"/>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 11</span><b>The double-stream block.</b> Everything is doubled except the attention.
+<figcaption><span class="figno">FIG 12</span><b>The double-stream block.</b> Everything is doubled except the attention.
 Text tokens are transformed by text weights and image tokens by image weights; only when it is time to
 <em>compare</em> them are their q/k/v concatenated into one sequence. After attention the streams split
 again and each finishes with its own projection and its own MLP. Eight of these teach the two
@@ -2060,7 +2193,7 @@ make sense together.
 <text x="40" y="312" class="ax">cost of a 50-step run with 4 reference images: 1 full step + 49 discounted steps instead of 50 full ones</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 12</span><b>Two phases, one sequence contract.</b> Step 0 pays full price and
+<figcaption><span class="figno">FIG 13</span><b>Two phases, one sequence contract.</b> Step 0 pays full price and
 banks the reference keys and values from all 56 blocks. Every later step omits the reference tokens from
 the sequence entirely and splices the stored keys back in at attention time — so the queries still see
 the references, but nothing about them is ever recomputed.</figcaption>
