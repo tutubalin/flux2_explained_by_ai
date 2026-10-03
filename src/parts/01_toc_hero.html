@@ -85,8 +85,8 @@
     way through. Three checkers run on every build and any of them fails the build:
     <code>src/ref/qa_trace.py</code> verifies that every line-by-line annotation points at lines
     containing the identifiers it talks about, <code>src/ref/qa_coverage.py</code> verifies that all
-    692 non-blank lines of the file are shown somewhere, and <code>src/ref/qa_linerefs.py</code> checks
-    all 80 <code>L455</code>-style references in the prose. All three are clean.</p>
+    692 non-blank lines of the file are shown somewhere, and <code>src/ref/qa_linerefs.py</code> checks every
+    <code>L455</code>-style reference in the prose against the lines it names. All three are clean.</p>
     <p>One convention to know: numbers and structure are checked against the code, but the file carries
     almost no comments, so a statement about <em>why</em> the authors chose something is marked
     <span class="spec">inference</span>. There are eleven such marks in 833 lines' worth of

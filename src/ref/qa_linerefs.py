@@ -6,6 +6,7 @@ walkthroughs. Those went stale more than once, so this script lists every one of
 them next to the line it points at, and flags what it can prove wrong:
 
   * a reference to a line that does not exist;
+  * a row of the §16 symbol table whose line number does not hold the symbol;
   * a line of HTML that quotes one or more line numbers and also names a
     <code>identifier</code> from model.py — within NEAR characters of the
     reference, so unrelated clauses of a long table row are ignored — which
@@ -58,6 +59,8 @@ for node in ast.walk(tree):
 REF_RE = re.compile(r"\bL(\d{2,3})(?:\s*[–-]\s*(?:L)?(\d{2,3}))?"
                     r"|\blines?\s+(\d{2,3})(?:\s*[–-]\s*(\d{2,3}))?")
 CODE_RE = re.compile(r"<code>(.*?)</code>", re.S)
+# the cheat-sheet table of §16: <td class="m">710</td><td><code>timestep_embedding</code></td>
+ROW_RE = re.compile(r'<td class="m">(\d+)</td>\s*<td><code>(?:·\s*)?([A-Za-z_][\w.]*)</code>')
 NEAR = 90          # characters of context on either side of a reference that count as "about" it
 OTHER_FILE = ("sampling.py", "autoencoder.py", "text_encoder.py", "util.py", "docs/", "README")
 SKIP = {"self", "None", "True", "False"}
@@ -68,6 +71,24 @@ GENERIC = {"txt", "img", "ref", "vec", "pe", "cache", "torch", "nn", "split", "c
 ALLOWED = {
     ("02_map_bigpicture.html", 375): "the row's whole point is that SelfAttention has NO forward()",
 }
+
+
+def symbol_rows(fatal):
+    """Check the line-numbered symbol tables (the §16 cheat sheet)."""
+    n = 0
+    for part in sorted(PARTS.glob("[0-9][0-9]_*.html")):
+        for lineno, line in enumerate(part.read_text().split("\n"), 1):
+            for m in ROW_RE.finditer(line):
+                ln, name = int(m.group(1)), m.group(2)
+                n += 1
+                leaf = name.rsplit(".", 1)[-1]
+                if ln > N:
+                    fatal.append(f"{part.name}:{lineno}: table says {name} is at L{ln}, "
+                                 f"but model.py ends at L{N}")
+                elif not re.search(rf"\b{re.escape(leaf)}\b", LINES[ln - 1]):
+                    fatal.append(f"{part.name}:{lineno}: table says {name} is at L{ln}, but that "
+                                 f"line is\n      L{ln}: {LINES[ln-1].strip()[:88]}")
+    return n
 
 
 def main():
@@ -128,7 +149,9 @@ def main():
             for lo, hi in refs:
                 all_refs.append((part.name, lineno, lo, hi, LINES[lo - 1].strip()[:66], plain[:96]))
 
-    print(f"qa_linerefs: {len(all_refs)} prose line references | {len(fatal)} suspicious")
+    n_rows = symbol_rows(fatal)
+    print(f"qa_linerefs: {len(all_refs)} prose line references, {n_rows} symbol-table rows "
+          f"| {len(fatal)} suspicious")
     for f in fatal:
         print("   !!", f)
     if "-v" in sys.argv:

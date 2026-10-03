@@ -245,12 +245,28 @@ check("50 steps at 512² (PFLOPs)", round(50 * (l0 + a0) / 1e15, 2), 4.38, 0.02)
 n_mid = canvas_tokens(1360, 768) + 512
 l1, a1 = flops(n_mid)
 check("50 steps at 1360×768 (PFLOPs)", round(50 * (l1 + a1) / 1e15, 2), 14.07, 0.02)
-ratio = ((l1 + a1)) / ((l0 + a0))
-check("×4 the pixels ⇒ ×? the work (1 MP → 4.08 MP)", round(ratio, 1), 3.2, 0.05)
-r2 = flops(canvas_tokens(2048, 2048) + 512)
-r0 = flops(n_small)
+tot = lambda n: sum(flops(n))                        # noqa: E731
+n_1mp, n_4mp = canvas_tokens(1024, 1024) + 512, canvas_tokens(2048, 2048) + 512
+check("×4 the pixels (512²→1360×768) ⇒ ×? the work", round(tot(n_mid) / tot(n_small), 1), 3.2, 0.05)
+check("×4 the pixels (1 MP→4 MP) ⇒ ×? the work", round(tot(n_4mp) / tot(n_1mp), 1), 4.7, 0.05)
+check("joint sequence growth 1 MP→4 MP", round(n_4mp / n_1mp, 1), 3.7, 0.05)
+check("attention work growth 1 MP→4 MP", round((n_4mp / n_1mp) ** 2, 1), 13.4, 0.05)
 check("×16 the pixels ⇒ ×? the work (512² → 2048²)",
-      round((r2[0] + r2[1]) / (r0[0] + r0[1]), 1), 15.1, 0.2)
+      round(tot(n_4mp) / tot(n_small), 1), 15.1, 0.2)
+
+# The KV-cache argument of §13.3 / §14.2, in tokens.
+canvas_512, canvas_1440, refs4 = 1024, 8100, 4 * 4096
+check("references as a share of the image-side sequence at 512² (%)",
+      round(100 * refs4 / (refs4 + canvas_512)), 94)
+check("… and including the 512 text tokens (%)",
+      round(100 * refs4 / (refs4 + canvas_512 + 512)), 91)
+check("references as a share of the sequence at 1440² (%)",
+      round(100 * refs4 / (refs4 + canvas_1440)), 67)
+full = refs4 + canvas_512 + 512
+cached = canvas_512 + 512
+check("how much cheaper a cached step looks in tokens", round(full / cached), 12)
+print(f"      a cached step shrinks the attention by {full / cached:.1f}× — the query ratio, not "
+      f"{(full / cached) ** 2:.0f}×: the keys are still all there")
 
 # ---------------------------------------------------------------- G. memory
 hdr("G · memory")
@@ -289,6 +305,10 @@ if PAGE.exists():
         ("FLOPs at 2048²", "1321.5"), ("PFLOPs for 50 steps at 2048²", "66.08"),
         ("μ at 1 MP / 50 steps", "μ=2.02"), ("μ at 4 MP / 50 steps", "μ=3.23"),
         ("dev weights bf16", "64.4"), ("cache, 4 refs, klein-9B", "8.59"),
+        ("attention work growth 1→4 MP", "13.4"), ("work growth 1→4 MP", "4.7"),
+        ("reference share at 512²", "94%"), ("reference share at 1440²", "67%"),
+        ("measured speedup, 4 refs @512²", "2.66"), ("measured speedup, 1 ref @512²", "1.78"),
+        ("measured speedup, 1 ref @1440²", "1.21"), ("measured speedup, 4 refs @1440²", "1.85"),
         ("171 Linear", "171"), ("128 RMSNorm", "128"), ("81 LayerNorm", "81"),
     ]
     missing = [label for label, needle in claims if needle not in page]

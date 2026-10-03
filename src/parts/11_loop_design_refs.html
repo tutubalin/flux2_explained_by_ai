@@ -103,9 +103,9 @@ percent.</p>
 </table>
 </div>
 <p>Quadrupling the pixels multiplies the work by ~4.7× — the attention term growing as the square is
-where the extra 0.7 comes from (at 4 MP it is already 30 % of the step). This table is also the honest explanation of the KV cache's value: at 512² with
-four references the reference tokens <em>quadruple</em> the sequence, and removing them from 49 of the
-50 steps is worth the 2.66× measured in §13.</p>
+where the extra 0.7 comes from (at 4 MP it is already 30 % of the step). This table is also the honest
+explanation of the KV cache's value: at 512² four reference images add 16 384 tokens to a 1 024-token
+canvas (§13.2), so removing them from 49 of the 50 steps is worth the 2.66× measured in §13.</p>
 
 <div class="tbl-wrap">
 <table class="data">

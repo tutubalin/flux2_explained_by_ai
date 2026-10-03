@@ -20,8 +20,10 @@ understanding the whole inference design.
 
 <h3>11.1 · <code>__init__</code> — the 61 lines where everything is created</h3>
 <p>Before the three forwards, one listing that the rest of the article has been referring to all along.
-Every submodule in the network — every single one — is instantiated inside these lines; nothing else in
-the file constructs a module. Read it as the parts list of §7–§10 being assembled:</p>
+<code>__init__</code> itself is L53–113; the listing starts one line earlier, at the
+<code>class Flux2</code> statement, so you can see what it belongs to. Every submodule in the network —
+every single one — is instantiated inside these lines; nothing else in the file constructs a module.
+Read it as the parts list of §7–§10 being assembled:</p>
 
 <!--CODE 52-113 title="model.py · Flux2.__init__" hl="56,57,58,62,65,66,67,68,69,70,72,73,74,76,82,87,93,98,103,108,110"-->
 
@@ -283,10 +285,18 @@ reference when there are several: four references at 1024² occupy barely more c
 </tbody>
 </table>
 </div>
-<p>The pattern is exactly what the token arithmetic predicts. At 512² the canvas is only 1024 tokens, so
-four references at 1024² add 4 × 4096 = 16 384 tokens to a 1024-token canvas: the references are
-<em>94 % of the sequence</em>, so removing them removes most of the work.
-At 1440² the canvas is 8100 tokens and the references are a minority, so the same trick saves
-proportionally less. The cache pays off precisely when you are doing reference-guided work at modest
-resolution.</p>
+<p>The <em>ordering</em> is exactly what the token arithmetic predicts. At 512² the canvas is only
+1024 tokens, so four references at 1024² add 4 × 4096 = 16 384 tokens to it: references are
+<em>94 % of the image-side sequence</em> (91 % once the 512 text tokens are counted), so a cached step
+skips almost everything. At 1440² the canvas is 8100 tokens and the same four references are 67 % —
+still a majority, but a far smaller one, so the same trick saves proportionally less.</p>
+
+<p>The <em>magnitude</em> needs one caveat. Counting tokens, a cached step at 512² should be about
+12× cheaper than an uncached one: 1536 queries instead of 17 920, and 1536 tokens through the blocks
+instead of 17 920. The measured win is 2.66×, and the gap is honest arithmetic rather than a
+disappointment — a step is not only matmuls. The cache still has to be <em>read</em> on every step
+(22.55 GB of it for the dev model, which costs memory bandwidth no matter how little you compute),
+the queries still attend over the full 17 920-key sequence, and step 0 runs uncached by definition.
+So: the cache pays off precisely when you are doing reference-guided work at modest resolution, and
+it pays off by a factor of two-to-three, not by the factor of twelve the token count suggests.</p>
 </section>

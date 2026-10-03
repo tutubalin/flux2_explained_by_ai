@@ -76,7 +76,7 @@ and L538 (double block) — and then appears in four width expressions:
 the <code>torch.split</code> that undoes it) and at L547 and L562 (the two streams' MLPs). Half of those
 columns are the gate, and they will be consumed by this multiplication.</p>
 
-<p class="dim">Used later: every block MLP (§9–§10) — and nowhere else. <code>MLPEmbedder</code> (§7.3) and <code>Modulation</code> (§7.9) use a plain <code>nn.SiLU</code>, with no gate and no halving.</p>
+<p class="dim">Used later: every block MLP (§9–§10) — and nowhere else. <code>MLPEmbedder</code> (§7.3) and <code>Modulation</code> (§7.9) use a plain SiLU — <code>nn.SiLU()</code> in one, <code>nn.functional.silu</code> in the other — with no gate and no halving.</p>
 
 <h3 id="p-mlp">7.3 · <span class="sig">MLPEmbedder</span> — L683</h3>
 <p>The sinusoidal fingerprint is still just a fixed code; the model needs to <em>learn</em> what to do

@@ -12,7 +12,7 @@ Everything needed to rebuild `../index.html` and to re-derive every number quote
 | `ref/qa_layout.py` | dependency-free SVG text-fit / overflow / collision checker; the build is not done until it reports `0 layout problem(s)` |
 | `ref/qa_trace.py` | annotation alignment: fails on an annotation whose quoted lines carry no code, or that names an identifier which occurs nowhere in `model.py`; lists legitimate cross-references with `-v` |
 | `ref/qa_coverage.py` | fails if any non-blank line of `model.py` is never shown in a listing or an annotation |
-| `ref/qa_linerefs.py` | fails if a prose `L455`-style reference points at lines containing none of the identifiers the same sentence names (`-v` lists all 80 references for skimming) |
+| `ref/qa_linerefs.py` | fails if a prose `L455`-style reference points at lines containing none of the identifiers the same sentence names, or if a row of the §16 symbol table gives a line that does not hold that symbol (`-v` lists every reference for skimming) |
 | `ref/qa_svg.py` | renders each `<svg>` to PNG (`resvg-py`, optional) so the figures can be eyeballed |
 | `ref/verify1.py` | exact parameter census per config, per-block costs, tensor-shape trace through a miniature model, KV-cache bit-exactness, RoPE orthogonality, mask semantics (needs `torch`, `einops`) |
 | `ref/verify2.py` | reference-token K/V invariance across timesteps, `forward` ≡ `forward_kv_extract` with zero references, `LastLayer` shapes |

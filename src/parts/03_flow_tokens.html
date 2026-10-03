@@ -293,7 +293,9 @@ scale/shift factors for the transformer to carry around.</p>
 </tbody>
 </table>
 </div>
-<p>Quadrupling the pixels quadruples the tokens but multiplies attention work by <strong>13.4×</strong>.
+<p>Quadrupling the pixels quadruples the <em>image</em> tokens — 4096 at 1 MP, 16 384 at 4 MP. The 512
+text tokens do not grow, so the joint sequence goes 4608 → 16 896, a factor of 3.7, and attention work,
+which is quadratic in that joint length, by <strong>13.4×</strong>.
 That single fact explains most of FLUX.2's engineering: the KV cache for references (§13), the shared
 modulation (§15), and the choice of 48 cheap single-stream blocks over expensive double-stream ones.</p>
 
