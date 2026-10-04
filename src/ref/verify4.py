@@ -268,6 +268,24 @@ check("how much cheaper a cached step looks in tokens", round(full / cached), 12
 print(f"      a cached step shrinks the attention by {full / cached:.1f}× — the query ratio, not "
       f"{(full / cached) ** 2:.0f}×: the keys are still all there")
 
+# ------------------------------------------------- C2. the fingerprint of §7.5
+hdr("C2 · the sinusoidal fingerprint, and what the three matrices cost")
+HALF = 256 // 2
+fast = math.exp(-math.log(10000) * 0 / HALF)          # i = 0
+slow = math.exp(-math.log(10000) * (HALF - 1) / HALF)  # i = 127
+check("cycles the fastest channel completes over t: 1 → 0", round(1000 * fast / (2 * math.pi)), 159)
+check("fraction of a cycle the slowest completes (%)",
+      round(100 * 1000 * slow / (2 * math.pi), 1), 1.7, 0.05)
+check("width of one double=True Modulation output", 6 * DEV["h"], 36_864)
+check("width of the double=False one", 3 * DEV["h"], 18_432)
+check("parameters in one double=True Modulation", DEV["h"] * 6 * DEV["h"], 226_492_416)
+check("parameters in the double=False one", DEV["h"] * 3 * DEV["h"], 113_246_208)
+P = params(DEV)[0]
+check("shared modulation as a share of dev (%)", round(100 * shared / P, 1), 1.8, 0.05)
+check("per-block modulation as a share of dev (%)", round(100 * per_block / P, 1), 28.1, 0.05)
+check("what sharing saves, as a share of dev (%)", round(100 * (per_block - shared) / P, 1), 26.4, 0.05)
+check("what sharing saves, in bf16 GB", round((per_block - shared) * 2 / 1e9), 17)
+
 # ---------------------------------------------------------------- G. memory
 hdr("G · memory")
 P_DEV, P_9B, P_4B = params(DEV)[0], params(K9B)[0], params(K4B)[0]
@@ -310,6 +328,10 @@ if PAGE.exists():
         ("measured speedup, 4 refs @512²", "2.66"), ("measured speedup, 1 ref @512²", "1.78"),
         ("measured speedup, 1 ref @1440²", "1.21"), ("measured speedup, 4 refs @1440²", "1.85"),
         ("171 Linear", "171"), ("128 RMSNorm", "128"), ("81 LayerNorm", "81"),
+        ("fastest fingerprint channel, cycles", "159"), ("slowest channel, % of a cycle", "1.7%"),
+        ("one double=True Modulation", "226492416"), ("the double=False one", "113246208"),
+        ("its output width", "36864"), ("the single one's width", "18432"),
+        ("shared modulation share", "1.8%"), ("per-block share", "28.1%"), ("saving share", "26.4%"),
     ]
     missing = [label for label, needle in claims if needle not in page]
     for label, needle in claims:

@@ -12,7 +12,8 @@ sys.path.insert(0, str(HERE))
 import codex
 
 PARTS = pathlib.Path(os.environ.get("FLUX2_PARTS", str(HERE / "parts")))
-OUT = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else HERE.parent / "index.html"
+ARGS = [a for a in sys.argv[1:] if not a.startswith("-")]
+OUT = pathlib.Path(ARGS[0]) if ARGS else HERE.parent / "index.html"
 
 FILL_CLASSES = {"lbl", "lbl-b", "lbl-s", "lbl-m", "lbl-mb", "ttl", "mono", "ax", "axb", "big", "eq"}
 
@@ -62,6 +63,11 @@ n_tr = len(re.findall(r"<!--T ", html))
 html = codex.expand(html)
 html = fix_svg_fills(html)
 
+# the hero quotes how many "inference" badges the page carries; count them instead of
+# hard-coding a number that drifts every time a section is written
+n_spec = len(re.findall(r'class="spec"', html))
+html = html.replace("<!--SPECCOUNT-->", str(n_spec))
+
 # sanity checks
 n_svg = len(re.findall(r"<svg\b", html))
 n_sec = len(re.findall(r"<section\b", html))
@@ -78,20 +84,50 @@ for t in ("section", "div", "figure", "table", "svg", "main", "aside"):
     if o != c:
         print(f"   !! <{t}> open={o} close={c} MISMATCH")
 
+# -------------------------------------------------- directive & comment hygiene
+# A directive that is missing its closing "-->" never fails loudly. codex's lazy
+# regex just swallows the following marker, so the annotation is lost AND an
+# unterminated comment is written into the page — where the browser then hides
+# every byte up to the next "-->". Seven such rows once went unnoticed, so the
+# build now refuses to produce a page containing them.
+hygiene = []
+for p in parts:
+    for lineno, line in enumerate(p.read_text().split("\n"), 1):
+        s = line.strip()
+        if s.startswith("<!--") and not s.endswith("-->"):
+            hygiene.append(f"{p.name}:{lineno}: unterminated directive: {s[:72]}...")
+leftover = re.findall(r"<!--\s*(?:T\s|TRACE|/TRACE|CODE|RAW|/RAW|SPECCOUNT)", html)
+if leftover:
+    hygiene.append(f"{len(leftover)} unexpanded directive marker(s) reached the page: {leftover[:3]}")
+for m in re.finditer(r"<!--(.*?)-->", html, flags=re.S):
+    if m.group(0).count("\n") > 3:
+        hygiene.append(f"a comment spans {m.group(0).count(chr(10)) + 1} lines of the page "
+                       f"({m.group(1)[:56].strip()}...) - something lost its terminator")
+if hygiene:
+    print("\n!! directive hygiene:")
+    for x in hygiene:
+        print("   -", x)
+    sys.exit(2)
+print(f"   directive hygiene: all {n_code} listings and {n_tr} annotations terminated and expanded")
+print(f"   {n_spec} 'inference' badges (the hero quotes this number)")
+
 OUT.write_text(html)
 print(f"\nwrote {OUT}  ({OUT.stat().st_size/1024:.1f} KB)")
 
 # ---------------------------------------------------------------- content QA
-# Three static checks over the *parts* (not the built page), because the article's
+# Five static checks over the *parts* and the page, because the article's
 # whole claim is that its quoted line numbers and annotations match the real file:
 #   qa_trace     every annotation describes lines that contain what it talks about
 #   qa_coverage  every non-blank line of model.py is shown somewhere
-#   qa_linerefs  every "L455" in the prose points at a plausible line
+#   qa_linerefs  every "L455" in the prose points at a plausible line, and every
+#                row of the cheat-sheet symbol table names a symbol that lives there
+#   qa_xrefs     every "§7.9" / "FIG 5" / contents entry resolves, and both the
+#                section and the figure numbering are dense
 #   verify4      re-derives every quoted number from model.py and greps the page for it
 qa_fail = 0
 sys.stdout.flush()          # keep the QA output in order when stdout is a pipe
 QA = [("qa_trace.py", PARTS), ("qa_coverage.py", PARTS), ("qa_linerefs.py", PARTS),
-      ("verify4.py", OUT)]        # verify4 also greps the page it just wrote
+      ("qa_xrefs.py", PARTS), ("verify4.py", OUT)]   # verify4 also greps the page it wrote
 for script, arg in QA:
     print()
     qa_fail |= subprocess.run([sys.executable, str(HERE / "ref" / script), str(arg)]).returncode

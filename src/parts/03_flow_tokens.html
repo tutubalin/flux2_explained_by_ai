@@ -182,9 +182,44 @@ per call, via the argument named <code>timesteps</code>. So whenever you read
 "timestep" in this file, think: <em>"a single float telling the model how noisy its input currently
 is"</em>. Because of the shift above, that float spends most of the run in a narrow band near 1 —
 39 of the 50 steps at 1 MP sit above <code>t = 0.7</code> — so the model has to resolve very fine
-differences inside it, which is one more reason the scalar is expanded into 128 frequencies (§7.1)
+differences inside it, which is one more reason the scalar is expanded into 128 frequencies (§8.1)
 rather than fed in raw. The <code>× 1000</code> inside <code>timestep_embedding</code> is a separate
 matter: a scale convention, not a consequence of the schedule.</p>
+</div>
+
+<h3>2.4 · One more input: what "guidance" actually is</h3>
+<p>The loop above passes the model four things — noisy latents, their position ids, the timestep, the
+text — and for some checkpoints a fifth: <code>guidance</code>. It is one number, and the file never
+explains it, so here it is. It matters twice: it is the second "setting" that §7 routes into the network,
+and it is a config field in §6 (<code>use_guidance_embed</code>).</p>
+<p><strong>The problem.</strong> A model trained to follow a prompt follows it politely. It produces
+something consistent with the words but hedged — washed out, under-committed, averaging over everything
+the prompt could have meant. <em>Classifier-free guidance</em> (Ho &amp; Salimans, 2022 — §18) is the
+classic fix: run the network <strong>twice</strong> per step, once with the prompt and once with an empty
+one, and extrapolate past the conditional prediction.</p>
+<div class="note math">
+<div class="nh">Σ Classifier-free guidance, one step</div>
+<p><span class="mathblk">v = v_uncond + w · (v_cond − v_uncond)</span></p>
+<p style="margin-top:6px"><span class="shape">w = 1 → the plain conditional prediction · w &gt; 1 → step further along "what the prompt changes" · w = 0 → ignore the prompt</span></p>
+</div>
+<p>The bracket is exactly <em>what the prompt changes</em>, so multiplying it by w &gt; 1 amplifies only
+that. It works — and it doubles the cost: 100 network evaluations for a 50-step image.</p>
+<p><strong>What FLUX.2 does instead.</strong> <code>use_guidance_embed</code> says whether the model takes
+<code>w</code> as an <em>input</em>. Where it does, the value is fingerprinted and embedded exactly like
+the timestep and added to the same condition vector (§7.5), so a <em>single</em> pass approximates what the
+two-pass extrapolation would have produced — the model was trained to reproduce it, which is what
+"guidance distillation" means. The dev configuration sets <code>use_guidance_embed=True</code> and
+<code>util.py</code> drives it with <code>guidance=4.0</code> over 50 steps. Both klein configurations set
+it to <code>False</code>: those networks have no guidance input at all, and <code>util.py</code>
+accordingly runs them with <code>guidance=1.0</code> — no amplification — in 4 steps.</p>
+<p><code>sampling.py</code> still carries the two-pass version as its own entry point
+(<code>denoise_cfg</code>): it duplicates the batch, passes <code>guidance=None</code> to the model, and
+combines the two predictions outside the network. Same idea, no distilled input, twice the compute.</p>
+<div class="note warn">
+<div class="nh">⚠ Do not confuse the two</div>
+<p>A <em>distilled</em> guidance value — this file's <code>guidance_in</code> — is one scalar fed into one
+forward pass. <em>True</em> classifier-free guidance is two forward passes combined afterwards. Nothing in
+<code>model.py</code> ever does the second: the file only sees the scalar.</p>
 </div>
 </section>
 
@@ -296,8 +331,8 @@ scale/shift factors for the transformer to carry around.</p>
 <p>Quadrupling the pixels quadruples the <em>image</em> tokens — 4096 at 1 MP, 16 384 at 4 MP. The 512
 text tokens do not grow, so the joint sequence goes 4608 → 16 896, a factor of 3.7, and attention work,
 which is quadratic in that joint length, by <strong>13.4×</strong>.
-That single fact explains most of FLUX.2's engineering: the KV cache for references (§13), the shared
-modulation (§15), and the choice of 48 cheap single-stream blocks over expensive double-stream ones.</p>
+That single fact explains most of FLUX.2's engineering: the KV cache for references (§14), the shared
+modulation (§16), and the choice of 48 cheap single-stream blocks over expensive double-stream ones.</p>
 
 <h3>3.3 · Text tokens, and the mystery of 15360</h3>
 <p>The text side is simpler but has one surprise. The 24-billion-parameter Mistral VLM is run over your

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate parts/07_mask_fig.html — the attention-mask figure (verified mask, drawn as SVG)."""
+"""Generate parts/09_mask_fig.html — the attention-mask figure (verified mask, drawn as SVG)."""
 import os, pathlib
 
 HERE = pathlib.Path(__file__).resolve().parent
@@ -77,15 +77,15 @@ fig = f'''<figure>
 <div class="fig">
 {svg}
 </div>
-<figcaption><span class="figno">FIG 11</span><b>The isolation rule, measured.</b> I fed one-hot values
+<figcaption><span class="figno">FIG 12</span><b>The isolation rule, measured.</b> I fed one-hot values
 through <code>causal_attn_fn</code> and read back which key each query actually mixed: on the left is what
-came out. (No mask tensor exists anywhere in the code — this pattern is what the <em>slicing</em> of §8.2
+came out. (No mask tensor exists anywhere in the code — this pattern is what the <em>slicing</em> of §9.2
 produces, and it is drawn as a grid only because a grid is the easiest way to see it.) Text and image rows are completely dense — every token sees every token, in both directions. The
 reference block is an isolated island: references read each other and nothing else. On the right, the
 cached variant: the reference <em>rows</em> are gone (we no longer compute their outputs) but their
 <em>columns</em> remain, supplied from the cache, so text and image still see them exactly as before.</figcaption>
 </figure>'''
 
-OUT = pathlib.Path(os.environ.get("FLUX2_MASKFIG", str(HERE / "parts" / "08_mask_fig.html")))
+OUT = pathlib.Path(os.environ.get("FLUX2_MASKFIG", str(HERE / "parts" / "09_mask_fig.html")))
 OUT.write_text(fig + "\n")
 print("wrote", OUT, len(fig), "chars")

@@ -7,10 +7,14 @@ them next to the line it points at, and flags what it can prove wrong:
 
   * a reference to a line that does not exist;
   * a row of the §16 symbol table whose line number does not hold the symbol;
-  * a line of HTML that quotes one or more line numbers and also names a
-    <code>identifier</code> from model.py — within NEAR characters of the
-    reference, so unrelated clauses of a long table row are ignored — which
-    appears nowhere near any of the quoted lines.
+  * a line of HTML that quotes line numbers and also names a <code>identifier</code>
+    from model.py which appears on none of them. "On" means the quoted lines +-1,
+    widened to the innermost function body around them (a row that cites L115 means
+    `forward`, and usually names something `forward` calls), or the name of an
+    enclosing def/class. With one reference on the line every identifier is checked
+    against it; with several — a design-table row — against their union, because
+    attributing identifiers to individual numbers in one long row is guesswork.
+    ALLOWED lists the rows that claim a name is deliberately *abs*ent.
     "Near" means the quoted range +-1 line, or the def/class that encloses it —
     so `<td><code>causal_attn_fn</code><br>L810–811</td>` passes even though the
     function's name is 50 lines above the slice being cited.
@@ -29,7 +33,7 @@ while the sentence around it is about something else, and no script can tell.
 
 Usage:  python3 src/ref/qa_linerefs.py [-v] [parts_dir]
 """
-import ast, io, pathlib, re, sys, tokenize
+import ast, pathlib, re, sys
 
 HERE = pathlib.Path(__file__).resolve().parent
 SRC = HERE / "model.py"
@@ -40,28 +44,49 @@ TEXT = SRC.read_text()
 LINES = TEXT.split("\n")
 N = len(LINES) - 1 if LINES and LINES[-1] == "" else len(LINES)
 
-NAMES = set()
-for tok in tokenize.generate_tokens(io.StringIO(TEXT).readline):
-    if tok.type == tokenize.NAME:
-        NAMES.add(tok.string)
-    elif tok.type == tokenize.STRING:
-        NAMES |= set(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", tok.string))
+tree = ast.parse(TEXT)
 
-# name -> every line it is defined on (a def/class name may repeat)
+# Identifiers the file really uses. Deliberately NOT every word in every string:
+# docstrings would contribute "and", "the", "gate", and then a sentence like
+# "L132 and L206" would be accused of quoting a name that is not on those lines.
+NAMES = set()
+for node in ast.walk(tree):
+    if isinstance(node, ast.Name):
+        NAMES.add(node.id)
+    elif isinstance(node, ast.Attribute):
+        NAMES.add(node.attr)
+    elif isinstance(node, ast.arg):
+        NAMES.add(node.arg)
+    elif isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+        NAMES.add(node.name)
+    elif isinstance(node, ast.keyword) and node.arg:
+        NAMES.add(node.arg)
+    elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+        if "->" in node.value:            # an einops rearrange pattern: its letters are axes
+            NAMES |= set(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", node.value))
+
+# every line a def/class body covers, so that quoting a slice inside a function
+# counts as naming that function; and the innermost function body around each line,
+# because "L115" in a table row means "this function", not "these three lines"
 SCOPE_OF_LINE = [set() for _ in range(N + 2)]
+BODY_OF_LINE = [None] * (N + 2)
 tree = ast.parse(TEXT)
 for node in ast.walk(tree):
     if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
-        for ln in range(node.lineno, (node.end_lineno or node.lineno) + 1):
+        lo, hi = node.lineno, (node.end_lineno or node.lineno)
+        for ln in range(lo, hi + 1):
             if 1 <= ln <= N:
                 SCOPE_OF_LINE[ln].add(node.name)
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    cur = BODY_OF_LINE[ln]
+                    if cur is None or (hi - lo) < (cur[1] - cur[0]):
+                        BODY_OF_LINE[ln] = (lo, hi)
 
 REF_RE = re.compile(r"\bL(\d{2,3})(?:\s*[–-]\s*(?:L)?(\d{2,3}))?"
                     r"|\blines?\s+(\d{2,3})(?:\s*[–-]\s*(\d{2,3}))?")
 CODE_RE = re.compile(r"<code>(.*?)</code>", re.S)
 # the cheat-sheet table of §16: <td class="m">710</td><td><code>timestep_embedding</code></td>
 ROW_RE = re.compile(r'<td class="m">(\d+)</td>\s*<td><code>(?:·\s*)?([A-Za-z_][\w.]*)</code>')
-NEAR = 90          # characters of context on either side of a reference that count as "about" it
 OTHER_FILE = ("sampling.py", "autoencoder.py", "text_encoder.py", "util.py", "docs/", "README")
 SKIP = {"self", "None", "True", "False"}
 # names too generic to be evidence about a particular line: the article uses them as
@@ -70,6 +95,9 @@ GENERIC = {"txt", "img", "ref", "vec", "pe", "cache", "torch", "nn", "split", "c
 # (part file, first quoted line) -> why the identifier check does not apply
 ALLOWED = {
     ("02_map_bigpicture.html", 375): "the row's whole point is that SelfAttention has NO forward()",
+    ("12_loop_design_refs.html", 722): "the row's point is that LastLayer is NOT in the fp32 list",
+    ("12_loop_design_refs.html", 446): "the row's point is that scaled_dot_product_attention "
+                                       "replaced the code these two lines no longer use",
 }
 
 
@@ -95,59 +123,110 @@ def main():
     fatal, all_refs = [], []
     for part in sorted(PARTS.glob("[0-9][0-9]_*.html")):
         in_svg = False
-        for lineno, line in enumerate(part.read_text().split("\n"), 1):
-            if "<svg" in line:
+        units, cur, cur_start = [], [], 0
+        for lineno, raw_line in enumerate(part.read_text().split("\n"), 1):
+            line = raw_line
+            if "<svg" in raw_line:
                 in_svg = True
             if in_svg:
-                if "</svg>" in line:
+                if "</svg>" in raw_line:
                     in_svg = False
                 continue
             if line.lstrip().startswith(("<!--T ", "<!--CODE ", "<!--RAW")):
                 continue
             if any(f in line for f in OTHER_FILE):
                 continue
+            # prose paragraphs wrap across source lines, and a sentence that cites two
+            # line numbers often has one on each — so analyse whole paragraphs: a new
+            # unit starts at a blank line or a line that opens with a tag
+            stripped = line.strip()
+            if not stripped or stripped.startswith("<"):
+                units.append((cur_start, " ".join(cur)))
+                cur, cur_start = [], lineno
+            cur.append(stripped)
 
-            refs, near = [], []
-            for m in REF_RE.finditer(line):
+        units.append((cur_start, " ".join(cur)))
+        for lineno, line in units:
+            if not line.strip():
+                continue
+            marks = list(REF_RE.finditer(line))
+            if not marks:
+                continue
+            plain = " ".join(re.sub(r"<[^>]+>", "", line).split())
+            refs = []
+            for m in marks:
                 lo = int(m.group(1) or m.group(3))
                 hi = int(m.group(2) or m.group(4) or 0) or lo
                 refs.append((lo, hi))
-                # only <code> spans close to the reference make a claim about it
-                near.append(line[max(0, m.start() - NEAR):m.end() + NEAR])
-            if not refs:
-                continue
-            plain = " ".join(re.sub(r"<[^>]+>", "", line).split())
+                if hi > N:
+                    fatal.append(f"{part.name}:{lineno}: L{lo}–{hi} is beyond the end of model.py "
+                                 f"({N} lines)\n      …{plain[:150]}…")
+                elif lo == hi and not re.search(r"[A-Za-z_]{2,}", LINES[lo - 1]):
+                    fatal.append(f"{part.name}:{lineno}: cites L{lo} alone, but that line carries no "
+                                 f"name to point at\n      L{lo}: {LINES[lo-1].strip()[:88]!r}")
 
-            bad = [f"L{lo}–{hi}" if lo != hi else f"L{lo}" for lo, hi in refs if max(lo, hi) > N]
-            if bad:
-                fatal.append(f"{part.name}:{lineno}: {', '.join(bad)} beyond the end of model.py "
-                             f"({N} lines)\n      …{plain[:150]}…")
-                continue
-
-            window, scopes = [], set()
-            for lo, hi in refs:
-                window.append("\n".join(LINES[max(0, lo - 2):min(N, hi + 1)]))
+            def window_of(lo, hi):
+                """The quoted lines +-1, widened to the innermost function body around
+                them: a table row that says 'L115' means 'forward', not 'these three
+                lines', and the identifiers it names are usually called from inside it."""
+                wlo, whi = max(0, lo - 2), min(N, hi + 1)
+                scopes = set()
                 for ln in range(lo, min(hi, N) + 1):
                     scopes |= SCOPE_OF_LINE[ln]
-            window = "\n".join(window)
+                    body = BODY_OF_LINE[ln]
+                    if body:
+                        wlo, whi = min(wlo, body[0] - 1), max(whi, min(N, body[1] + 1))
+                return "\n".join(LINES[wlo:whi]), scopes
 
-            codes = set()
-            for span in CODE_RE.findall(" ".join(near)):
-                span = re.sub(r"<[^>]+>", "", span).replace("&gt;", ">").replace("&lt;", "<")
-                codes |= {w for w in re.findall(r"[A-Za-z_][A-Za-z0-9_]{2,}", span)} - SKIP - GENERIC
-            named = sorted(w for w in codes if w in NAMES)
-            missing = [w for w in named
-                       if not re.search(rf"\b{re.escape(w)}\b", window)
-                       and w not in scopes
-                       and not any(w in s for s in scopes)]
-            if missing and (part.name, refs[0][0]) not in ALLOWED:
-                rng = ", ".join(f"L{lo}" if lo == hi else f"L{lo}–{hi}" for lo, hi in refs)
+            def idents(fragment):
+                out = set()
+                for span in CODE_RE.findall(fragment):
+                    span = re.sub(r"<[^>]+>", "", span).replace("&gt;", ">").replace("&lt;", "<")
+                    out |= {w for w in re.findall(r"[A-Za-z_][A-Za-z0-9_]{2,}", span)} - SKIP - GENERIC
+                return sorted(w for w in out if w in NAMES)
+
+            def accuse(rng, lo, missing):
+                if (part.name, lo) in ALLOWED:
+                    return
                 fatal.append(f"{part.name}:{lineno}: {rng} quoted near {missing}, but those names "
                              f"occur neither on the quoted lines nor in their enclosing scope\n"
-                             f"      L{refs[0][0]}: {LINES[refs[0][0]-1].strip()[:88]}\n"
+                             f"      L{lo}: {LINES[lo-1].strip()[:88]}\n"
                              f"      …{plain[:150]}…")
+
+            if len(refs) == 1:
+                # One reference on the line: every identifier on it is a claim about that
+                # reference, so check each against that reference's own window.
+                lo, hi = refs[0]
+                if hi <= N:
+                    window, scopes = window_of(lo, hi)
+                    missing = [w for w in idents(line)
+                               if not re.search(rf"\b{re.escape(w)}\b", window)
+                               and not any(w in s for s in scopes)]
+                    if missing:
+                        accuse(f"L{lo}" if lo == hi else f"L{lo}–{hi}", lo, missing)
+            else:
+                # Several references on one line — a design-table row, typically. Which
+                # identifier belongs to which number is guesswork (the row's trailing
+                # clause lands in the last reference's segment no matter what it is about),
+                # so only require that each identifier appears among the lines quoted.
+                windows, scopes = [], set()
+                for lo, hi in refs:
+                    if hi <= N:
+                        w, s = window_of(lo, hi)
+                        windows.append(w)
+                        scopes |= s
+                blob = "\n".join(windows)
+                missing = [w for w in idents(line)
+                           if not re.search(rf"\b{re.escape(w)}\b", blob)
+                           and not any(w in s for s in scopes)]
+                if missing:
+                    rng = ", ".join(f"L{lo}" if lo == hi else f"L{lo}–{hi}" for lo, hi in refs)
+                    accuse(rng, refs[0][0], missing)
+
             for lo, hi in refs:
-                all_refs.append((part.name, lineno, lo, hi, LINES[lo - 1].strip()[:66], plain[:96]))
+                if hi <= N:
+                    all_refs.append((part.name, lineno, lo, hi,
+                                     LINES[lo - 1].strip()[:66], plain[:96]))
 
     n_rows = symbol_rows(fatal)
     print(f"qa_linerefs: {len(all_refs)} prose line references, {n_rows} symbol-table rows "

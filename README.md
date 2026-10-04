@@ -16,19 +16,20 @@ The article is ordered **bottom-up**: nothing is used before it has been explain
 | § | Contents |
 |---|----------|
 | 0–1 | A map of the file (every symbol with its line range, plus the whole import block) and what FLUX.2 actually is — including exactly where the 32 223 281 152 parameters go |
-| 2–3 | Rectified flow in five minutes (with the real `denoise()` loop); how pixels become 128-channel tokens, where 15360 comes from, and what a reference image costs |
+| 2–3 | Rectified flow in five minutes (with the real `denoise()` loop), what *guidance* is and why this model takes it as an input; how pixels become 128-channel tokens, where 15360 comes from, and what a reference image costs |
 | 4 | Attention from zero: queries, keys, values, √d, softmax, heads — assumed knowledge nowhere else in the article |
 | 5–6 | The four-axis rotary position encoding (interactive playground) and the three config dataclasses, with the two `__init__` guards |
-| 7 | Every small primitive, in dependency order: `timestep_embedding`, `SiLUActivation`, `MLPEmbedder`, `rope`, `EmbedND`, `apply_rope`, `RMSNorm`/`QKNorm`, `SelfAttention`, `Modulation`, `LastLayer` |
-| 8 | `causal_attn_fn` — the attention router, both branches, with the exact 9×9 isolation pattern drawn cell by cell |
-| 9–10 | `SingleStreamBlock` and `DoubleStreamBlock`, each with a wiring diagram of every layer and tensor shape |
-| 11–12 | `Flux2.__init__` and the three forward passes; the modulation-blending helpers |
-| 13 | The KV cache: why it is *exact*, what it costs in GB, what it buys in speed |
-| 14–15 | The denoising loop, what a step costs in FLOPs, and twelve design decisions explained |
-| 16–17 | A complete cheat sheet of every symbol and constant, and references (SD3/MM-DiT, RoPE, SwiGLU, DiT, …) |
+| 7 | **Conditioning, from zero**: why one set of weights has to do fifty different jobs, LayerNorm built up from its formula, shift/scale/gate (FiLM → adaLN → adaLN-Zero), the residual stream, and the whole path from one float to 56 blocks' worth of dials |
+| 8 | Every small primitive, in dependency order: `timestep_embedding`, `SiLUActivation`, `MLPEmbedder`, `rope`, `EmbedND`, `apply_rope`, `RMSNorm`/`QKNorm`, `SelfAttention`, `Modulation`, `LastLayer` |
+| 9 | `causal_attn_fn` — the attention router, both branches, with the exact 9×9 isolation pattern drawn cell by cell |
+| 10–11 | `SingleStreamBlock` and `DoubleStreamBlock`, each with a wiring diagram of every layer and tensor shape |
+| 12–13 | `Flux2.__init__` and the three forward passes; the modulation-blending helpers |
+| 14 | The KV cache: why it is *exact*, what it costs in GB, and what it really buys in speed |
+| 15–16 | The denoising loop, what a step costs in FLOPs, and twelve design decisions explained |
+| 17–18 | A complete cheat sheet of every symbol and constant, and references (SD3/MM-DiT, RoPE, SwiGLU, DiT, PixArt-α, CFG, FiLM, …) |
 
 Every code listing is byte-exact from the source file with real line numbers, and every line is
-followed by a plain-English trace. Fourteen hand-drawn SVG diagrams show how the modules connect and
+followed by a plain-English trace. Fifteen hand-drawn SVG diagrams show how the modules connect and
 what shape the data has between them.
 
 ### Claims that were verified, not assumed
@@ -38,13 +39,17 @@ relative-position invariance of RoPE, the attention isolation pattern, and the b
 cache (`forward_kv_cached` with a stale cache ≡ `forward_kv_extract`, max |Δ| = 0.0) were all computed
 directly from the repository's code. The scripts that did it are in [`src/ref/`](./src/ref).
 
-Four further checks run on every build, because the article quotes real line numbers throughout:
+The build also refuses to emit a page containing an unterminated `<!--T …` annotation — a missing
+`-->` used to be swallowed silently, which cost the page seven explanations and hid everything after them
+in the browser. Beyond that, five checks run on every build, because the article quotes real line numbers
+throughout:
 
 | check | what it proves |
 |-------|----------------|
 | `ref/qa_trace.py` | no annotation quotes a line that carries no code, and no annotation names an identifier that does not exist in `model.py` (this is how a walkthrough that had drifted six lines from its own code was caught) |
 | `ref/qa_coverage.py` | all 692 non-blank lines of `model.py` are shown in a listing or an annotation — 480 of them carry an annotation of their own |
-| `ref/qa_linerefs.py` | every `L455`-style reference in the prose points at lines that contain what the sentence claims |
+| `ref/qa_linerefs.py` | every place the prose cites a source line points at lines containing what the sentence claims, and every row of the cheat-sheet symbol table names a symbol that really lives on the line it gives |
+| `ref/qa_xrefs.py` | every `§7.9`, every `FIG 5` and every contents entry resolves to something that exists, and the section and figure numbering have no gaps |
 | `ref/verify4.py` | every quoted number is re-derived from the source with no dependencies at all, and then looked up in `index.html` — so a figure cannot stay in the page once it stops being true |
 
 Statements about *why* the authors made a choice are a different kind of claim — the file carries
@@ -56,15 +61,16 @@ never are.
 ```
 index.html          the article (the deliverable — open this)
 src/                everything needed to rebuild and re-verify it
-  parts/            the article authored as ordered HTML chunks
+  parts/            the article authored as ordered HTML chunks (00_head … 12_loop_design_refs)
   build.py          concatenates parts/, expands code directives, runs the QA checks -> index.html
   codex.py          byte-exact, syntax-highlighted extraction of model.py line ranges
-  gen_mask_fig.py   regenerates the attention-isolation figure (parts/08_mask_fig.html)
+  gen_mask_fig.py   regenerates the attention-isolation figure (parts/09_mask_fig.html)
   ref/model.py      verbatim copy of the file being explained (line-number ground truth)
   ref/qa_layout.py  dependency-free SVG text-fit / collision checker
   ref/qa_trace.py   annotation-to-line alignment checker (runs on every build)
   ref/qa_coverage.py  "every line is shown" checker (runs on every build)
   ref/qa_linerefs.py  prose line-reference checker (runs on every build)
+  ref/qa_xrefs.py   section / figure / contents cross-reference checker (runs on every build)
   ref/qa_svg.py     renders every figure to PNG for eyeballing (needs `pip install resvg-py`)
   ref/verify1-3.py  the numerical verifications that run the real model (need `torch`, `einops`)
   ref/verify4.py    re-derives every quoted number with no dependencies, then greps index.html for it

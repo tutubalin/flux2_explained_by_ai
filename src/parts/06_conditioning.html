@@ -1,0 +1,374 @@
+<section id="conditioning">
+<h2><span class="secno">§ 7</span><span class="sig">Conditioning, from zero</span> — how one float steers 32 billion weights</h2>
+<p class="section-intro">
+§4 built attention out of nothing and §5 built positions out of nothing, because every block in this
+file is wired around both. This section does the same for the third thing every block needs and the
+file never stops to define: <em>how the network is told what to draw, and how noisy its input is</em>.
+Nothing here is in <code>model.py</code> as a single named object — it is a mechanism spread over one
+function, one small class and one three-line class (§8.1, §8.3, §8.9) and consumed in all 56 blocks.
+Understand it once here and those three classes become trivial.
+</p>
+
+<h3>7.1 · One set of weights, fifty different jobs</h3>
+<p>Recall the loop from §2: generating one image means calling <em>the same network</em> many times —
+50 times for FLUX.2-dev, 4 for the klein models — with a timestep <code>t</code> that walks down from
+1 to 0. Those calls cannot want the same thing.</p>
+<div class="tbl-wrap">
+<table class="data">
+<thead><tr><th style="width:130px">the call at</th><th style="width:290px">what the input looks like</th><th>what a useful output looks like</th></tr></thead>
+<tbody>
+<tr><td class="num">t = 0.98</td><td>almost pure Gaussian noise — no objects, no layout</td><td>a coarse global arrangement: where the subject is, how big, what the lighting does. Fine detail is meaningless here; there is nothing yet to refine.</td></tr>
+<tr><td class="num">t = 0.50</td><td>a blurry but recognisable image</td><td>shape and texture decisions: edges placed, materials chosen</td></tr>
+<tr><td class="num">t = 0.05</td><td>nearly the finished image</td><td>a small correction — sharpen here, fix a colour there. A coarse global decision now would destroy the picture.</td></tr>
+</tbody>
+</table>
+</div>
+<p>So one fixed function has to behave like a <em>different</em> function at every step. There are only
+three ways to arrange that:</p>
+<ol>
+<li><strong>Build one network per step.</strong> 50 copies of a 32-billion-parameter model. Absurd, and
+it could not generalise to a step count chosen at run time.</li>
+<li><strong>Hand <code>t</code> to the network as another input token</strong> and let attention find it.
+Possible — but a single token among 16 896 is a weak, indirect signal, and every block would have to
+spend attention capacity re-discovering it.</li>
+<li><strong>Keep one set of weights and let <code>t</code> re-tune them on the fly.</strong> No weight is
+ever changed; instead each layer's normalisation is shifted, scaled and gated by numbers derived from
+<code>t</code>. One network, fifty behaviours, almost no extra parameters.</li>
+</ol>
+<p>FLUX.2 does the third. The mechanism is called <strong>adaptive layer normalisation</strong> (adaLN),
+and the rest of this section builds it from the ground up.</p>
+
+<h3>7.2 · Three ways to tell a network something</h3>
+<p>Before the mechanics, one distinction explains the whole design. A diffusion transformer has to be
+told several different things, and FLUX.2 tells them through <em>different channels</em>:</p>
+<div class="tbl-wrap">
+<table class="data">
+<thead><tr><th style="width:180px">what must be injected</th><th style="width:120px">its size</th><th style="width:200px">channel used</th><th>where you have already met it</th></tr></thead>
+<tbody>
+<tr><td>the prompt</td><td>512 tokens × 15 360 numbers</td><td><strong>tokens in the sequence</strong>, attending jointly with the image</td><td><code>txt_in</code> at L70; the joint attention of §4 and §11; the merge at L153–154 (§12.2)</td></tr>
+<tr><td>reference images</td><td>up to 16 384 tokens × 128</td><td><strong>tokens too</strong> — but sealed off from the canvas</td><td>§3.4, and the router that isolates them (§9)</td></tr>
+<tr><td>the timestep <code>t</code></td><td>one float</td><td><strong>modulation</strong>: shift, scale and gate on every norm</td><td>this section; code at §8.1, §8.3, §8.9</td></tr>
+<tr><td>the guidance strength <code>g</code> (§2.4)</td><td>one float (dev only)</td><td><strong>the same modulation channel</strong>, added to <code>t</code>'s vector</td><td>L74, L200–203; §6 (<code>use_guidance_embed</code>)</td></tr>
+</tbody>
+</table>
+</div>
+<div class="note idea">
+<div class="nh">💡 The rule behind the split</div>
+<p><strong>Content goes into the sequence; settings go into the modulation.</strong> A prompt is content:
+different image regions need to look at <em>different words</em>, and only attention can route one token
+to another (§4). A timestep is a setting: it has to apply to <em>every token in every layer at once</em>,
+uniformly. Broadcasting one scalar through attention would be slow and lossy; handing it to each layer's
+normalisation reaches all 16 896 tokens in one multiplication. The guidance value is a setting for the
+same reason — it says "push harder towards the prompt", not "look at this".</p>
+</div>
+
+<h3>7.3 · LayerNorm from zero — and why it is the place to inject</h3>
+<p>A layer norm acts on <em>one token vector at a time</em> — D numbers, independently of every other
+token, so it can never leak information between positions. It does two things:</p>
+<div class="note math">
+<div class="nh">Σ LayerNorm, in full</div>
+<p><span class="mathblk">μ = mean(x)  σ² = mean((x − μ)²)  x̂ = (x − μ) / √(σ² + ε)</span></p>
+<p style="margin-top:6px"><span class="mathblk">y = γ ⊙ x̂ + β</span></p>
+<p style="margin-top:6px"><span class="shape">x is (L, D) · μ, σ², x̂, y are (L, D) · γ and β are (D,) — one number per channel, shared by all tokens · ⊙ is element-wise multiplication</span></p>
+</div>
+<p>The first line is <strong>normalisation</strong>: subtract the token's own mean, divide by its own
+standard deviation. After that, every token vector has mean 0 and unit variance, whatever it was before.
+Why bother? Because 56 blocks of matrix multiplication would otherwise let magnitudes drift — one block's
+output becomes the next block's input, and a weight matrix that happens to amplify by 1.1× compounds into
+something unmanageable over 56 layers. Normalising resets the scale at every step, so each block always
+sees an input in the range its weights were trained for.</p>
+<p>The second line is the part that matters here. After <code>x̂</code>, the vector's scale and offset are
+<em>fixed</em> — the only freedom left in the whole operation is <strong>γ</strong> (a per-channel gain) and
+<strong>β</strong> (a per-channel offset). Those two are the knobs.</p>
+<ul>
+<li>Let γ and β be learned constants and you have ordinary LayerNorm: the knobs are set once, at training
+time, and never move again.</li>
+<li>Let γ and β be <em>computed from something else</em> — the timestep — and you have a layer whose
+behaviour changes from step to step while every weight in it stays frozen. Two knobs, turned 50 times,
+giving 50 different layers out of one.</li>
+</ul>
+<p>That is the entire trick, and the file is built around it. PyTorch's
+<code>nn.LayerNorm(D, elementwise_affine=False)</code> <em>deletes</em> γ and β, leaving a module that only
+normalises. FLUX.2 uses exactly that setting in <strong>all 81</strong> of its layer norms — the census in
+§1.1 — and supplies γ and β from the timestep instead. In the code they are spelled</p>
+<div class="note math">
+<div class="nh">Σ How the knobs are written in this file</div>
+<p><span class="mathblk">x_mod = (1 + scale) ⊙ norm(x) + shift</span></p>
+<p style="margin-top:6px"><span class="shape">L470 in the single block · L580 and L588 in the double block, before attention · L628 and L633, before the two MLPs</span></p>
+</div>
+<p><code>scale</code> is playing γ's role and <code>shift</code> is playing β's. The <code>1 +</code> is
+not decoration: with <code>scale = 0</code> you get exactly the normalised signal, so "nothing special is
+happening" is the default state and the network only has to learn a <em>deviation</em> from it. It is the
+same idea as a residual connection, applied to the modulation itself — and it is why the modulation can be
+shared by 56 blocks without every block being forced into the same extreme behaviour.</p>
+
+<h3>7.4 · Shift, scale, gate: three dials per sub-layer</h3>
+<p>Shift and scale re-tune what a block <em>sees</em>. DiT (Peebles &amp; Xie, 2022 — see §18) added a
+third dial, and FLUX.2 keeps it: a <strong>gate</strong> that multiplies the sub-layer's <em>output</em>
+before it is added back into the residual stream.</p>
+<div class="note beginner">
+<div class="nh">◇ The residual stream, in one paragraph</div>
+<p>Every token owns a vector of 6144 numbers that is carried through the whole network, and each block
+<em>adds</em> to it instead of replacing it: <span class="shape">x ← x + block(x)</span>. That running
+vector is the "residual stream" — the token's current understanding of itself, which starts as a projected
+patch (§3) and ends as a velocity (§2). Two things follow, and both matter below. A block cannot destroy
+what earlier blocks decided, only amend it — which is what makes 56 layers trainable at all. And a block
+that contributes <em>nothing</em> is a perfectly valid state: set its output to zero and the stream passes
+through unchanged. That is why a gate is worth having — next — and why the merged stream in §12.2 can be
+handed to 48 further blocks without any rewiring.</p>
+</div>
+<div class="note math">
+<div class="nh">Σ One adaLN sub-layer</div>
+<p><span class="mathblk">x ← x + gate ⊙ sublayer( (1 + scale) ⊙ norm(x) + shift )</span></p>
+<p style="margin-top:6px"><span class="shape">shift, scale, gate are all (B, 1, D) — one value per channel, broadcast over all L tokens</span></p>
+</div>
+<p>Think of the gate as a volume knob on the block's contribution. <code>gate = 0</code> and the block is
+a no-op — the stream passes through untouched, however excited its internals got. <code>gate = 1</code> and
+the block's full output lands in the stream. In between, the block contributes partially. Shift and scale
+cannot do that: they change the input, so the block always <em>runs</em>, and its output always arrives.
+The gate is what lets the same 56 blocks do coarse global work at t = 0.98 and delicate local work at
+t = 0.05 — different layers can be turned up or down per step.</p>
+<p>The two kinds of block are built in §10 and §11; this table is only the preview of what they will
+receive, so that the code has somewhere to land when it arrives.</p>
+<div class="tbl-wrap">
+<table class="data">
+<thead><tr><th style="width:230px">block</th><th style="width:120px">norms it owns</th><th style="width:150px">dials it receives</th><th>where each dial acts</th></tr></thead>
+<tbody>
+<tr><td><code>SingleStreamBlock</code> (§10)<br><span class="dim">48 of them</span></td><td>1 (<code>pre_norm</code>)</td><td>one triple<br>(3 vectors)</td><td>shift + scale on the input to the fused attention+MLP projection (L470); gate on the fused output before the residual add (L484)</td></tr>
+<tr><td><code>DoubleStreamBlock</code> (§11)<br><span class="dim">8 of them</span></td><td>4 (<code>img_norm1</code>, <code>img_norm2</code>, <code>txt_norm1</code>, <code>txt_norm2</code>)</td><td>two triples per stream<br>(6 vectors)</td><td>one triple for attention (shift+scale at L580/L588, gate on the projected attention output at L626/L631), one for the MLP (shift+scale at L628/L633, gate at L627/L632)</td></tr>
+</tbody>
+</table>
+</div>
+<p>DiT initialises its gate to zero — "adaLN-Zero" — so that a freshly initialised block is the identity
+and a deep network starts out as a no-op that training gradually switches on. <code>model.py</code>
+contains no initialisation code at all (every matrix is a plain <code>nn.Linear(..., bias=False)</code>
+and the checkpoints arrive trained), so whether FLUX.2's gates started at zero cannot be read off this
+file.</p>
+
+<h3>7.5 · From one float to 56 blocks' worth of dials</h3>
+<p>Now the pipeline that produces those dials. It has four stages, and each one exists because the
+previous one is not enough.</p>
+<p><strong>Stage 1 — a scalar cannot drive a network, so it becomes a fingerprint.</strong> One float
+into a 6144-wide linear layer gives you a straight line: every output channel is a fixed multiple of
+<code>t</code>, so the network could only ever respond to <code>t</code> monotonically. Instead the
+timestep is spread across 256 numbers that vary at many different rates — the sinusoidal encoding from
+the original Transformer, reused here for a scalar instead of a position:</p>
+<div class="note math">
+<div class="nh">Σ The fingerprint (§8.1 implements this)</div>
+<p><span class="mathblk">t′ = 1000 · t</span></p>
+<p><span class="mathblk">freqs<sub>i</sub> = exp(−ln(10000) · i / 128)   for i = 0 … 127</span></p>
+<p><span class="mathblk">fingerprint = [ cos(t′ · freqs<sub>0…127</sub>) , sin(t′ · freqs<sub>0…127</sub>) ]   → 256 numbers</span></p>
+</div>
+<p>The fastest of those frequencies is 1.0, so as <code>t</code> goes from 1 to 0 that channel completes
+<strong>159 cycles</strong>; the slowest is 1.07 × 10⁻⁴, and it gets through only <strong>1.7 % of one
+cycle</strong> over the same range. Between them sit 128 scales, geometrically spaced. Two consequences,
+and they are the reason everyone uses this encoding:</p>
+<ul>
+<li><strong>Neighbouring timesteps give neighbouring fingerprints.</strong> Every channel is a smooth
+function of <code>t</code>, so t = 0.620 and t = 0.621 produce almost identical 256-vectors. The network
+never sees a discontinuity as the run proceeds.</li>
+<li><strong>Distant timesteps are unmistakably different.</strong> With 128 rates present, no two values of
+<code>t</code> in [0, 1] collide — the slow channels separate the coarse ranges and the fast channels
+separate fine ones. One number, represented at every resolution at once.</li>
+</ul>
+<p><strong>Stage 2 — a fixed code becomes a learned meaning.</strong> The fingerprint is a deterministic
+function of <code>t</code>: no parameters, nothing learned. What it <em>means</em> to be at t = 0.62 is
+something the model has to discover, so the fingerprint goes through the smallest possible learned
+transform — two linear layers with a nonlinearity between them, 256 → 6144 → 6144 (§8.3). The
+nonlinearity is <strong>SiLU</strong>, <span class="shape">silu(x) = x · σ(x)</span> — a smooth, self-gated
+ramp that is near zero for very negative inputs and near <code>x</code> for positive ones. §8.2 turns that
+same function into a <em>gate</em> for the MLPs; here it is just the kink that lets two linear layers
+express more than one. Its output is the
+<strong>condition vector</strong>, <code>vec</code>, and it is the only form in which the timestep ever
+reaches the blocks.</p>
+<p><strong>Stage 3 — the guidance value takes the same road and is added.</strong> If the configuration has
+<code>use_guidance_embed</code> (§6, true for dev only — and §2.4 explains what the value <em>means</em>),
+the guidance scalar is fingerprinted and MLP'd through its <em>own</em> copy of the same class, and the two
+vectors are summed (L200–203):</p>
+<div class="note math">
+<div class="nh">Σ Two settings, one channel</div>
+<p><span class="mathblk">vec = time_in(fingerprint(t)) + guidance_in(fingerprint(g))</span></p>
+<p style="margin-top:6px"><span class="shape">(B, 6144) + (B, 6144) → (B, 6144)</span></p>
+</div>
+<p>Adding, rather than concatenating, means the two settings share every downstream matrix: there is one
+condition channel and the network learns to disentangle them. It also means guidance cannot be routed
+somewhere the timestep does not go — the two dials are fused from this point on.</p>
+<p><strong>Stage 4 — three matrices turn one vector into everybody's dials.</strong> <code>vec</code> is
+fed to <em>three</em> <code>Modulation</code> modules (§8.9). Each one applies SiLU and then a single
+bias-free linear layer, and splits the result into vectors of 6144:</p>
+<div class="tbl-wrap">
+<table class="data">
+<thead><tr><th style="width:290px">module (built at L98–108)</th><th style="width:170px">its matrix</th><th style="width:90px">vectors</th><th>who consumes them</th></tr></thead>
+<tbody>
+<tr><td><code>double_stream_modulation_img</code></td><td>6144 → 36 864</td><td class="num">6</td><td>the <strong>image</strong> stream of all 8 double blocks: (shift, scale, gate) for its attention, then (shift, scale, gate) for its MLP</td></tr>
+<tr><td><code>double_stream_modulation_txt</code></td><td>6144 → 36 864</td><td class="num">6</td><td>the <strong>text</strong> stream of the same 8 blocks, same two triples</td></tr>
+<tr><td><code>single_stream_modulation</code></td><td>6144 → 18 432</td><td class="num">3</td><td>all 48 single blocks — one triple, because after the merge there is one stream and one fused sub-layer</td></tr>
+</tbody>
+</table>
+</div>
+<p>That is the naming trap in <code>__init__</code>: <code>double=True</code> does <em>not</em> mean "one
+triple per stream in a two-stream block". Each of the two <code>double=True</code> modules serves
+<strong>one</strong> stream and emits <strong>two</strong> triples — one for attention, one for the MLP.
+Six vectors, one stream.</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 1560 640" role="img" aria-label="Conditioning pipeline: the timestep and the optional guidance value are each turned into a 256-number sinusoidal fingerprint, each fingerprint runs through an MLPEmbedder to become a 6144-wide vector, the two vectors are added into vec, and vec feeds three Modulation matrices which emit six, six and three dial vectors consumed by the eight double blocks' image stream, the eight double blocks' text stream, and the forty-eight single blocks.">
+<defs><marker id="cndA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7d8da1"/></marker>
+<marker id="cndV" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5fe08a"/></marker></defs>
+<text x="40" y="30" class="ttl">From one float to 56 blocks' worth of dials — computed three times per step, not 56 times</text>
+
+<!-- stage 1: the scalars -->
+<rect x="40" y="80" width="150" height="86" rx="10" fill="#121a26" stroke="#5fe08a" stroke-opacity=".6"/>
+<text x="115" y="104" class="axb" text-anchor="middle" fill="#5fe08a">timestep t</text>
+<text x="115" y="124" class="eq" text-anchor="middle">(B,)</text>
+<text x="115" y="146" class="eq" text-anchor="middle">1.0 → 0.0</text>
+<rect x="40" y="200" width="150" height="86" rx="10" fill="#121a26" stroke="#5fe08a" stroke-opacity=".35" stroke-dasharray="5 4"/>
+<text x="115" y="224" class="axb" text-anchor="middle" fill="#5fe08a">guidance g</text>
+<text x="115" y="244" class="eq" text-anchor="middle">(B,)</text>
+<text x="115" y="266" class="eq" text-anchor="middle">dev only (§6)</text>
+
+<!-- stage 2: fingerprints -->
+<rect x="240" y="80" width="230" height="86" rx="10" fill="#121a26" stroke="#2e4054"/>
+<text x="355" y="104" class="axb" text-anchor="middle">timestep_embedding</text>
+<text x="355" y="124" class="eq" text-anchor="middle">128 cos + 128 sin (§8.1)</text>
+<text x="355" y="146" class="eq" text-anchor="middle">→ (B, 256), no parameters</text>
+<rect x="240" y="200" width="230" height="86" rx="10" fill="#121a26" stroke="#2e4054"/>
+<text x="355" y="224" class="axb" text-anchor="middle">timestep_embedding</text>
+<text x="355" y="244" class="eq" text-anchor="middle">the same fixed code</text>
+<text x="355" y="266" class="eq" text-anchor="middle">→ (B, 256)</text>
+<path d="M190,123 L238,123" stroke="#5fe08a" stroke-width="1.8" fill="none" marker-end="url(#cndV)"/>
+<path d="M190,243 L238,243" stroke="#5fe08a" stroke-width="1.8" fill="none" marker-end="url(#cndV)"/>
+
+<!-- stage 3: MLPEmbedders -->
+<rect x="520" y="80" width="230" height="86" rx="10" fill="#121a26" stroke="#2e4054"/>
+<text x="635" y="104" class="axb" text-anchor="middle">time_in: MLPEmbedder</text>
+<text x="635" y="124" class="eq" text-anchor="middle">256 → 6144 → 6144 (§8.3)</text>
+<text x="635" y="146" class="eq" text-anchor="middle">→ (B, 6144) learned</text>
+<rect x="520" y="200" width="230" height="86" rx="10" fill="#121a26" stroke="#2e4054"/>
+<text x="635" y="224" class="axb" text-anchor="middle">guidance_in: same class</text>
+<text x="635" y="244" class="eq" text-anchor="middle">256 → 6144 → 6144</text>
+<text x="635" y="266" class="eq" text-anchor="middle">→ (B, 6144) learned</text>
+<path d="M470,123 L518,123" stroke="#7d8da1" stroke-width="1.8" fill="none" marker-end="url(#cndA)"/>
+<path d="M470,243 L518,243" stroke="#7d8da1" stroke-width="1.8" fill="none" marker-end="url(#cndA)"/>
+
+<!-- sum -->
+<circle cx="820" cy="180" r="26" fill="#121a26" stroke="#5fe08a" stroke-width="1.6"/>
+<text x="820" y="188" class="big" text-anchor="middle" fill="#5fe08a">+</text>
+<path d="M750,140 L795,168" stroke="#7d8da1" stroke-width="1.8" fill="none" marker-end="url(#cndA)"/>
+<path d="M750,226 L795,194" stroke="#7d8da1" stroke-width="1.8" fill="none" marker-end="url(#cndA)"/>
+<text x="820" y="240" class="eq" text-anchor="middle">L200–203</text>
+
+<!-- vec -->
+<rect x="880" y="130" width="180" height="100" rx="10" fill="#121a26" stroke="#5fe08a" stroke-opacity=".7"/>
+<text x="970" y="158" class="axb" text-anchor="middle" fill="#5fe08a">vec</text>
+<text x="970" y="180" class="eq" text-anchor="middle">(B, 6144)</text>
+<text x="970" y="202" class="eq" text-anchor="middle">the condition</text>
+<text x="970" y="218" class="eq" text-anchor="middle">channel</text>
+<path d="M846,180 L878,180" stroke="#5fe08a" stroke-width="1.8" fill="none" marker-end="url(#cndV)"/>
+
+<!-- stage 4: three modulations -->
+<rect x="1110" y="60" width="250" height="92" rx="10" fill="#121a26" stroke="#f6a93b" stroke-opacity=".6"/>
+<text x="1235" y="84" class="eq" text-anchor="middle" fill="#f6a93b">double_stream_modulation_img</text>
+<text x="1235" y="104" class="eq" text-anchor="middle">SiLU → Linear 6144 → 36 864</text>
+<text x="1235" y="126" class="eq" text-anchor="middle">chunk(6) → 6 × (B, 1, 6144)</text>
+<text x="1235" y="144" class="eq" text-anchor="middle">two triples, image stream</text>
+<rect x="1110" y="170" width="250" height="92" rx="10" fill="#121a26" stroke="#35d6f0" stroke-opacity=".6"/>
+<text x="1235" y="194" class="eq" text-anchor="middle" fill="#35d6f0">double_stream_modulation_txt</text>
+<text x="1235" y="214" class="eq" text-anchor="middle">SiLU → Linear 6144 → 36 864</text>
+<text x="1235" y="236" class="eq" text-anchor="middle">chunk(6) → 6 × (B, 1, 6144)</text>
+<text x="1235" y="254" class="eq" text-anchor="middle">two triples, text stream</text>
+<rect x="1110" y="280" width="250" height="92" rx="10" fill="#121a26" stroke="#7ea6ff" stroke-opacity=".6"/>
+<text x="1235" y="304" class="eq" text-anchor="middle" fill="#7ea6ff">single_stream_modulation</text>
+<text x="1235" y="324" class="eq" text-anchor="middle">SiLU → Linear 6144 → 18 432</text>
+<text x="1235" y="346" class="eq" text-anchor="middle">chunk(3) → 3 × (B, 1, 6144)</text>
+<text x="1235" y="364" class="eq" text-anchor="middle">one triple, merged stream</text>
+<path d="M1060,160 L1108,110" stroke="#7d8da1" stroke-width="1.8" fill="none" marker-end="url(#cndA)"/>
+<path d="M1060,180 L1108,214" stroke="#7d8da1" stroke-width="1.8" fill="none" marker-end="url(#cndA)"/>
+<path d="M1060,200 L1108,320" stroke="#7d8da1" stroke-width="1.8" fill="none" marker-end="url(#cndA)"/>
+
+<!-- consumers -->
+<rect x="1400" y="60" width="130" height="92" rx="10" fill="rgba(246,169,59,.09)" stroke="#f6a93b" stroke-opacity=".5"/>
+<text x="1465" y="90" class="eq" text-anchor="middle" fill="#f6a93b">8 × double</text>
+<text x="1465" y="110" class="eq" text-anchor="middle" fill="#f6a93b">blocks</text>
+<text x="1465" y="132" class="eq" text-anchor="middle">image side</text>
+<rect x="1400" y="170" width="130" height="92" rx="10" fill="rgba(53,214,240,.09)" stroke="#35d6f0" stroke-opacity=".5"/>
+<text x="1465" y="200" class="eq" text-anchor="middle" fill="#35d6f0">8 × double</text>
+<text x="1465" y="220" class="eq" text-anchor="middle" fill="#35d6f0">blocks</text>
+<text x="1465" y="242" class="eq" text-anchor="middle">text side</text>
+<rect x="1400" y="280" width="130" height="92" rx="10" fill="rgba(126,166,255,.09)" stroke="#7ea6ff" stroke-opacity=".5"/>
+<text x="1465" y="310" class="eq" text-anchor="middle" fill="#7ea6ff">48 × single</text>
+<text x="1465" y="330" class="eq" text-anchor="middle" fill="#7ea6ff">blocks</text>
+<text x="1465" y="352" class="eq" text-anchor="middle">after the merge</text>
+<path d="M1360,106 L1398,106" stroke="#f6a93b" stroke-width="1.8" fill="none" marker-end="url(#cndA)"/>
+<path d="M1360,216 L1398,216" stroke="#35d6f0" stroke-width="1.8" fill="none" marker-end="url(#cndA)"/>
+<path d="M1360,326 L1398,326" stroke="#7ea6ff" stroke-width="1.8" fill="none" marker-end="url(#cndA)"/>
+
+<!-- what the dials do -->
+<rect x="40" y="420" width="1490" height="180" rx="14" fill="#0e1622" stroke="#2e4054"/>
+<text x="66" y="450" class="axb">What a dial does once it arrives at a block</text>
+<text x="66" y="480" class="eq">x_mod = (1 + scale) ⊙ norm(x) + shift        shift and scale re-tune the block's input</text>
+<text x="66" y="504" class="eq">x     = x + gate ⊙ sublayer(x_mod)            gate decides how much of the output survives</text>
+<text x="66" y="534" class="eq">x is (B, L, 6144) — every dial is (B, 1, 6144), so one value per channel reaches all L tokens</text>
+<text x="66" y="562" class="eq">that broadcast is the whole economy: 3 matrix products per step steer 16 896 tokens × 56 blocks</text>
+<text x="66" y="586" class="eq" fill="#b18cff">exception: reference tokens need t = 0 while the canvas is at t — see the splice in §13</text>
+</svg>
+</div>
+<figcaption><span class="figno">FIG 9</span><b>The conditioning channel.</b> Two scalars enter at the left,
+become 256-number fingerprints, become learned 6144-vectors, are summed into <code>vec</code>, and are
+then turned by three bias-free matrices into 15 dial vectors — six for the double blocks' image stream,
+six for their text stream, three for the single blocks. Every block in the network is steered by those
+15 vectors; none of them is per-block, and none of them is per-token.</figcaption>
+</figure>
+
+<div class="note beginner">
+<div class="nh">◇ If you have never seen conditioning done this way</div>
+<p>The one-sentence version: <em>the timestep does not enter the network as data, it enters as a
+setting</em>. A tiny side-network reads <code>t</code> and produces a handful of numbers per block; those
+numbers are multiplied and added into the activations at every normalisation point, so the same weights
+compute a different function at every step. Compare it with the two alternatives you may know from other
+models: a U-Net adds a time embedding to its feature maps (FiLM-style, the same family of idea), and a
+cross-attention model inserts the condition as extra keys and values (which is what FLUX.2 does for the
+<em>prompt</em>, not for the timestep).</p>
+</div>
+
+<h3>7.6 · What it costs, and the consequence you will meet again</h3>
+<p>Each <code>Modulation</code> is a single bias-free linear layer, so the price is easy to write down:</p>
+<div class="tbl-wrap">
+<table class="data">
+<thead><tr><th style="width:290px">arrangement</th><th style="width:210px">arithmetic</th><th style="width:150px">parameters</th><th>share of the 32 223 281 152 in dev</th></tr></thead>
+<tbody>
+<tr><td>what FLUX.2 does: three shared modules, computed once per step</td><td>2 × (6144 × 36 864) + 6144 × 18 432</td><td class="num"><b>566 231 040</b></td><td class="num">1.8 %</td></tr>
+<tr><td>what a per-block adaLN costs — DiT's original design, and what FLUX.1 still does</td><td>8 × 2 × (6144 × 36 864) + 48 × (6144 × 18 432)</td><td class="num">9 059 696 640</td><td class="num">28.1 %</td></tr>
+<tr><td><b>saved by sharing</b></td><td></td><td class="num"><b>8 493 465 600</b></td><td class="num">26.4 %</td></tr>
+</tbody>
+</table>
+</div>
+<p>Sharing the modulation is not this file's invention, and the family tree makes the numbers above make
+sense. DiT (2022) gave <em>every</em> block its own modulation MLP — row two of that table — and FLUX.1
+still does. PixArt-α (2023) noticed the price and introduced <strong>adaLN-single</strong>: one shared
+global vector, refined per block by adding a small learnable bias. FLUX.2 drops the refinement as well.
+The three modules of L98–108 are the whole mechanism; a block's private reaction to <code>t</code> has to
+come out of its own weights.</p>
+<p>That is the single largest saving in the file, and §1.1 counts it as ~8.5 billion parameters — about
+17 GB that a 32-billion-parameter model does not have to carry next to its activations. Which side
+of that trade the authors were optimising is not recorded anywhere in the source.
+<span class="spec">inference</span> What <em>is</em> in the source is the price paid: with shared
+modulation, every block receives the same three (or six) dials, so a block cannot have a private reaction
+to the timestep. It can only react differently because its <em>weights</em> differ. Fifty-six blocks get
+fifty-six different responses to <code>t</code> out of one broadcast triple each.</p>
+<p>The second consequence is the one that generates real code. A broadcast dial cannot distinguish one
+token from another — it is (B, 1, 6144), the same for every position. But reference tokens have to be
+conditioned at <code>t = 0</code> while the canvas sits at <code>t = 0.62</code> (§14.1 explains why). One
+shared triple cannot say that. So <code>forward_kv_extract</code> runs the modulation <em>twice</em>: once
+with the real timestep, and once with a timestep pinned to 0.0 for the references (L198, L206–211).</p>
+<p>Two runs produce two sets of dials, but every block receives one. So the two sets are spliced into a
+per-token tensor whose first rows come from the reference run and whose remaining rows come from the real
+one — and that splice is the entire reason <code>_blend_mod_triple</code>, <code>_blend_double_mods</code>
+and <code>_blend_single_mods</code> (§13) exist. Shared modulation is cheap; this is the bill.</p>
+
+<p class="dim">Used later: §8.1 <code>timestep_embedding</code> is stage 1, §8.3 <code>MLPEmbedder</code> is
+stage 2, §8.9 <code>Modulation</code> is stage 4 — all three are short once this is understood. §10 and §11
+show the dials being consumed, line by line. §12.1 lists the three modules as they are built. §13 is the
+splice. §16 has the design-trade row.</p>
+</section>

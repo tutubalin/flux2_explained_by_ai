@@ -115,3 +115,29 @@ for ns, L in [(50, 4096), (50, 16384), (8, 4096)]:
     print(f"  steps={ns:>3d} seq_len={L:>6,d} mu={compute_empirical_mu(L, ns):.4f}: "
           f"{sum(1 for z in s[:-1] if z > 0.7)} of {ns} above 0.7, "
           f"{sum(1 for z in s[:-1] if z > 0.9)} above 0.9")
+
+print()
+print("=" * 78)
+print("MODULE CENSUS, measured on the real meta-device models (sections 1.1 / 7.3)")
+print("=" * 78)
+import torch.nn as nn
+for label, p in [("FLUX.2 [dev]", M.Flux2Params()),
+                 ("Klein 9B", M.Klein9BParams()),
+                 ("Klein 4B", M.Klein4BParams())]:
+    with torch.device("meta"):
+        net = M.Flux2(p)
+    mods = list(net.modules())
+    n_lin = sum(isinstance(x, nn.Linear) for x in mods)
+    n_rms = sum(isinstance(x, M.RMSNorm) for x in mods)
+    n_ln = sum(isinstance(x, nn.LayerNorm) for x in mods)
+    n_ln_affine = sum(isinstance(x, nn.LayerNorm) and x.elementwise_affine for x in mods)
+    n_qk = sum(isinstance(x, M.QKNorm) for x in mods)
+    n_mod = sum(isinstance(x, M.Modulation) for x in mods)
+    n_mlp = sum(isinstance(x, M.MLPEmbedder) for x in mods)
+    n_bias = sum(1 for name, _ in net.named_parameters() if name.endswith(".bias"))
+    n_drop = sum(isinstance(x, nn.Dropout) for x in mods)
+    print(f"{label}:")
+    print(f"   Linear {n_lin} | RMSNorm {n_rms} (in {n_qk} QKNorm) | LayerNorm {n_ln} "
+          f"(with affine params: {n_ln_affine})")
+    print(f"   Modulation {n_mod} | MLPEmbedder {n_mlp} | bias vectors {n_bias} | Dropout {n_drop}")
+    print(f"   RMSNorm scale elements: {sum(math.prod(q.shape) for n, q in net.named_parameters() if 'scale' in n)}")

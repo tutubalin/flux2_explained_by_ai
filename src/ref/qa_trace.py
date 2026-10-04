@@ -113,12 +113,18 @@ def main():
     fatal, advice, rows = [], [], 0
     for part in sorted(PARTS.glob("[0-9][0-9]_*.html")):
         text = part.read_text()
+        marks = len(re.findall(r"<!--T ", text))
+        seen = 0
         for m in ROW_RE.finditer(text):
             lo = int(m.group(1))
             hi = int(m.group(2)) if m.group(2) else lo
             note = m.group(3)
             plain = re.sub(r"<[^>]+>", "", note)
             rows += 1
+            seen += 1
+            if "<!--" in note or "-->" in note:
+                fatal.append(f"{part.name} L{lo}-{hi}: the annotation text contains a comment "
+                             f"marker — this row swallowed the next directive (a '-->' is missing)")
             if lo > len(LINES) or hi > len(LINES):
                 fatal.append(f"{part.name} L{lo}-{hi}: line numbers beyond end of file ({len(LINES)})")
                 continue
@@ -142,6 +148,13 @@ def main():
                         f"and is not a torch/einops API name — fabricated?\n        note: {plain[:140]}")
                 elif not re.search(rf"\b{re.escape(w)}\b", quoted_text) and not marked:
                     advice.append(f"{part.name} L{lo}-{hi}: <code>{w}</code> — cross-reference to elsewhere in the file")
+
+        # A row whose "-->" is missing still matches ROW_RE — it just swallows the
+        # next marker, so the annotation is silently lost at build time. Counting the
+        # markers and the parsed rows is the only way to see that from here.
+        if seen != marks:
+            fatal.append(f"{part.name}: {marks} <!--T markers but only {seen} parse as rows — "
+                         f"one is missing its closing '-->'")
 
     print(f"qa_trace: {rows} annotation rows | {len(fatal)} fatal | {len(advice)} advisory cross-references")
     for f in fatal:

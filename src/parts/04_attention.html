@@ -35,7 +35,7 @@ name badge says, their value is the folder under their arm. How well a question 
 advertisement is measured by the simplest thing available — the <b>dot product</b> <span class="mm">q·k</span>:
 large when the two vectors point the same way, near zero when they are unrelated, negative when they
 oppose. The three projections are learned matrices (in FLUX.2 they are fused into a single matmul —
-the <code>SelfAttention</code> bundle of §7.8); nothing about them is hand-designed.</p>
+the <code>SelfAttention</code> bundle of §8.8); nothing about them is hand-designed.</p>
 
 <h3>4.3 · From scores to weights: divide by √d, then softmax</h3>
 <p>Raw dot products need two adjustments before they can be used as weights.</p>
@@ -58,7 +58,7 @@ positive, and bigger scores are amplified), then divide by the total:</p>
 <p>Because exponentiation is steep, a score that is merely a bit larger than the others can take most
 of the weight — softmax is a <em>soft</em> maximum: usually "mostly one, a little of the rest", never a
 hard cut. (Which entries are allowed to compete at all is a separate question — FLUX.2's mask — and
-gets its own section, §8.)</p>
+gets its own section, §9.)</p>
 
 <figure>
 <div class="fig">
@@ -149,7 +149,7 @@ heads — the 48 slices are just 48 independent lookups that happen to be comput
 matmul — and what each head ends up specialising in is a property of the trained weights, not of this
 file.</p>
 <p>Remember the number <b>128</b>: it is <code>head_dim</code>, the width of one head's query and key —
-and therefore the size of everything in this section. It appears again in the norms (§7.7), in the
+and therefore the size of everything in this section. It appears again in the norms (§8.7), in the
 rotation planes (§5) and in every parameter count in this article.</p>
 
 <h3>4.5 · What attention cannot see: order</h3>

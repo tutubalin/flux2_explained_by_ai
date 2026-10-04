@@ -10,20 +10,21 @@ local modules, no configuration files, nothing hidden:</p>
 
 <!--CODE 1-7 title="model.py · the complete import block" hl="1,2,4,5,6,7"-->
 
-<p><code>math</code> is used exactly once (the <code>log</code> in <code>timestep_embedding</code>, §7.1).
+<p><code>math</code> is used exactly once (the <code>log</code> in <code>timestep_embedding</code>, §8.1).
 <code>dataclass</code> and <code>field</code> build the three configuration objects (§6).
 <code>torch</code>, <code>nn</code> and <code>F</code> supply the layers and
-<code>scaled_dot_product_attention</code> (§8). <code>Tensor</code> is imported as a name so the type
+<code>scaled_dot_product_attention</code> (§9). <code>Tensor</code> is imported as a name so the type
 hints read <code>x: Tensor</code>. And <code>rearrange</code>, from einops, does every reshape in the
-file — including the one that splits 6144 features into 48 heads of 128 (§9).</p>
+file — including the one that splits 6144 features into 48 heads of 128 (§10).</p>
 
 <div class="note beginner">
 <div class="nh">◇ Reading order</div>
 <p>The file is written <em>top-down</em> — the giant <code>Flux2</code> class comes first, at line 52,
 and the tiny helpers it depends on come later, near line 800. That is the opposite of how you should
-<em>read</em> it. This article goes <strong>bottom-up</strong>: the prerequisites first (flow, tokens,
-attention, position — §2–§6), then the eleven small parts (§7.1–7.10), then the attention router and the
-two block types assembled from them (§8–§10), and only then the whole model (§11). By the time you reach
+<em>read</em> it. This article goes <strong>bottom-up</strong>: the prerequisites first (flow and
+guidance, tokens, attention, position, conditioning — §2–§7), then the eleven small parts that implement
+them (§8.1–§8.10), then the attention router and the two block types assembled from them (§9–§11), and
+only then the whole model (§12). By the time you reach
 <code>Flux2.forward</code> there will be nothing left in it that you have not already met.</p>
 </div>
 
@@ -310,7 +311,7 @@ computed once per step and handed to all 56 blocks. Had each block kept its own 
 per stream for the 8 double blocks and a 6144 → 18432 matrix for each of the 48 single ones — the
 modulation would have cost <strong>9 059 696 640</strong> parameters instead of the
 <strong>566 231 040</strong> the three shared matrices cost: about <strong>8.5 billion extra</strong>,
-over a quarter of the whole model.</p>
+over a quarter of the whole model. §7 explains the mechanism from nothing; §7.6 costs it out.</p>
 </div>
 <div class="card">
 <h5><span class="tag" style="background:var(--txt)"></span>There is no dropout anywhere</h5>
