@@ -209,6 +209,18 @@ for got, want in zip(s8, ladder):
         print(f"   ok  ladder step t={want:<6} matches to 3 decimals")
 check("of those 8 steps, above t=0.9", sum(1 for t in s8 if t > 0.9), 5)
 
+# the two rows of §15.1: what the model is told, and what only the sampler knows
+check("model calls in an 8-step run (schedule entries − 1)", len(s8) - 1, 8)
+check("the last schedule entry, never fed to the model", round(s8[-1], 3), 0.0)
+sizes = [round(b - a, 3) for a, b in zip(s8, s8[1:])]
+print("      step sizes: " + ", ".join(f"{s:+.3f}" for s in sizes))
+for got, want in zip(sizes, [-0.015, -0.019, -0.025, -0.035, -0.053, -0.090, -0.183, -0.580]):
+    if got != want:
+        FAIL.append(f"step size: computed {got}, article prints {want}")
+check("the step sizes sum to the whole range", round(sum(sizes), 3), -1.0)
+check("last stride as a share of the whole t-range (%)", round(100 * abs(sizes[-1])), 58)
+check("biggest stride is how many times the smallest", round(abs(sizes[-1] / sizes[0])), 39)
+
 # ---------------------------------------------------------------- F. cost
 hdr("F · what one forward pass costs")
 MACS_PER_TOKEN_PER_BLOCK = 490_733_568          # linear algebra only
@@ -327,6 +339,9 @@ if PAGE.exists():
         ("reference share at 512²", "94%"), ("reference share at 1440²", "67%"),
         ("measured speedup, 4 refs @512²", "2.66"), ("measured speedup, 1 ref @512²", "1.78"),
         ("measured speedup, 1 ref @1440²", "1.21"), ("measured speedup, 4 refs @1440²", "1.85"),
+        ("step-size row of the ladder", "0.183"), ("last stride, share of the range", "58%"),
+        ("eight model calls, nine schedule entries", "makes8calls"),
+        ("the stride from 0.58 to 0", "0.580"), ("biggest stride vs smallest", "39times"),
         ("171 Linear", "171"), ("128 RMSNorm", "128"), ("81 LayerNorm", "81"),
         ("fastest fingerprint channel, cycles", "159"), ("slowest channel, % of a cycle", "1.7%"),
         ("one double=True Modulation", "226492416"), ("the double=False one", "113246208"),

@@ -55,12 +55,17 @@ image (1024²) with 8 steps, μ = 2.27 and the times are</p>
 <table class="data">
 <thead><tr><th>step</th><th>0</th><th>1</th><th>2</th><th>3</th><th>4</th><th>5</th><th>6</th><th>7</th></tr></thead>
 <tbody>
-<tr><td><b>t</b></td><td class="num">1.000</td><td class="num">0.985</td><td class="num">0.967</td><td class="num">0.942</td><td class="num">0.906</td><td class="num">0.853</td><td class="num">0.763</td><td class="num">0.580</td></tr>
+<tr><td><b>t fed to the model</b></td><td class="num">1.000</td><td class="num">0.985</td><td class="num">0.967</td><td class="num">0.942</td><td class="num">0.906</td><td class="num">0.853</td><td class="num">0.763</td><td class="num">0.580</td></tr>
+<tr><td><b>step size (t_next − t)</b></td><td class="num">−0.015</td><td class="num">−0.019</td><td class="num">−0.025</td><td class="num">−0.035</td><td class="num">−0.053</td><td class="num">−0.090</td><td class="num">−0.183</td><td class="num">−0.580</td></tr>
 </tbody>
 </table>
 </div>
-<p>Half the steps happen above <code>t = 0.9</code>: the model spends its budget on the early, global
-structure decisions, then takes one long stride from 0.58 to 0. See <a href="#flow">FIG 3</a> for the
+<p>Two rows, two owners. The first is what the network is told — eight start times, because nine schedule
+entries make eight steps and the ninth entry (0.0) is only a destination. The second is what the
+<em>sampler</em> keeps to itself: how far each answer is allowed to move the image. The model never sees
+it (§2.2). Half the steps happen above <code>t = 0.9</code>: the model spends its budget on the early,
+global structure decisions, then takes one long stride from 0.58 to 0 — one hop covering 58 % of the whole
+distance from noise to image, and 39 times the size of the first. See <a href="#flow">FIG 3</a> for the
 full curve family.</p>
 
 <div class="note warn">

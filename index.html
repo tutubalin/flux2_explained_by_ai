@@ -920,6 +920,27 @@ velocity <em>v</em> that <code>Flux2.forward</code> just returned. Multiplying v
 difference gives the displacement. Nothing else happens — no noise is injected, no variance schedule
 is applied. It is a plain, deterministic Euler integration of an ODE.</p>
 
+<div class="note idea">
+<div class="nh">💡 Two questions this loop always raises</div>
+<p><strong>Which of the two times does the model get — the start or the end of the interval?</strong> The
+<em>start</em>: <code>t_curr</code>, the noisier end. <code>sampling.py</code> L285 fills a vector with
+<code>t_curr</code> and L297 passes it as <code>timesteps</code>, and the other two loops do the same
+(L329/L335, L384/L395). That is exactly what an explicit Euler step means — evaluate the velocity field
+where you are standing, then travel; evaluating it at the destination would require already knowing the
+destination. So an 8-step run makes 8 calls, at t = 1.000, 0.985, 0.967, 0.942, 0.906, 0.853, 0.763 and
+0.580. The schedule's ninth entry, 0.0, is only ever a destination and is never fed to the network
+(§15.1 prints both rows).</p>
+<p><strong>And how does the model know the step size, t_prev − t_curr?</strong> It does not, and it never
+needs to. Its signature is <code>forward(x, x_ids, timesteps, ctx, ctx_ids, guidance)</code> — no step
+size, no schedule, no <code>num_steps</code>, and none of those three words appears anywhere in the 833
+lines. The network answers a purely <em>local</em> question — "at this x and this t, which way does the
+trajectory point, and how fast?" — while the <em>sampler</em> owns the global plan:
+<code>get_schedule</code> produced all N+1 times before the loop began, so the step size is just the
+difference of two numbers already in hand. That division of labour is why one set of weights serves a
+4-step, an 8-step and a 50-step run unchanged: nothing in the model knows how far it is being asked to
+travel, it only ever says which way.</p>
+</div>
+
 <div class="note warn">
 <div class="nh">⚠ Gotcha · which direction is "forward"?</div>
 <p>The convention here is <strong>t = 1 is noise and t = 0 is data</strong> — the opposite of what many
@@ -3098,12 +3119,17 @@ image (1024²) with 8 steps, μ = 2.27 and the times are</p>
 <table class="data">
 <thead><tr><th>step</th><th>0</th><th>1</th><th>2</th><th>3</th><th>4</th><th>5</th><th>6</th><th>7</th></tr></thead>
 <tbody>
-<tr><td><b>t</b></td><td class="num">1.000</td><td class="num">0.985</td><td class="num">0.967</td><td class="num">0.942</td><td class="num">0.906</td><td class="num">0.853</td><td class="num">0.763</td><td class="num">0.580</td></tr>
+<tr><td><b>t fed to the model</b></td><td class="num">1.000</td><td class="num">0.985</td><td class="num">0.967</td><td class="num">0.942</td><td class="num">0.906</td><td class="num">0.853</td><td class="num">0.763</td><td class="num">0.580</td></tr>
+<tr><td><b>step size (t_next − t)</b></td><td class="num">−0.015</td><td class="num">−0.019</td><td class="num">−0.025</td><td class="num">−0.035</td><td class="num">−0.053</td><td class="num">−0.090</td><td class="num">−0.183</td><td class="num">−0.580</td></tr>
 </tbody>
 </table>
 </div>
-<p>Half the steps happen above <code>t = 0.9</code>: the model spends its budget on the early, global
-structure decisions, then takes one long stride from 0.58 to 0. See <a href="#flow">FIG 3</a> for the
+<p>Two rows, two owners. The first is what the network is told — eight start times, because nine schedule
+entries make eight steps and the ninth entry (0.0) is only a destination. The second is what the
+<em>sampler</em> keeps to itself: how far each answer is allowed to move the image. The model never sees
+it (§2.2). Half the steps happen above <code>t = 0.9</code>: the model spends its budget on the early,
+global structure decisions, then takes one long stride from 0.58 to 0 — one hop covering 58 % of the whole
+distance from noise to image, and 39 times the size of the first. See <a href="#flow">FIG 3</a> for the
 full curve family.</p>
 
 <div class="note warn">
