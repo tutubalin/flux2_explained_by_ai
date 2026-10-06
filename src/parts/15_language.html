@@ -74,7 +74,7 @@ layer, no normalisation. One matrix multiply per token, and that is the whole do
 <text x="1010" y="322" class="eq" text-anchor="middle">every row the same shape, so one</text>
 <text x="1010" y="342" class="eq" text-anchor="middle">attention can read all of them (§6)</text>
 <text x="1010" y="374" class="eq" text-anchor="middle" fill="#a9b8c9">4 608 rows at 1024² with no references,</text>
-<text x="1010" y="392" class="eq" text-anchor="middle" fill="#a9b8c9">20 992 with four of them (§20)</text>
+<text x="1010" y="392" class="eq" text-anchor="middle" fill="#a9b8c9">20 992 with four of them (§21)</text>
 <text x="1010" y="428" class="eq" text-anchor="middle" fill="#ffd479">the order is [text, references, canvas]</text>
 <path d="M730,190 L818,220" stroke="#f6a93b" stroke-width="1.9" fill="none" marker-end="url(#lgI)"/>
 <path d="M730,398 L818,340" stroke="#35d6f0" stroke-width="1.9" fill="none" marker-end="url(#lgC)"/>
@@ -148,7 +148,7 @@ matrix in a 32-billion-parameter file. The text door is 120 times larger, becaus
 representation is 2.5× wider than the transformer's and something has to choose what to keep. Reference
 images are concatenated onto the canvas <em>before</em> the image door (L192, then L213), so they are
 translated by exactly the same matrix as the pixels being generated — which is one of the reasons the KV
-cache of §20 can treat them as ordinary image tokens.</figcaption>
+cache of §21 can treat them as ordinary image tokens.</figcaption>
 </figure>
 
 <h3>5.2 · Widening and narrowing are the same operation</h3>
@@ -226,7 +226,7 @@ Every one of those arrows is either a matrix multiply or a reshape. Repeat the m
 you have generated an image.</p>
 </div>
 <p class="dim">Used later: §6 (what the 6 144-wide rows do to each other), §8 (why a head is 64 planes),
-§14.3 (<code>MLPEmbedder</code>, the two-layer door that <em>time</em> uses), §14.10
-(<code>LastLayer</code>, the exit), §18.1 (the two lines that build these doors), §18.2 (where the text
+§15.3 (<code>MLPEmbedder</code>, the two-layer door that <em>time</em> uses), §15.10
+(<code>LastLayer</code>, the exit), §19.1 (the two lines that build these doors), §19.2 (where the text
 rows are dropped again).</p>
 </section>

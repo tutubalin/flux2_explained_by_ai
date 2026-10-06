@@ -1,4 +1,4 @@
-<h3>15.1 · The cached branch (L772–786)</h3>
+<h3>16.1 · The cached branch (L772–786)</h3>
 <!--TRACE-->
 <!--T 772-774|The whole function is one <code>if</code>: is a cache present? If so, pull the stored reference keys and values out of it. They were computed once, on step 0, and are reused verbatim on every later step.-->
 <!--T 776-781|Slice the current step's q/k/v into a text part and an image part. In this branch the incoming sequence is <code>[txt, img]</code> — the references are <em>not</em> present, which is the entire point of the cache.-->
@@ -7,11 +7,11 @@
 <!--T 786|One dense, unmasked attention call over all of them: softmax over (n_txt + n_ref + n_img) keys for every query.-->
 <!--/TRACE-->
 
-<h3>15.2 · The uncached branch (L789–815)</h3>
+<h3>16.2 · The uncached branch (L789–815)</h3>
 <!--TRACE-->
 <!--T 789-790|Compute the reference slice boundaries: references occupy positions <code>[num_txt, num_txt + num_ref)</code> of the combined sequence. This is the layout contract of the whole file — always <code>[txt, ref, img]</code>.-->
 <!--T 792-800|Cut q, k and v into three contiguous parts each: text, reference, image. Pure slicing; no arithmetic.-->
-<!--T 802-806|Text and image queries are concatenated and attend to <em>all</em> keys — text, reference and image alike, in one dense <code>scaled_dot_product_attention</code> call. This is the bidirectional core of the model: every canvas token can read every word of your prompt and every patch of every reference. Note what is <em>not</em> here: no boolean mask tensor is ever built. The allowed/forbidden pattern of FIG 21 is produced by <em>which slices are concatenated</em>, not by a mask argument.-->
+<!--T 802-806|Text and image queries are concatenated and attend to <em>all</em> keys — text, reference and image alike, in one dense <code>scaled_dot_product_attention</code> call. This is the bidirectional core of the model: every canvas token can read every word of your prompt and every patch of every reference. Note what is <em>not</em> here: no boolean mask tensor is ever built. The allowed/forbidden pattern of FIG 25 is produced by <em>which slices are concatenated</em>, not by a mask argument.-->
 <!--T 807-808|Split that result back into a text half and an image half, preserving row order: the first <code>ref_start</code> rows are text, the rest are canvas. The reference queries were deliberately left out of this call.-->
 <!--T 810-811|The isolation rule, in one line: reference queries attend <strong>only to reference keys</strong>. Their outputs are updated and handed to the next layer (and eventually discarded), but their hidden states can never be contaminated by the noisy canvas — which is exactly why they are identical at every denoising step, and therefore cacheable.-->
 <!--T 813|Stitch <code>[attn_txt, attn_ref, attn_img]</code> back into the original <code>[txt, ref, img]</code> order so the caller's own slicing keeps working.-->

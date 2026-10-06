@@ -19,38 +19,39 @@
     <a href="#rope">8 · Position: the 4-axis RoPE</a>
     <a href="#conditioning">9 · Time and guidance</a>
     <a href="#silu">10 · SiLUActivation — the soft switch</a>
+    <a href="#modulation">11 · Modulation — how a vector steers 56 blocks</a>
 
     <div class="toc-h">Part 2 · Code overview</div>
-    <a href="#map">11 · The file at a glance</a>
-    <a href="#bigpicture">12 · What FLUX.2 actually is</a>
-    <a href="#configs">13 · The three configurations</a>
+    <a href="#map">12 · The file at a glance</a>
+    <a href="#bigpicture">13 · What FLUX.2 actually is</a>
+    <a href="#configs">14 · The three configurations</a>
 
     <div class="toc-h">Part 3 · The small parts</div>
-    <a href="#primitives">14 · The eleven small parts</a>
-    <a class="sub" href="#p-timestep">14.1 · timestep_embedding</a>
-    <a class="sub" href="#p-glu">14.2 · SiLUActivation — the gate</a>
-    <a class="sub" href="#p-mlp">14.3 · MLPEmbedder</a>
-    <a class="sub" href="#p-rope">14.4 · rope — building rotations</a>
-    <a class="sub" href="#p-embednd">14.5 · EmbedND — gluing four axes</a>
-    <a class="sub" href="#p-applyrope">14.6 · apply_rope — using them</a>
-    <a class="sub" href="#p-norms">14.7 · RMSNorm &amp; QKNorm</a>
-    <a class="sub" href="#p-selfattn">14.8 · SelfAttention</a>
-    <a class="sub" href="#p-mod">14.9 · Modulation</a>
-    <a class="sub" href="#p-last">14.10 · LastLayer</a>
+    <a href="#primitives">15 · The eleven small parts</a>
+    <a class="sub" href="#p-timestep">15.1 · timestep_embedding</a>
+    <a class="sub" href="#p-glu">15.2 · SiLUActivation — the gate</a>
+    <a class="sub" href="#p-mlp">15.3 · MLPEmbedder</a>
+    <a class="sub" href="#p-rope">15.4 · rope — building rotations</a>
+    <a class="sub" href="#p-embednd">15.5 · EmbedND — gluing four axes</a>
+    <a class="sub" href="#p-applyrope">15.6 · apply_rope — using them</a>
+    <a class="sub" href="#p-norms">15.7 · RMSNorm &amp; QKNorm</a>
+    <a class="sub" href="#p-selfattn">15.8 · SelfAttention</a>
+    <a class="sub" href="#p-mod">15.9 · Modulation</a>
+    <a class="sub" href="#p-last">15.10 · LastLayer</a>
 
     <div class="toc-h">Part 4 · The big pieces</div>
-    <a href="#attention">15 · causal_attn_fn — the router</a>
-    <a href="#single">16 · SingleStreamBlock</a>
-    <a href="#double">17 · DoubleStreamBlock</a>
-    <a href="#flux2">18 · Flux2 — init + three forwards</a>
-    <a href="#blend">19 · Blending modulations</a>
-    <a href="#kvcache">20 · The KV cache paths</a>
+    <a href="#attention">16 · causal_attn_fn — the router</a>
+    <a href="#single">17 · SingleStreamBlock</a>
+    <a href="#double">18 · DoubleStreamBlock</a>
+    <a href="#flux2">19 · Flux2 — init + three forwards</a>
+    <a href="#blend">20 · Blending modulations</a>
+    <a href="#kvcache">21 · The KV cache paths</a>
 
     <div class="toc-h">Part 5 · Zooming back out</div>
-    <a href="#loop">21 · The denoising loop</a>
-    <a href="#design">22 · Why it looks like this</a>
-    <a href="#cheatsheet">23 · Complete cheat sheet</a>
-    <a href="#refs">24 · References</a>
+    <a href="#loop">22 · The denoising loop</a>
+    <a href="#design">23 · Why it looks like this</a>
+    <a href="#cheatsheet">24 · Complete cheat sheet</a>
+    <a href="#refs">25 · References</a>
   </nav>
 </aside>
 
@@ -96,7 +97,7 @@
     <code>src/ref/qa_coverage.py</code> verifies that all 692 non-blank lines of the file are shown
     somewhere; <code>src/ref/qa_linerefs.py</code> checks every place where the prose cites a line
     number — "line 455", or a row of the cheat-sheet table — against what really sits on that line;
-    <code>src/ref/qa_xrefs.py</code> resolves every "see §14.9" and "FIG 7" in the page; and
+    <code>src/ref/qa_xrefs.py</code> resolves every "see §15.9" and "FIG 7" in the page; and
     <code>src/ref/verify4.py</code> re-derives every number quoted here from the source and then looks
     for it in the finished page. All five are clean.</p>
     <p>One convention to know: numbers and structure are checked against the code, but the file carries

@@ -1,0 +1,566 @@
+<section id="modulation">
+<h2><span class="secno">§ 11</span>Modulation — how a vector steers 56 blocks</h2>
+<p class="section-intro">
+§9 ended with a vector: <code>vec</code>, 6 144 numbers that encode "how noisy is this input, and how hard
+should I push towards the prompt". This chapter is about what a vector like that can actually <em>do</em>
+to a network — the mechanism, the three dials, where they attach, and what the whole arrangement costs.
+There is no code here; the thirteen lines that implement it are §15.9.
+</p>
+
+<h3>11.1 · The idea, and the word for it</h3>
+<p>A neural network's behaviour is normally fixed once training stops: the weights are the behaviour. To
+make one network behave differently at different moments you have three options — change the weights
+(impossible at run time), change the input (limited: you can only tell it things through the data it
+already reads), or <strong>change the settings the computation runs under</strong>. The third is
+modulation, and the family of techniques goes by the name <em>FiLM</em> — feature-wise linear modulation —
+which means: multiply some activations by a number and add another, where both numbers come from somewhere
+else.</p>
+<figure>
+<div class="fig">
+<svg viewBox="0 0 1560 420" role="img" aria-label="A block drawn as a machine with three knobs on its top - shift, scale and gate - wired to a horizontal bus labelled vec, the condition vector, which is computed once per step. Behind it two fainter copies of the same block are wired to the same bus.">
+<defs><marker id="mdA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7d8da1"/></marker></defs>
+<text x="40" y="34" class="ttl">Modulation: the weights stay put, the knobs move</text>
+<text x="40" y="60" class="ax" fill="#a9b8c9">one bus, computed once per step, feeds every block in the network</text>
+
+<rect x="120" y="352" width="1330" height="40" rx="20" fill="rgba(95,224,138,.1)" stroke="#5fe08a" stroke-opacity=".55"/>
+<text x="785" y="378" class="axb" text-anchor="middle" fill="#5fe08a">vec — the condition vector: one row of 6 144 numbers, built from t and g (§9)</text>
+
+<path d="M60,268 L428,268" stroke="#7d8da1" stroke-width="2.2" fill="none" marker-end="url(#mdA)"/>
+<text x="240" y="252" class="eq" text-anchor="middle">rows of 6 144</text>
+<path d="M762,268 L852,268" stroke="#7d8da1" stroke-width="2.2" fill="none" marker-end="url(#mdA)"/>
+<rect x="906" y="188" width="330" height="112" rx="14" fill="#182231" stroke="#f6a93b" stroke-opacity=".22"/>
+<rect x="882" y="200" width="330" height="112" rx="14" fill="#182231" stroke="#f6a93b" stroke-opacity=".4"/>
+<rect x="858" y="212" width="330" height="112" rx="14" fill="#182231" stroke="#f6a93b" stroke-opacity=".65"/>
+<text x="1023" y="258" class="axb" text-anchor="middle" fill="#f6a93b">…and 55 more, all on this bus</text>
+<text x="1023" y="286" class="eq" text-anchor="middle">same three dials, different weights</text>
+<line x1="620" y1="212" x2="620" y2="176" stroke="#7ea6ff" stroke-width="2"/>
+<circle cx="620" cy="156" r="20" fill="#121a26" stroke="#7ea6ff" stroke-width="2.4"/>
+<line x1="620" y1="156" x2="631" y2="145" stroke="#7ea6ff" stroke-width="2.6"/>
+<text x="620" y="122" class="axb" text-anchor="middle" fill="#7ea6ff">shift</text>
+<line x1="770" y1="212" x2="770" y2="176" stroke="#5fe08a" stroke-width="2"/>
+<circle cx="770" cy="156" r="20" fill="#121a26" stroke="#5fe08a" stroke-width="2.4"/>
+<line x1="770" y1="156" x2="781" y2="152" stroke="#5fe08a" stroke-width="2.6"/>
+<text x="770" y="122" class="axb" text-anchor="middle" fill="#5fe08a">scale</text>
+<line x1="920" y1="212" x2="920" y2="176" stroke="#ff7ab8" stroke-width="2"/>
+<circle cx="920" cy="156" r="20" fill="#121a26" stroke="#ff7ab8" stroke-width="2.4"/>
+<line x1="920" y1="156" x2="931" y2="159" stroke="#ff7ab8" stroke-width="2.6"/>
+<text x="920" y="122" class="axb" text-anchor="middle" fill="#ff7ab8">gate</text>
+<path d="M620,352 L620,178" stroke="#7ea6ff" stroke-width="1.8" fill="none" stroke-dasharray="5 4"/>
+<path d="M770,352 L770,178" stroke="#5fe08a" stroke-width="1.8" fill="none" stroke-dasharray="5 4"/>
+<path d="M920,352 L920,178" stroke="#ff7ab8" stroke-width="1.8" fill="none" stroke-dasharray="5 4"/>
+<text x="40" y="128" class="ax">Nothing inside the box changes from step to step. The three knobs on top do — and they are the</text>
+<text x="40" y="150" class="ax">only way the timestep reaches the computation. That is what "modulation" means.</text>
+</svg>
+</div>
+<figcaption><span class="figno">FIG 18</span><b>A block is a machine with three knobs on it.</b> Its 490
+million weights are fixed for the whole run; what changes at every step is the position of three dials,
+delivered over a bus that every block in the network shares. The word "modulation" means exactly this:
+carrier unchanged, settings varied.</figcaption>
+</figure>
+<p>The name to know is <strong>adaptive layer normalisation</strong>, adaLN: FiLM applied at the
+normalisation inside each transformer sub-layer, with the condition vector as the source of the numbers.
+DiT (Peebles &amp; Xie, 2022 — §25) made it the standard for diffusion transformers, and FLUX.2 uses it in
+every one of its 56 blocks plus the exit door.</p>
+
+<h3>11.2 · LayerNorm from zero — and why it is the place to inject</h3>
+<p>A layer norm acts on <em>one token vector at a time</em> — D numbers, independently of every other
+token, so it can never leak information between positions. It does two things:</p>
+<div class="note math">
+<div class="nh">Σ LayerNorm, in full</div>
+<p><span class="mathblk">μ = mean(x)  σ² = mean((x − μ)²)  x̂ = (x − μ) / √(σ² + ε)</span></p>
+<p style="margin-top:6px"><span class="mathblk">y = γ ⊙ x̂ + β</span></p>
+<p style="margin-top:6px"><span class="shape">x is (L, D) · μ, σ², x̂, y are (L, D) · γ and β are (D,) — one number per channel, shared by all tokens · ⊙ is element-wise multiplication</span></p>
+</div>
+<p>The first line is <strong>normalisation</strong>: subtract the token's own mean, divide by its own
+standard deviation. After that, every token vector has mean 0 and unit variance, whatever it was before.
+Why bother? Because 56 blocks of matrix multiplication would otherwise let magnitudes drift — one block's
+output becomes the next block's input, and a weight matrix that happens to amplify by 1.1× compounds into
+something unmanageable over 56 layers. Normalising resets the scale at every step, so each block always
+sees an input in the range its weights were trained for.</p>
+<p>The second line is the part that matters here. After <code>x̂</code>, the vector's scale and offset are
+<em>fixed</em> — the only freedom left in the whole operation is <strong>γ</strong> (a per-channel gain) and
+<strong>β</strong> (a per-channel offset). Those two are the knobs.</p>
+<ul>
+<li>Let γ and β be learned constants and you have ordinary LayerNorm: the knobs are set once, at training
+time, and never move again.</li>
+<li>Let γ and β be <em>computed from something else</em> — the timestep — and you have a layer whose
+behaviour changes from step to step while every weight in it stays frozen. Two knobs, turned 50 times,
+giving 50 different layers out of one.</li>
+</ul>
+<p>That is the entire trick, and the file is built around it. PyTorch's
+<code>nn.LayerNorm(D, elementwise_affine=False)</code> <em>deletes</em> γ and β, leaving a module that only
+normalises. FLUX.2 uses exactly that setting in <strong>all 81</strong> of its layer norms — the census in
+§13.1 — and supplies γ and β from the timestep instead. In the code they are spelled</p>
+<div class="note math">
+<div class="nh">Σ How the knobs are written in this file</div>
+<p><span class="mathblk">x_mod = (1 + scale) ⊙ norm(x) + shift</span></p>
+<p style="margin-top:6px"><span class="shape">L470 in the single block · L580 and L588 in the double block, before attention · L628 and L633, before the two MLPs</span></p>
+</div>
+<p><code>scale</code> is playing γ's role and <code>shift</code> is playing β's. The <code>1 +</code> is
+not decoration: with <code>scale = 0</code> you get exactly the normalised signal, so "nothing special is
+happening" is the default state and the network only has to learn a <em>deviation</em> from it. It is the
+same idea as a residual connection, applied to the modulation itself — and it is why the modulation can be
+shared by 56 blocks without every block being forced into the same extreme behaviour.</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 1560 380" role="img" aria-label="Two panels of the same layer norm: on the left its gain and offset are learned constants fixed at training time, on the right they are computed from the condition vector at every step. Everything else about the two panels is identical.">
+<defs><marker id="nmA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7d8da1"/></marker>
+<marker id="nmV" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5fe08a"/></marker></defs>
+<text x="40" y="34" class="ttl">The only difference between a layer norm and an adaptive one: who turns the two knobs</text>
+<text x="40" y="60" class="ax" fill="#a9b8c9">same normalisation, same shape, same place in the block — the knobs are either frozen or wired to the condition</text>
+<rect x="40" y="86" width="700" height="250" rx="14" fill="#0e1622" stroke="#2e4054"/>
+<text x="66" y="118" class="axb" fill="#7ea6ff">ordinary LayerNorm — γ and β are weights</text>
+<rect x="80" y="176" width="110" height="52" rx="9" fill="#121a26" stroke="#2e4054"/>
+<text x="135" y="207" class="eq" text-anchor="middle">x</text>
+<path d="M194,202 L236,202" stroke="#7d8da1" stroke-width="1.8" fill="none" marker-end="url(#nmA)"/>
+<rect x="240" y="176" width="150" height="52" rx="9" fill="#121a26" stroke="#7ea6ff" stroke-opacity=".6"/>
+<text x="315" y="200" class="eq" text-anchor="middle" fill="#7ea6ff">normalise</text>
+<text x="315" y="218" class="eq" text-anchor="middle">mean 0, unit var</text>
+<path d="M394,202 L436,202" stroke="#7d8da1" stroke-width="1.8" fill="none" marker-end="url(#nmA)"/>
+<circle cx="460" cy="202" r="17" fill="#121a26" stroke="#7ea6ff" stroke-width="2"/>
+<text x="460" y="208" class="axb" text-anchor="middle" fill="#7ea6ff">×γ</text>
+<path d="M481,202 L510,202" stroke="#7d8da1" stroke-width="1.8" fill="none" marker-end="url(#nmA)"/>
+<circle cx="532" cy="202" r="17" fill="#121a26" stroke="#7ea6ff" stroke-width="2"/>
+<text x="532" y="208" class="axb" text-anchor="middle" fill="#7ea6ff">+β</text>
+<path d="M553,202 L596,202" stroke="#7d8da1" stroke-width="1.8" fill="none" marker-end="url(#nmA)"/>
+<rect x="600" y="176" width="100" height="52" rx="9" fill="#121a26" stroke="#2e4054"/>
+<text x="650" y="207" class="eq" text-anchor="middle">to the block</text>
+<rect x="360" y="248" width="180" height="46" rx="9" fill="rgba(126,166,255,.1)" stroke="#7ea6ff" stroke-opacity=".5"/>
+<text x="450" y="270" class="eq" text-anchor="middle" fill="#7ea6ff">γ, β: learned constants</text>
+<text x="450" y="286" class="eq" text-anchor="middle" fill="#a9b8c9">set once, in training</text>
+<text x="66" y="316" class="eq">elementwise_affine=True: two vectors of 6 144 numbers, trained with everything else.</text>
+<rect x="760" y="86" width="700" height="250" rx="14" fill="#0e1622" stroke="#2e4054"/>
+<text x="786" y="118" class="axb" fill="#5fe08a">adaptive LayerNorm — γ and β arrive per step</text>
+<rect x="800" y="176" width="110" height="52" rx="9" fill="#121a26" stroke="#2e4054"/>
+<text x="855" y="207" class="eq" text-anchor="middle">x</text>
+<path d="M914,202 L956,202" stroke="#7d8da1" stroke-width="1.8" fill="none" marker-end="url(#nmA)"/>
+<rect x="960" y="176" width="150" height="52" rx="9" fill="#121a26" stroke="#7ea6ff" stroke-opacity=".6"/>
+<text x="1035" y="200" class="eq" text-anchor="middle" fill="#7ea6ff">normalise</text>
+<text x="1035" y="218" class="eq" text-anchor="middle">mean 0, unit var</text>
+<path d="M1114,202 L1156,202" stroke="#7d8da1" stroke-width="1.8" fill="none" marker-end="url(#nmA)"/>
+<circle cx="1180" cy="202" r="17" fill="#121a26" stroke="#5fe08a" stroke-width="2"/>
+<text x="1180" y="208" class="axb" text-anchor="middle" fill="#5fe08a">×γ</text>
+<path d="M1201,202 L1230,202" stroke="#7d8da1" stroke-width="1.8" fill="none" marker-end="url(#nmA)"/>
+<circle cx="1252" cy="202" r="17" fill="#121a26" stroke="#5fe08a" stroke-width="2"/>
+<text x="1252" y="208" class="axb" text-anchor="middle" fill="#5fe08a">+β</text>
+<path d="M1273,202 L1316,202" stroke="#7d8da1" stroke-width="1.8" fill="none" marker-end="url(#nmA)"/>
+<rect x="1320" y="176" width="100" height="52" rx="9" fill="#121a26" stroke="#2e4054"/>
+<text x="1370" y="207" class="eq" text-anchor="middle">to the block</text>
+<rect x="1080" y="248" width="200" height="46" rx="9" fill="rgba(95,224,138,.12)" stroke="#5fe08a" stroke-opacity=".55"/>
+<text x="1180" y="270" class="eq" text-anchor="middle" fill="#5fe08a">γ, β: computed from vec</text>
+<text x="1180" y="286" class="eq" text-anchor="middle" fill="#a9b8c9">fresh at every step</text>
+<path d="M1140,246 L1140,222" stroke="#5fe08a" stroke-width="1.8" fill="none" marker-end="url(#nmV)"/>
+<path d="M1220,246 L1220,222" stroke="#5fe08a" stroke-width="1.8" fill="none" marker-end="url(#nmV)"/>
+<text x="786" y="316" class="eq">elementwise_affine=False: no parameters of its own — all 81 norms work this way.</text>
+</svg>
+</div>
+<figcaption><span class="figno">FIG 19</span><b>Two knobs, and a choice about who owns them.</b> After a
+token is normalised its scale and offset are the only freedom left in the operation. Give them to the
+weight matrix and you have an ordinary layer norm — fixed for the whole run. Wire them to the condition
+vector instead and the same layer behaves differently at every step while its weights stay frozen. The
+right-hand panel is what all 81 of FLUX.2's layer norms are: <code>elementwise_affine=False</code>, no
+parameters of their own, both knobs supplied from outside.</figcaption>
+</figure>
+
+<h3>11.3 · Shift, scale, gate: three dials per sub-layer</h3>
+<p>Shift and scale re-tune what a block <em>sees</em>. DiT (Peebles &amp; Xie, 2022 — see §25) added a
+third dial, and FLUX.2 keeps it: a <strong>gate</strong> that multiplies the sub-layer's <em>output</em>
+before it is added back into the residual stream.</p>
+<div class="note beginner">
+<div class="nh">◇ The residual stream, in one paragraph</div>
+<p>Every token owns a vector of 6144 numbers that is carried through the whole network, and each block
+<em>adds</em> to it instead of replacing it: <span class="shape">x ← x + block(x)</span>. That running
+vector is the "residual stream" — the token's current understanding of itself, which starts as a projected
+patch (§4) and ends as a velocity (§1). Two things follow, and both matter below. A block cannot destroy
+what earlier blocks decided, only amend it — which is what makes 56 layers trainable at all. And a block
+that contributes <em>nothing</em> is a perfectly valid state: set its output to zero and the stream passes
+through unchanged. That is why a gate is worth having — next — and why the merged stream in §19.2 can be
+handed to 48 further blocks without any rewiring.</p>
+</div>
+<div class="note math">
+<div class="nh">Σ One adaLN sub-layer</div>
+<p><span class="mathblk">x ← x + gate ⊙ sublayer( (1 + scale) ⊙ norm(x) + shift )</span></p>
+<p style="margin-top:6px"><span class="shape">shift, scale, gate are all (B, 1, D) — one value per channel, broadcast over all L tokens</span></p>
+</div>
+<p>Think of the gate as a volume knob on the block's contribution. <code>gate = 0</code> and the block is
+a no-op — the stream passes through untouched, however excited its internals got. <code>gate = 1</code> and
+the block's full output lands in the stream. In between, the block contributes partially. Shift and scale
+cannot do that: they change the input, so the block always <em>runs</em>, and its output always arrives.
+The gate is what lets the same 56 blocks do coarse global work at t = 0.98 and delicate local work at
+t = 0.05 — different layers can be turned up or down per step.</p>
+<p>The two kinds of block are built in §17 and §18; this table is only the preview of what they will
+receive, so that the code has somewhere to land when it arrives.</p>
+<div class="tbl-wrap">
+<table class="data">
+<thead><tr><th style="width:230px">block</th><th style="width:120px">norms it owns</th><th style="width:150px">dials it receives</th><th>where each dial acts</th></tr></thead>
+<tbody>
+<tr><td><code>SingleStreamBlock</code> (§17)<br><span class="dim">48 of them</span></td><td>1 (<code>pre_norm</code>)</td><td>one triple<br>(3 vectors)</td><td>shift + scale on the input to the fused attention+MLP projection (L470); gate on the fused output before the residual add (L484)</td></tr>
+<tr><td><code>DoubleStreamBlock</code> (§18)<br><span class="dim">8 of them</span></td><td>4 (<code>img_norm1</code>, <code>img_norm2</code>, <code>txt_norm1</code>, <code>txt_norm2</code>)</td><td>two triples per stream<br>(6 vectors)</td><td>one triple for attention (shift+scale at L580/L588, gate on the projected attention output at L626/L631), one for the MLP (shift+scale at L628/L633, gate at L627/L632)</td></tr>
+</tbody>
+</table>
+</div>
+<p>DiT initialises its gate to zero — "adaLN-Zero" — so that a freshly initialised block is the identity
+and a deep network starts out as a no-op that training gradually switches on. <code>model.py</code>
+contains no initialisation code at all (every matrix is a plain <code>nn.Linear(..., bias=False)</code>
+and the checkpoints arrive trained), so whether FLUX.2's gates started at zero cannot be read off this
+file.</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 1040 300" role="img" aria-label="Adaptive layer normalisation: the conditioning vector generates shift, scale and gate that modulate a normalised sub-layer and its residual connection.">
+<defs><marker id="mA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7d8da1"/></marker>
+<marker id="mV" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5fe08a"/></marker></defs>
+<text x="40" y="30" class="ttl">adaLN: one sub-layer, three dials, all turned by the timestep</text>
+
+<!-- main path -->
+<rect x="60" y="120" width="120" height="56" rx="9" fill="#121a26" stroke="#2e4054"/>
+<text x="120" y="144" class="axb" text-anchor="middle">input x</text>
+<text x="120" y="162" class="eq" text-anchor="middle">(B, L, D)</text>
+<path d="M180,148 L228,148" stroke="#7d8da1" stroke-width="1.7" marker-end="url(#mA)"/>
+
+<rect x="230" y="120" width="130" height="56" rx="9" fill="#121a26" stroke="#7ea6ff" stroke-opacity=".55"/>
+<text x="295" y="144" class="axb" text-anchor="middle" fill="#7ea6ff">LayerNorm</text>
+<text x="295" y="162" class="ax" text-anchor="middle">no parameters</text>
+<path d="M360,148 L408,148" stroke="#7d8da1" stroke-width="1.7" marker-end="url(#mA)"/>
+
+<circle cx="430" cy="148" r="17" fill="#121a26" stroke="#5fe08a" stroke-width="2"/>
+<text x="430" y="153" class="axb" text-anchor="middle" fill="#5fe08a">⊙</text>
+<path d="M447,148 L495,148" stroke="#7d8da1" stroke-width="1.7" marker-end="url(#mA)"/>
+
+<rect x="497" y="120" width="150" height="56" rx="9" fill="#182231" stroke="#f6a93b" stroke-opacity=".55"/>
+<text x="572" y="144" class="axb" text-anchor="middle" fill="#f6a93b">attention / MLP</text>
+<text x="572" y="162" class="ax" text-anchor="middle">the real work</text>
+<path d="M647,148 L695,148" stroke="#7d8da1" stroke-width="1.7" marker-end="url(#mA)"/>
+
+<circle cx="717" cy="148" r="17" fill="#121a26" stroke="#5fe08a" stroke-width="2"/>
+<text x="717" y="153" class="axb" text-anchor="middle" fill="#5fe08a">⊙</text>
+<path d="M734,148 L782,148" stroke="#7d8da1" stroke-width="1.7" marker-end="url(#mA)"/>
+
+<circle cx="830" cy="148" r="17" fill="#121a26" stroke="#7d8da1" stroke-width="2"/>
+<text x="830" y="154" class="axb" text-anchor="middle">+</text>
+<path d="M847,148 L900,148" stroke="#7d8da1" stroke-width="1.7" marker-end="url(#mA)"/>
+<rect x="902" y="120" width="110" height="56" rx="9" fill="#121a26" stroke="#2e4054"/>
+<text x="957" y="153" class="axb" text-anchor="middle">output</text>
+
+<!-- residual skip -->
+<path d="M120,176 L120,240 L830,240 L830,167" stroke="#7d8da1" stroke-width="1.5" fill="none" stroke-dasharray="5 4" marker-end="url(#mA)"/>
+<text x="470" y="258" class="ax" text-anchor="middle">residual skip — the gate multiplies the sub-layer's contribution before it is added</text>
+
+<!-- vec path -->
+<rect x="360" y="44" width="120" height="42" rx="9" fill="rgba(95,224,138,.1)" stroke="#5fe08a" stroke-opacity=".6"/>
+<text x="420" y="70" class="axb" text-anchor="middle" fill="#5fe08a">vec</text>
+<path d="M420,86 L420,96 L200,96 L200,70" stroke="#5fe08a" stroke-width="1.5" fill="none" marker-end="url(#mV)"/>
+<rect x="120" y="30" width="160" height="40" rx="9" fill="rgba(95,224,138,.08)" stroke="#5fe08a" stroke-opacity=".4"/>
+<text x="200" y="47" class="ax" text-anchor="middle" fill="#5fe08a">Modulation.lin + SiLU</text>
+<text x="200" y="62" class="eq" text-anchor="middle">→ shift, scale, gate</text>
+<path d="M240,70 L240,104 L430,104 L430,129" stroke="#5fe08a" stroke-width="1.6" fill="none" marker-end="url(#mV)"/>
+<path d="M250,70 L250,112 L717,112 L717,129" stroke="#5fe08a" stroke-width="1.6" fill="none" marker-end="url(#mV)"/>
+<text x="452" y="98" class="eq" fill="#5fe08a">scale: (1+s)·norm(x) + shift</text>
+<text x="740" y="106" class="eq" fill="#5fe08a">gate</text>
+</svg>
+</div>
+<figcaption><span class="figno">FIG 20</span><b>adaLN in one picture.</b> The green dials are generated, not learned
+per-layer: the same <code>vec</code> that encodes "we are 62 % noisy" decides how strongly every
+sub-layer of every block is allowed to speak. The gate is also what makes DiT's
+"adaLN-Zero" trick possible: a block whose gate is zero starts life as the identity function, which is
+how very deep transformers are made trainable. <span class="spec">inference</span> — <code>model.py</code>
+contains no initialisation code at all (the weights arrive from a checkpoint), so nothing in this file
+tells you how the gates start out.</figcaption>
+</figure>
+
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 1560 400" role="img" aria-label="Three copies of the same block at three points in a run, each with a gate meter. At t near 1 the gate is wide open and the block's contribution reaches the residual stream in full; midway it is part open; near t = 0 it is nearly closed, so the stream passes through almost unchanged.">
+<defs><marker id="gtA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7d8da1"/></marker></defs>
+<text x="40" y="34" class="ttl">The gate is a volume knob on a block's contribution</text>
+<text x="40" y="60" class="ax" fill="#a9b8c9">the grey line is the residual stream — it always continues; the gate only decides how much of this block lands in it</text>
+<rect x="40" y="86" width="440" height="272" rx="14" fill="#0e1622" stroke="#2e4054"/>
+<text x="260" y="118" class="axb" text-anchor="middle">early in the run · t near 1</text>
+<line x1="70" y1="200" x2="450" y2="200" stroke="#7d8da1" stroke-width="2.4"/>
+<rect x="190" y="164" width="140" height="72" rx="10" fill="#182231" stroke="#f6a93b" stroke-opacity=".65"/>
+<text x="260" y="205" class="eq" text-anchor="middle" fill="#f6a93b">a block</text>
+<rect x="370" y="240" width="46" height="100" rx="8" fill="#121a26" stroke="#2e4054"/>
+<rect x="374" y="202" width="38" height="138" rx="5" fill="#5fe08a" opacity=".85"/>
+<text x="393" y="358" class="eq" text-anchor="middle" fill="#a9b8c9">gate</text>
+<path d="M290,236 L290,200" stroke="#5fe08a" stroke-width="5.6" fill="none" opacity=".9"/>
+<text x="70" y="286" class="eq">gate wide open: this block's edit</text>
+<text x="70" y="306" class="eq">arrives almost in full</text>
+<text x="70" y="336" class="eq" fill="#a9b8c9">the stream keeps flowing either way</text>
+<rect x="560" y="86" width="440" height="272" rx="14" fill="#0e1622" stroke="#2e4054"/>
+<text x="780" y="118" class="axb" text-anchor="middle">midway · t near 0.5</text>
+<line x1="590" y1="200" x2="970" y2="200" stroke="#7d8da1" stroke-width="2.4"/>
+<rect x="710" y="164" width="140" height="72" rx="10" fill="#182231" stroke="#f6a93b" stroke-opacity=".65"/>
+<text x="780" y="205" class="eq" text-anchor="middle" fill="#f6a93b">a block</text>
+<rect x="890" y="240" width="46" height="100" rx="8" fill="#121a26" stroke="#2e4054"/>
+<rect x="894" y="265" width="38" height="75" rx="5" fill="#ffd479" opacity=".85"/>
+<text x="913" y="358" class="eq" text-anchor="middle" fill="#a9b8c9">gate</text>
+<path d="M290,236 L290,200" stroke="#ffd479" stroke-width="3.5" fill="none" opacity=".9"/>
+<text x="590" y="286" class="eq">gate part open: the edit is</text>
+<text x="590" y="306" class="eq">attenuated before it lands</text>
+<text x="590" y="336" class="eq" fill="#a9b8c9">the stream keeps flowing either way</text>
+<rect x="1080" y="86" width="440" height="272" rx="14" fill="#0e1622" stroke="#2e4054"/>
+<text x="1300" y="118" class="axb" text-anchor="middle">late · t near 0</text>
+<line x1="1110" y1="200" x2="1490" y2="200" stroke="#7d8da1" stroke-width="2.4"/>
+<rect x="1230" y="164" width="140" height="72" rx="10" fill="#182231" stroke="#f6a93b" stroke-opacity=".65"/>
+<text x="1300" y="205" class="eq" text-anchor="middle" fill="#f6a93b">a block</text>
+<rect x="1410" y="240" width="46" height="100" rx="8" fill="#121a26" stroke="#2e4054"/>
+<rect x="1414" y="322" width="38" height="18" rx="5" fill="#ff7ab8" opacity=".85"/>
+<text x="1433" y="358" class="eq" text-anchor="middle" fill="#a9b8c9">gate</text>
+<path d="M290,236 L290,200" stroke="#ff7ab8" stroke-width="1.6" fill="none" opacity=".9"/>
+<text x="1110" y="286" class="eq">gate nearly closed: the stream</text>
+<text x="1110" y="306" class="eq">passes through almost untouched</text>
+<text x="1110" y="336" class="eq" fill="#a9b8c9">the stream keeps flowing either way</text>
+<text x="40" y="386" class="ax">The openings drawn here are illustrative — the real values are learned, differ per block, and change every step. What is not illustrative is the mechanism.</text>
+</svg>
+</div>
+<figcaption><span class="figno">FIG 21</span><b>Why a third dial.</b> Shift and scale change what a block
+<em>sees</em>, so the block always runs and its output always arrives. The gate changes how much of that
+output is allowed into the residual stream: zero and the block is a no-op however excited its internals
+got, one and it lands in full. That is the only dial that can switch a layer <em>off</em>, and it is what
+lets one set of 56 blocks behave like a coarse global editor at t = 1 and a fine local one at t = 0.</figcaption>
+</figure>
+
+<h3>11.4 · What it costs, and the consequence you will meet again</h3>
+<p>Each <code>Modulation</code> is a single bias-free linear layer, so the price is easy to write down:</p>
+<div class="tbl-wrap">
+<table class="data">
+<thead><tr><th style="width:290px">arrangement</th><th style="width:210px">arithmetic</th><th style="width:150px">parameters</th><th>share of the 32 223 281 152 in dev</th></tr></thead>
+<tbody>
+<tr><td>what FLUX.2 does: three shared modules, computed once per step</td><td>2 × (6144 × 36 864) + 6144 × 18 432</td><td class="num"><b>566 231 040</b></td><td class="num">1.8 %</td></tr>
+<tr><td>what a per-block adaLN costs — DiT's original design, and what FLUX.1 still does</td><td>8 × 2 × (6144 × 36 864) + 48 × (6144 × 18 432)</td><td class="num">9 059 696 640</td><td class="num">28.1 %</td></tr>
+<tr><td><b>saved by sharing</b></td><td></td><td class="num"><b>8 493 465 600</b></td><td class="num">26.4 %</td></tr>
+</tbody>
+</table>
+</div>
+<p>Sharing the modulation is not this file's invention, and the family tree makes the numbers above make
+sense. DiT (2022) gave <em>every</em> block its own modulation MLP — row two of that table — and FLUX.1
+still does. PixArt-α (2023) noticed the price and introduced <strong>adaLN-single</strong>: one shared
+global vector, refined per block by adding a small learnable bias. FLUX.2 drops the refinement as well.
+The three modules of L98–108 are the whole mechanism; a block's private reaction to <code>t</code> has to
+come out of its own weights.</p>
+<p>That is the single largest saving in the file, and §13.1 counts it as ~8.5 billion parameters — about
+17 GB that a 32-billion-parameter model does not have to carry next to its activations. Which side
+of that trade the authors were optimising is not recorded anywhere in the source.
+<span class="spec">inference</span> What <em>is</em> in the source is the price paid: with shared
+modulation, every block receives the same three (or six) dials, so a block cannot have a private reaction
+to the timestep. It can only react differently because its <em>weights</em> differ. Fifty-six blocks get
+fifty-six different responses to <code>t</code> out of one broadcast triple each.</p>
+<p>The second consequence is the one that generates real code. A broadcast dial cannot distinguish one
+token from another — it is (B, 1, 6144), the same for every position. But reference tokens have to be
+conditioned at <code>t = 0</code> while the canvas sits at <code>t = 0.62</code> (§21.1 explains why). One
+shared triple cannot say that. So <code>forward_kv_extract</code> runs the modulation <em>twice</em>: once
+with the real timestep, and once with a timestep pinned to 0.0 for the references (L198, L206–211).</p>
+<p>Two runs produce two sets of dials, but every block receives one. So the two sets are spliced into a
+per-token tensor whose first rows come from the reference run and whose remaining rows come from the real
+one — and that splice is the entire reason <code>_blend_mod_triple</code>, <code>_blend_double_mods</code>
+and <code>_blend_single_mods</code> (§20) exist. Shared modulation is cheap; this is the bill.</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 1560 430" role="img" aria-label="Left: 56 blocks each with its own modulation matrix, totalling 9 059 696 640 parameters. Right: the same 56 blocks wired to three shared matrices, totalling 566 231 040 parameters. The difference is about 8.5 billion parameters.">
+<defs><marker id="shA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7d8da1"/></marker></defs>
+<text x="40" y="34" class="ttl">Where the dials live: one set for the network, or one set per block</text>
+
+<rect x="40" y="60" width="700" height="300" rx="14" fill="#0e1622" stroke="#2e4054"/>
+<text x="66" y="92" class="axb" fill="#ff7ab8">per block — DiT's design, and FLUX.1's</text>
+<rect x="70" y="110" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="79" y="119" width="20" height="14" rx="3" fill="rgba(255,122,184,.35)" stroke="#ff7ab8" stroke-opacity=".6"/>
+<rect x="116" y="110" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="125" y="119" width="20" height="14" rx="3" fill="rgba(255,122,184,.35)" stroke="#ff7ab8" stroke-opacity=".6"/>
+<rect x="162" y="110" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="171" y="119" width="20" height="14" rx="3" fill="rgba(255,122,184,.35)" stroke="#ff7ab8" stroke-opacity=".6"/>
+<rect x="208" y="110" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="217" y="119" width="20" height="14" rx="3" fill="rgba(255,122,184,.35)" stroke="#ff7ab8" stroke-opacity=".6"/>
+<rect x="254" y="110" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="263" y="119" width="20" height="14" rx="3" fill="rgba(255,122,184,.35)" stroke="#ff7ab8" stroke-opacity=".6"/>
+<rect x="300" y="110" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="309" y="119" width="20" height="14" rx="3" fill="rgba(255,122,184,.35)" stroke="#ff7ab8" stroke-opacity=".6"/>
+<rect x="346" y="110" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="355" y="119" width="20" height="14" rx="3" fill="rgba(255,122,184,.35)" stroke="#ff7ab8" stroke-opacity=".6"/>
+<rect x="392" y="110" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="401" y="119" width="20" height="14" rx="3" fill="rgba(255,122,184,.35)" stroke="#ff7ab8" stroke-opacity=".6"/>
+<rect x="438" y="110" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="447" y="119" width="20" height="14" rx="3" fill="rgba(255,122,184,.35)" stroke="#ff7ab8" stroke-opacity=".6"/>
+<rect x="484" y="110" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="493" y="119" width="20" height="14" rx="3" fill="rgba(255,122,184,.35)" stroke="#ff7ab8" stroke-opacity=".6"/>
+<rect x="530" y="110" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="539" y="119" width="20" height="14" rx="3" fill="rgba(255,122,184,.35)" stroke="#ff7ab8" stroke-opacity=".6"/>
+<rect x="576" y="110" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="585" y="119" width="20" height="14" rx="3" fill="rgba(255,122,184,.35)" stroke="#ff7ab8" stroke-opacity=".6"/>
+<rect x="622" y="110" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="631" y="119" width="20" height="14" rx="3" fill="rgba(255,122,184,.35)" stroke="#ff7ab8" stroke-opacity=".6"/>
+<rect x="668" y="110" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="677" y="119" width="20" height="14" rx="3" fill="rgba(255,122,184,.35)" stroke="#ff7ab8" stroke-opacity=".6"/>
+<rect x="70" y="150" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="79" y="159" width="20" height="14" rx="3" fill="rgba(255,122,184,.35)" stroke="#ff7ab8" stroke-opacity=".6"/>
+<rect x="116" y="150" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="125" y="159" width="20" height="14" rx="3" fill="rgba(255,122,184,.35)" stroke="#ff7ab8" stroke-opacity=".6"/>
+<rect x="162" y="150" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="171" y="159" width="20" height="14" rx="3" fill="rgba(255,122,184,.35)" stroke="#ff7ab8" stroke-opacity=".6"/>
+<rect x="208" y="150" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="217" y="159" width="20" height="14" rx="3" fill="rgba(255,122,184,.35)" stroke="#ff7ab8" stroke-opacity=".6"/>
+<rect x="254" y="150" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="263" y="159" width="20" height="14" rx="3" fill="rgba(255,122,184,.35)" stroke="#ff7ab8" stroke-opacity=".6"/>
+<rect x="300" y="150" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="309" y="159" width="20" height="14" rx="3" fill="rgba(255,122,184,.35)" stroke="#ff7ab8" stroke-opacity=".6"/>
+<rect x="346" y="150" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="355" y="159" width="20" height="14" rx="3" fill="rgba(255,122,184,.35)" stroke="#ff7ab8" stroke-opacity=".6"/>
+<rect x="392" y="150" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="401" y="159" width="20" height="14" rx="3" fill="rgba(255,122,184,.35)" stroke="#ff7ab8" stroke-opacity=".6"/>
+<rect x="438" y="150" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="447" y="159" width="20" height="14" rx="3" fill="rgba(255,122,184,.35)" stroke="#ff7ab8" stroke-opacity=".6"/>
+<rect x="484" y="150" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="493" y="159" width="20" height="14" rx="3" fill="rgba(255,122,184,.35)" stroke="#ff7ab8" stroke-opacity=".6"/>
+<rect x="530" y="150" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="539" y="159" width="20" height="14" rx="3" fill="rgba(255,122,184,.35)" stroke="#ff7ab8" stroke-opacity=".6"/>
+<rect x="576" y="150" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="585" y="159" width="20" height="14" rx="3" fill="rgba(255,122,184,.35)" stroke="#ff7ab8" stroke-opacity=".6"/>
+<rect x="622" y="150" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="631" y="159" width="20" height="14" rx="3" fill="rgba(255,122,184,.35)" stroke="#ff7ab8" stroke-opacity=".6"/>
+<rect x="668" y="150" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="677" y="159" width="20" height="14" rx="3" fill="rgba(255,122,184,.35)" stroke="#ff7ab8" stroke-opacity=".6"/>
+<rect x="70" y="190" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="79" y="199" width="20" height="14" rx="3" fill="rgba(255,122,184,.35)" stroke="#ff7ab8" stroke-opacity=".6"/>
+<rect x="116" y="190" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="125" y="199" width="20" height="14" rx="3" fill="rgba(255,122,184,.35)" stroke="#ff7ab8" stroke-opacity=".6"/>
+<rect x="162" y="190" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="171" y="199" width="20" height="14" rx="3" fill="rgba(255,122,184,.35)" stroke="#ff7ab8" stroke-opacity=".6"/>
+<rect x="208" y="190" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="217" y="199" width="20" height="14" rx="3" fill="rgba(255,122,184,.35)" stroke="#ff7ab8" stroke-opacity=".6"/>
+<rect x="254" y="190" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="263" y="199" width="20" height="14" rx="3" fill="rgba(255,122,184,.35)" stroke="#ff7ab8" stroke-opacity=".6"/>
+<rect x="300" y="190" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="309" y="199" width="20" height="14" rx="3" fill="rgba(255,122,184,.35)" stroke="#ff7ab8" stroke-opacity=".6"/>
+<rect x="346" y="190" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="355" y="199" width="20" height="14" rx="3" fill="rgba(255,122,184,.35)" stroke="#ff7ab8" stroke-opacity=".6"/>
+<rect x="392" y="190" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="401" y="199" width="20" height="14" rx="3" fill="rgba(255,122,184,.35)" stroke="#ff7ab8" stroke-opacity=".6"/>
+<rect x="438" y="190" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="447" y="199" width="20" height="14" rx="3" fill="rgba(255,122,184,.35)" stroke="#ff7ab8" stroke-opacity=".6"/>
+<rect x="484" y="190" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="493" y="199" width="20" height="14" rx="3" fill="rgba(255,122,184,.35)" stroke="#ff7ab8" stroke-opacity=".6"/>
+<rect x="530" y="190" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="539" y="199" width="20" height="14" rx="3" fill="rgba(255,122,184,.35)" stroke="#ff7ab8" stroke-opacity=".6"/>
+<rect x="576" y="190" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="585" y="199" width="20" height="14" rx="3" fill="rgba(255,122,184,.35)" stroke="#ff7ab8" stroke-opacity=".6"/>
+<rect x="622" y="190" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="631" y="199" width="20" height="14" rx="3" fill="rgba(255,122,184,.35)" stroke="#ff7ab8" stroke-opacity=".6"/>
+<rect x="668" y="190" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="677" y="199" width="20" height="14" rx="3" fill="rgba(255,122,184,.35)" stroke="#ff7ab8" stroke-opacity=".6"/>
+<rect x="70" y="230" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="79" y="239" width="20" height="14" rx="3" fill="rgba(255,122,184,.35)" stroke="#ff7ab8" stroke-opacity=".6"/>
+<rect x="116" y="230" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="125" y="239" width="20" height="14" rx="3" fill="rgba(255,122,184,.35)" stroke="#ff7ab8" stroke-opacity=".6"/>
+<rect x="162" y="230" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="171" y="239" width="20" height="14" rx="3" fill="rgba(255,122,184,.35)" stroke="#ff7ab8" stroke-opacity=".6"/>
+<rect x="208" y="230" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="217" y="239" width="20" height="14" rx="3" fill="rgba(255,122,184,.35)" stroke="#ff7ab8" stroke-opacity=".6"/>
+<rect x="254" y="230" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="263" y="239" width="20" height="14" rx="3" fill="rgba(255,122,184,.35)" stroke="#ff7ab8" stroke-opacity=".6"/>
+<rect x="300" y="230" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="309" y="239" width="20" height="14" rx="3" fill="rgba(255,122,184,.35)" stroke="#ff7ab8" stroke-opacity=".6"/>
+<rect x="346" y="230" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="355" y="239" width="20" height="14" rx="3" fill="rgba(255,122,184,.35)" stroke="#ff7ab8" stroke-opacity=".6"/>
+<rect x="392" y="230" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="401" y="239" width="20" height="14" rx="3" fill="rgba(255,122,184,.35)" stroke="#ff7ab8" stroke-opacity=".6"/>
+<rect x="438" y="230" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="447" y="239" width="20" height="14" rx="3" fill="rgba(255,122,184,.35)" stroke="#ff7ab8" stroke-opacity=".6"/>
+<rect x="484" y="230" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="493" y="239" width="20" height="14" rx="3" fill="rgba(255,122,184,.35)" stroke="#ff7ab8" stroke-opacity=".6"/>
+<rect x="530" y="230" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="539" y="239" width="20" height="14" rx="3" fill="rgba(255,122,184,.35)" stroke="#ff7ab8" stroke-opacity=".6"/>
+<rect x="576" y="230" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="585" y="239" width="20" height="14" rx="3" fill="rgba(255,122,184,.35)" stroke="#ff7ab8" stroke-opacity=".6"/>
+<rect x="622" y="230" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="631" y="239" width="20" height="14" rx="3" fill="rgba(255,122,184,.35)" stroke="#ff7ab8" stroke-opacity=".6"/>
+<rect x="668" y="230" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="677" y="239" width="20" height="14" rx="3" fill="rgba(255,122,184,.35)" stroke="#ff7ab8" stroke-opacity=".6"/>
+<text x="66" y="300" class="eq">each of the 56 blocks owns its own matrices</text>
+<text x="66" y="322" class="eq" fill="#ff7ab8">9 059 696 640 parameters — 28.1 % of the dev model</text>
+<text x="66" y="344" class="eq" fill="#a9b8c9">every block can react to t privately</text>
+
+<rect x="820" y="60" width="700" height="300" rx="14" fill="#0e1622" stroke="#5fe08a" stroke-opacity=".45"/>
+<text x="846" y="92" class="axb" fill="#5fe08a">shared — what FLUX.2 does</text>
+<rect x="850" y="110" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="896" y="110" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="942" y="110" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="988" y="110" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="1034" y="110" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="1080" y="110" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="1126" y="110" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="1172" y="110" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="1218" y="110" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="1264" y="110" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="1310" y="110" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="1356" y="110" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="1402" y="110" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="1448" y="110" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="850" y="150" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="896" y="150" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="942" y="150" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="988" y="150" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="1034" y="150" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="1080" y="150" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="1126" y="150" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="1172" y="150" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="1218" y="150" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="1264" y="150" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="1310" y="150" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="1356" y="150" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="1402" y="150" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="1448" y="150" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="850" y="190" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="896" y="190" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="942" y="190" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="988" y="190" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="1034" y="190" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="1080" y="190" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="1126" y="190" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="1172" y="190" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="1218" y="190" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="1264" y="190" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="1310" y="190" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="1356" y="190" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="1402" y="190" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="1448" y="190" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="850" y="230" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="896" y="230" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="942" y="230" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="988" y="230" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="1034" y="230" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="1080" y="230" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="1126" y="230" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="1172" y="230" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="1218" y="230" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="1264" y="230" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="1310" y="230" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="1356" y="230" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="1402" y="230" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="1448" y="230" width="38" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".5"/>
+<rect x="1330" y="150" width="160" height="120" rx="10" fill="rgba(95,224,138,.12)" stroke="#5fe08a" stroke-opacity=".6"/>
+<text x="1410" y="180" class="eq" text-anchor="middle" fill="#5fe08a">3 matrices</text>
+<text x="1410" y="200" class="eq" text-anchor="middle">566 231 040</text>
+<text x="1410" y="220" class="eq" text-anchor="middle" fill="#a9b8c9">1.8 % of the model</text>
+<text x="1410" y="248" class="eq" text-anchor="middle" fill="#a9b8c9">one bus, 56 listeners</text>
+<path d="M1328,210 L1290,210" stroke="#5fe08a" stroke-width="1.8" fill="none" marker-end="url(#shA)"/>
+<text x="846" y="300" class="eq">all 56 blocks read the same three sets of dials</text>
+<text x="846" y="322" class="eq" fill="#5fe08a">566 231 040 parameters — the saving is 8.5 billion</text>
+<text x="846" y="344" class="eq" fill="#a9b8c9">a block reacts to t only through its own weights</text>
+
+<text x="40" y="398" class="ax">PixArt-α's adaLN-single sits between the two: one shared vector, plus a small learned bias per block.</text>
+<text x="40" y="420" class="ax">FLUX.2 drops even that — the three matrices at L98–108 are the whole mechanism.</text>
+</svg>
+</div>
+<figcaption><span class="figno">FIG 22</span><b>The largest saving in the file.</b> Same 56 blocks, two
+arrangements of the modulation. Giving each block its own matrices is what DiT and FLUX.1 do, and it costs
+9 059 696 640 parameters — over a quarter of the dev model. Sharing three matrices costs 566 231 040. The
+8.5-billion-parameter difference is about 17 GB of weights, and the price is that no block can have a
+private reaction to the timestep.</figcaption>
+</figure>
+<p class="dim">Used later: §9.4 (where <code>vec</code> comes from), §15.9 (<code>Modulation</code>, the
+thirteen lines), §15.10 (<code>LastLayer</code>, the exit door's own private pair of dials), §17–§18 (the
+dials being consumed inside both block types), §20 (the splice that gives reference tokens different
+dials), §23 (the design-trade row).</p>
+</section>
