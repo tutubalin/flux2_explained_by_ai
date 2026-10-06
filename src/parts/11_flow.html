@@ -79,46 +79,34 @@ points along the line at many values of <em>t</em> and asks it to predict <em>v<
 few steps are needed — this is why the distilled klein models manage with only 4.</figcaption>
 </figure>
 
-<h3>1.2 · Reading the sampling step</h3>
-<p>With that picture in mind, the denoising loop in <code>sampling.py</code> is three lines:</p>
+<h3>1.2 · The walk: ask, move, ask again</h3>
+<p>Generation is a loop, and it is worth stating in words before any code appears (the code is in §16,
+where the loop lives). The sampler starts at pure noise and repeats, until it runs out of schedule:
 
-<!--RAW title="sampling.py · denoise() — the whole Euler loop (condensed)"-->
-    guidance_vec = torch.full((img.shape[0],), guidance, device=img.device, dtype=img.dtype)
-    for t_curr, t_prev in zip(timesteps[:-1], timesteps[1:]):
-        t_vec = torch.full((img.shape[0],), t_curr, dtype=img.dtype, device=img.device)
-        ...
-        pred = model(x=img_input, x_ids=img_input_ids, timesteps=t_vec,
-                     ctx=txt, ctx_ids=txt_ids, guidance=guidance_vec)
-        ...
-        img = img + (t_prev - t_curr) * pred      # <-- the only line that changes the image
-    return img
-<!--/RAW-->
 
-<p>The <code>img = img + …</code> line — <code>sampling.py</code>:305 — is exactly the pink arrow in FIG 1. <code>t_curr</code> is where we are,
-<code>t_prev</code> is where we want to be next (always a smaller number), <code>pred</code> is the
-velocity <em>v</em> that <code>Flux2.forward</code> just returned. Multiplying velocity by the time
-difference gives the displacement. Nothing else happens — no noise is injected, no variance schedule
-is applied. It is a plain, deterministic Euler integration of an ODE.</p>
+<ol>
+<li><strong>Ask.</strong> Hand the network the current image and the current time. It answers with a
+<em>velocity</em> — the direction and speed at which the image should move to become more real.</li>
+<li><strong>Move.</strong> Step along that velocity by however much time is left in this interval. That
+is the pink arrow in FIG 1, and it is the only thing in the whole sampler that changes the image.</li>
+<li><strong>Repeat</strong> with the next, smaller time — until the schedule runs out at t = 0, which is
+a real image, and the autoencoder turns it back into pixels.</li>
+</ol>
+<p>Nothing else happens. No noise is injected on the way, no variance schedule is applied, no randomness
+survives the first step: it is a deterministic integration of an ordinary differential equation, and the
+same starting noise plus the same prompt gives the same picture every time.</p>
 
 <div class="note idea">
-<div class="nh">💡 Two questions this loop always raises</div>
-<p><strong>Which of the two times does the model get — the start or the end of the interval?</strong> The
-<em>start</em>: <code>t_curr</code>, the noisier end. <code>sampling.py</code> L285 fills a vector with
-<code>t_curr</code> and L297 passes it as <code>timesteps</code>, and the other two loops do the same
-(L329/L335, L384/L395). That is exactly what an explicit Euler step means — evaluate the velocity field
-where you are standing, then travel; evaluating it at the destination would require already knowing the
-destination. So an 8-step run makes 8 calls, at t = 1.000, 0.985, 0.967, 0.942, 0.906, 0.853, 0.763 and
-0.580. The schedule's ninth entry, 0.0, is only ever a destination and is never fed to the network
-(§16.1 prints both rows).</p>
-<p><strong>And how does the model know the step size, t_prev − t_curr?</strong> It does not, and it never
-needs to. Its signature is <code>forward(x, x_ids, timesteps, ctx, ctx_ids, guidance)</code> — no step
-size, no schedule, no <code>num_steps</code>, and none of those three words appears anywhere in the 833
-lines. The network answers a purely <em>local</em> question — "at this x and this t, which way does the
-trajectory point, and how fast?" — while the <em>sampler</em> owns the global plan:
-<code>get_schedule</code> produced all N+1 times before the loop began, so the step size is just the
-difference of two numbers already in hand. That division of labour is why one set of weights serves a
-4-step, an 8-step and a 50-step run unchanged: nothing in the model knows how far it is being asked to
-travel, it only ever says which way.</p>
+<div class="nh">💡 Two questions this walk always raises</div>
+<p><strong>Which of the two times does the network get — the start of the interval or the end?</strong>
+The start: the noisier one, the time the image in hand actually corresponds to. That is what an explicit
+Euler step means — look at the ground where you are standing, then walk. Looking at the destination
+instead would require already knowing it.</p>
+<p><strong>And how does the network know how big a step to take?</strong> It does not, and it never needs
+to. It is only ever asked a local question — <em>"at this image and this time, which way, and how
+fast?"</em> — while the sampler owns the plan, having computed every one of the times before the walk
+began. That division of labour is why one set of weights can serve a 4-step, an 8-step and a 50-step run
+unchanged. §16 shows the code that does it.</p>
 </div>
 
 <div class="note warn">
@@ -208,38 +196,4 @@ rather than fed in raw. The <code>× 1000</code> inside <code>timestep_embedding
 matter: a scale convention, not a consequence of the schedule.</p>
 </div>
 
-<h3>1.4 · One more input: what "guidance" actually is</h3>
-<p>The loop above passes the model four things — noisy latents, their position ids, the timestep, the
-text — and for some checkpoints a fifth: <code>guidance</code>. It is one number, and the file never
-explains it, so here it is. It matters twice: it is the second "setting" that §5 routes into the network,
-and it is a config field in §8 (<code>use_guidance_embed</code>).</p>
-<p><strong>The problem.</strong> A model trained to follow a prompt follows it politely. It produces
-something consistent with the words but hedged — washed out, under-committed, averaging over everything
-the prompt could have meant. <em>Classifier-free guidance</em> (Ho &amp; Salimans, 2022 — §19) is the
-classic fix: run the network <strong>twice</strong> per step, once with the prompt and once with an empty
-one, and extrapolate past the conditional prediction.</p>
-<div class="note math">
-<div class="nh">Σ Classifier-free guidance, one step</div>
-<p><span class="mathblk">v = v_uncond + w · (v_cond − v_uncond)</span></p>
-<p style="margin-top:6px"><span class="shape">w = 1 → the plain conditional prediction · w &gt; 1 → step further along "what the prompt changes" · w = 0 → ignore the prompt</span></p>
-</div>
-<p>The bracket is exactly <em>what the prompt changes</em>, so multiplying it by w &gt; 1 amplifies only
-that. It works — and it doubles the cost: 100 network evaluations for a 50-step image.</p>
-<p><strong>What FLUX.2 does instead.</strong> <code>use_guidance_embed</code> says whether the model takes
-<code>w</code> as an <em>input</em>. Where it does, the value is fingerprinted and embedded exactly like
-the timestep and added to the same condition vector (§5.5), so a <em>single</em> pass approximates what the
-two-pass extrapolation would have produced — the model was trained to reproduce it, which is what
-"guidance distillation" means. The dev configuration sets <code>use_guidance_embed=True</code> and
-<code>util.py</code> drives it with <code>guidance=4.0</code> over 50 steps. Both klein configurations set
-it to <code>False</code>: those networks have no guidance input at all, and <code>util.py</code>
-accordingly runs them with <code>guidance=1.0</code> — no amplification — in 4 steps.</p>
-<p><code>sampling.py</code> still carries the two-pass version as its own entry point
-(<code>denoise_cfg</code>): it duplicates the batch, passes <code>guidance=None</code> to the model, and
-combines the two predictions outside the network. Same idea, no distilled input, twice the compute.</p>
-<div class="note warn">
-<div class="nh">⚠ Do not confuse the two</div>
-<p>A <em>distilled</em> guidance value — this file's <code>guidance_in</code> — is one scalar fed into one
-forward pass. <em>True</em> classifier-free guidance is two forward passes combined afterwards. Nothing in
-<code>model.py</code> ever does the second: the file only sees the scalar.</p>
-</div>
 </section>

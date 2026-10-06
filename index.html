@@ -608,36 +608,34 @@ points along the line at many values of <em>t</em> and asks it to predict <em>v<
 few steps are needed — this is why the distilled klein models manage with only 4.</figcaption>
 </figure>
 
-<h3>1.2 · Reading the sampling step</h3>
-<p>With that picture in mind, the denoising loop in <code>sampling.py</code> is three lines:</p>
+<h3>1.2 · The walk: ask, move, ask again</h3>
+<p>Generation is a loop, and it is worth stating in words before any code appears (the code is in §16,
+where the loop lives). The sampler starts at pure noise and repeats, until it runs out of schedule:
 
-<div class="codeblock"><div class="cb-head"><span class="dot"></span><span class="fname">sampling.py · denoise() — the whole Euler loop (condensed)</span><span class="ln">reference snippet</span></div><pre><table class="lineno"><tbody><tr><td class="ln-col">1</td><td class="code-col">guidance_vec <span class="o">=</span> <span class="t">torch</span><span class="p">.</span><span class="f">full</span><span class="p">(</span><span class="p">(</span>img<span class="p">.</span>shape<span class="p">[</span><span class="n">0</span><span class="p">]</span><span class="p">,</span><span class="p">)</span><span class="p">,</span> guidance<span class="p">,</span> device<span class="o">=</span>img<span class="p">.</span>device<span class="p">,</span> dtype<span class="o">=</span>img<span class="p">.</span>dtype<span class="p">)</span></td></tr><tr><td class="ln-col">2</td><td class="code-col"><span class="k">for</span> t_curr<span class="p">,</span> t_prev <span class="k">in</span> <span class="f">zip</span><span class="p">(</span>timesteps<span class="p">[</span><span class="o">:</span><span class="o">-</span><span class="n">1</span><span class="p">]</span><span class="p">,</span> timesteps<span class="p">[</span><span class="n">1</span><span class="o">:</span><span class="p">]</span><span class="p">)</span><span class="o">:</span></td></tr><tr><td class="ln-col">3</td><td class="code-col">    t_vec <span class="o">=</span> <span class="t">torch</span><span class="p">.</span><span class="f">full</span><span class="p">(</span><span class="p">(</span>img<span class="p">.</span>shape<span class="p">[</span><span class="n">0</span><span class="p">]</span><span class="p">,</span><span class="p">)</span><span class="p">,</span> t_curr<span class="p">,</span> dtype<span class="o">=</span>img<span class="p">.</span>dtype<span class="p">,</span> device<span class="o">=</span>img<span class="p">.</span>device<span class="p">)</span></td></tr><tr><td class="ln-col">4</td><td class="code-col">    <span class="p">...</span></td></tr><tr><td class="ln-col">5</td><td class="code-col">    pred <span class="o">=</span> <span class="f">model</span><span class="p">(</span>x<span class="o">=</span>img_input<span class="p">,</span> x_ids<span class="o">=</span>img_input_ids<span class="p">,</span> timesteps<span class="o">=</span>t_vec<span class="p">,</span></td></tr><tr><td class="ln-col">6</td><td class="code-col">                 ctx<span class="o">=</span>txt<span class="p">,</span> ctx_ids<span class="o">=</span>txt_ids<span class="p">,</span> guidance<span class="o">=</span>guidance_vec<span class="p">)</span></td></tr><tr><td class="ln-col">7</td><td class="code-col">    <span class="p">...</span></td></tr><tr><td class="ln-col">8</td><td class="code-col">    img <span class="o">=</span> img <span class="o">+</span> <span class="p">(</span>t_prev <span class="o">-</span> t_curr<span class="p">)</span> <span class="o">*</span> pred      <span class="c"># &lt;-- the only line that changes the image</span></td></tr><tr><td class="ln-col">9</td><td class="code-col"><span class="k">return</span> img</td></tr></tbody></table></pre></div>
 
-<p>The <code>img = img + …</code> line — <code>sampling.py</code>:305 — is exactly the pink arrow in FIG 1. <code>t_curr</code> is where we are,
-<code>t_prev</code> is where we want to be next (always a smaller number), <code>pred</code> is the
-velocity <em>v</em> that <code>Flux2.forward</code> just returned. Multiplying velocity by the time
-difference gives the displacement. Nothing else happens — no noise is injected, no variance schedule
-is applied. It is a plain, deterministic Euler integration of an ODE.</p>
+<ol>
+<li><strong>Ask.</strong> Hand the network the current image and the current time. It answers with a
+<em>velocity</em> — the direction and speed at which the image should move to become more real.</li>
+<li><strong>Move.</strong> Step along that velocity by however much time is left in this interval. That
+is the pink arrow in FIG 1, and it is the only thing in the whole sampler that changes the image.</li>
+<li><strong>Repeat</strong> with the next, smaller time — until the schedule runs out at t = 0, which is
+a real image, and the autoencoder turns it back into pixels.</li>
+</ol>
+<p>Nothing else happens. No noise is injected on the way, no variance schedule is applied, no randomness
+survives the first step: it is a deterministic integration of an ordinary differential equation, and the
+same starting noise plus the same prompt gives the same picture every time.</p>
 
 <div class="note idea">
-<div class="nh">💡 Two questions this loop always raises</div>
-<p><strong>Which of the two times does the model get — the start or the end of the interval?</strong> The
-<em>start</em>: <code>t_curr</code>, the noisier end. <code>sampling.py</code> L285 fills a vector with
-<code>t_curr</code> and L297 passes it as <code>timesteps</code>, and the other two loops do the same
-(L329/L335, L384/L395). That is exactly what an explicit Euler step means — evaluate the velocity field
-where you are standing, then travel; evaluating it at the destination would require already knowing the
-destination. So an 8-step run makes 8 calls, at t = 1.000, 0.985, 0.967, 0.942, 0.906, 0.853, 0.763 and
-0.580. The schedule's ninth entry, 0.0, is only ever a destination and is never fed to the network
-(§16.1 prints both rows).</p>
-<p><strong>And how does the model know the step size, t_prev − t_curr?</strong> It does not, and it never
-needs to. Its signature is <code>forward(x, x_ids, timesteps, ctx, ctx_ids, guidance)</code> — no step
-size, no schedule, no <code>num_steps</code>, and none of those three words appears anywhere in the 833
-lines. The network answers a purely <em>local</em> question — "at this x and this t, which way does the
-trajectory point, and how fast?" — while the <em>sampler</em> owns the global plan:
-<code>get_schedule</code> produced all N+1 times before the loop began, so the step size is just the
-difference of two numbers already in hand. That division of labour is why one set of weights serves a
-4-step, an 8-step and a 50-step run unchanged: nothing in the model knows how far it is being asked to
-travel, it only ever says which way.</p>
+<div class="nh">💡 Two questions this walk always raises</div>
+<p><strong>Which of the two times does the network get — the start of the interval or the end?</strong>
+The start: the noisier one, the time the image in hand actually corresponds to. That is what an explicit
+Euler step means — look at the ground where you are standing, then walk. Looking at the destination
+instead would require already knowing it.</p>
+<p><strong>And how does the network know how big a step to take?</strong> It does not, and it never needs
+to. It is only ever asked a local question — <em>"at this image and this time, which way, and how
+fast?"</em> — while the sampler owns the plan, having computed every one of the times before the walk
+began. That division of labour is why one set of weights can serve a 4-step, an 8-step and a 50-step run
+unchanged. §16 shows the code that does it.</p>
 </div>
 
 <div class="note warn">
@@ -727,40 +725,6 @@ rather than fed in raw. The <code>× 1000</code> inside <code>timestep_embedding
 matter: a scale convention, not a consequence of the schedule.</p>
 </div>
 
-<h3>1.4 · One more input: what "guidance" actually is</h3>
-<p>The loop above passes the model four things — noisy latents, their position ids, the timestep, the
-text — and for some checkpoints a fifth: <code>guidance</code>. It is one number, and the file never
-explains it, so here it is. It matters twice: it is the second "setting" that §5 routes into the network,
-and it is a config field in §8 (<code>use_guidance_embed</code>).</p>
-<p><strong>The problem.</strong> A model trained to follow a prompt follows it politely. It produces
-something consistent with the words but hedged — washed out, under-committed, averaging over everything
-the prompt could have meant. <em>Classifier-free guidance</em> (Ho &amp; Salimans, 2022 — §19) is the
-classic fix: run the network <strong>twice</strong> per step, once with the prompt and once with an empty
-one, and extrapolate past the conditional prediction.</p>
-<div class="note math">
-<div class="nh">Σ Classifier-free guidance, one step</div>
-<p><span class="mathblk">v = v_uncond + w · (v_cond − v_uncond)</span></p>
-<p style="margin-top:6px"><span class="shape">w = 1 → the plain conditional prediction · w &gt; 1 → step further along "what the prompt changes" · w = 0 → ignore the prompt</span></p>
-</div>
-<p>The bracket is exactly <em>what the prompt changes</em>, so multiplying it by w &gt; 1 amplifies only
-that. It works — and it doubles the cost: 100 network evaluations for a 50-step image.</p>
-<p><strong>What FLUX.2 does instead.</strong> <code>use_guidance_embed</code> says whether the model takes
-<code>w</code> as an <em>input</em>. Where it does, the value is fingerprinted and embedded exactly like
-the timestep and added to the same condition vector (§5.5), so a <em>single</em> pass approximates what the
-two-pass extrapolation would have produced — the model was trained to reproduce it, which is what
-"guidance distillation" means. The dev configuration sets <code>use_guidance_embed=True</code> and
-<code>util.py</code> drives it with <code>guidance=4.0</code> over 50 steps. Both klein configurations set
-it to <code>False</code>: those networks have no guidance input at all, and <code>util.py</code>
-accordingly runs them with <code>guidance=1.0</code> — no amplification — in 4 steps.</p>
-<p><code>sampling.py</code> still carries the two-pass version as its own entry point
-(<code>denoise_cfg</code>): it duplicates the batch, passes <code>guidance=None</code> to the model, and
-combines the two predictions outside the network. Same idea, no distilled input, twice the compute.</p>
-<div class="note warn">
-<div class="nh">⚠ Do not confuse the two</div>
-<p>A <em>distilled</em> guidance value — this file's <code>guidance_in</code> — is one scalar fed into one
-forward pass. <em>True</em> classifier-free guidance is two forward passes combined afterwards. Nothing in
-<code>model.py</code> ever does the second: the file only sees the scalar.</p>
-</div>
 </section>
 
 <section id="tokens">
@@ -1391,7 +1355,7 @@ told several different things, and FLUX.2 tells them through <em>different chann
 <tr><td>the prompt</td><td>512 tokens × 15 360 numbers</td><td><strong>tokens in the sequence</strong>, attending jointly with the image</td><td><code>txt_in</code> at L70; the joint attention of §3 and §12; the merge at L153–154 (§13.2)</td></tr>
 <tr><td>reference images</td><td>up to 16 384 tokens × 128</td><td><strong>tokens too</strong> — but sealed off from the canvas</td><td>§2.4, and the router that isolates them (§10)</td></tr>
 <tr><td>the timestep <code>t</code></td><td>one float</td><td><strong>modulation</strong>: shift, scale and gate on every norm</td><td>this section; code at §9.1, §9.3, §9.9</td></tr>
-<tr><td>the guidance strength <code>g</code> (§1.4)</td><td>one float (dev only)</td><td><strong>the same modulation channel</strong>, added to <code>t</code>'s vector</td><td>L74, L200–203; §8 (<code>use_guidance_embed</code>)</td></tr>
+<tr><td>the guidance strength <code>g</code> (§5.3)</td><td>one float (dev only)</td><td><strong>the same modulation channel</strong>, added to <code>t</code>'s vector</td><td>L74, L200–203; §8 (<code>use_guidance_embed</code>)</td></tr>
 </tbody>
 </table>
 </div>
@@ -1403,6 +1367,41 @@ to another (§3). A timestep is a setting: it has to apply to <em>every token in
 uniformly. Broadcasting one scalar through attention would be slow and lossy; handing it to each layer's
 normalisation reaches all 16 896 tokens in one multiplication. The guidance value is a setting for the
 same reason — it says "push harder towards the prompt", not "look at this".</p>
+</div>
+
+<h3>5.3 · The other setting: what "guidance" actually is</h3>
+<p>The loop above passes the model four things — noisy latents, their position ids, the timestep, the
+text — and for some checkpoints a fifth: <code>guidance</code>. It is one number, and the file never
+explains it, so here it is. It matters twice: it is the second "setting" that §5 routes into the network,
+and it is a config field in §8 (<code>use_guidance_embed</code>).</p>
+<p><strong>The problem.</strong> A model trained to follow a prompt follows it politely. It produces
+something consistent with the words but hedged — washed out, under-committed, averaging over everything
+the prompt could have meant. <em>Classifier-free guidance</em> (Ho &amp; Salimans, 2022 — §19) is the
+classic fix: run the network <strong>twice</strong> per step, once with the prompt and once with an empty
+one, and extrapolate past the conditional prediction.</p>
+<div class="note math">
+<div class="nh">Σ Classifier-free guidance, one step</div>
+<p><span class="mathblk">v = v_uncond + w · (v_cond − v_uncond)</span></p>
+<p style="margin-top:6px"><span class="shape">w = 1 → the plain conditional prediction · w &gt; 1 → step further along "what the prompt changes" · w = 0 → ignore the prompt</span></p>
+</div>
+<p>The bracket is exactly <em>what the prompt changes</em>, so multiplying it by w &gt; 1 amplifies only
+that. It works — and it doubles the cost: 100 network evaluations for a 50-step image.</p>
+<p><strong>What FLUX.2 does instead.</strong> <code>use_guidance_embed</code> says whether the model takes
+<code>w</code> as an <em>input</em>. Where it does, the value is fingerprinted and embedded exactly like
+the timestep and added to the same condition vector (§5.6), so a <em>single</em> pass approximates what the
+two-pass extrapolation would have produced — the model was trained to reproduce it, which is what
+"guidance distillation" means. The dev configuration sets <code>use_guidance_embed=True</code> and
+<code>util.py</code> drives it with <code>guidance=4.0</code> over 50 steps. Both klein configurations set
+it to <code>False</code>: those networks have no guidance input at all, and <code>util.py</code>
+accordingly runs them with <code>guidance=1.0</code> — no amplification — in 4 steps.</p>
+<p><code>sampling.py</code> still carries the two-pass version as its own entry point
+(<code>denoise_cfg</code>): it duplicates the batch, passes <code>guidance=None</code> to the model, and
+combines the two predictions outside the network. Same idea, no distilled input, twice the compute.</p>
+<div class="note warn">
+<div class="nh">⚠ Do not confuse the two</div>
+<p>A <em>distilled</em> guidance value — this file's <code>guidance_in</code> — is one scalar fed into one
+forward pass. <em>True</em> classifier-free guidance is two forward passes combined afterwards. Nothing in
+<code>model.py</code> ever does the second: the file only sees the scalar.</p>
 </div>
 
 <h3>5.3 · LayerNorm from zero — and why it is the place to inject</h3>
@@ -1445,7 +1444,7 @@ happening" is the default state and the network only has to learn a <em>deviatio
 same idea as a residual connection, applied to the modulation itself — and it is why the modulation can be
 shared by 56 blocks without every block being forced into the same extreme behaviour.</p>
 
-<h3>5.4 · Shift, scale, gate: three dials per sub-layer</h3>
+<h3>5.5 · Shift, scale, gate: three dials per sub-layer</h3>
 <p>Shift and scale re-tune what a block <em>sees</em>. DiT (Peebles &amp; Xie, 2022 — see §19) added a
 third dial, and FLUX.2 keeps it: a <strong>gate</strong> that multiplies the sub-layer's <em>output</em>
 before it is added back into the residual stream.</p>
@@ -1488,7 +1487,7 @@ contains no initialisation code at all (every matrix is a plain <code>nn.Linear(
 and the checkpoints arrive trained), so whether FLUX.2's gates started at zero cannot be read off this
 file.</p>
 
-<h3>5.5 · From one float to 56 blocks' worth of dials</h3>
+<h3>5.6 · From one float to 56 blocks' worth of dials</h3>
 <p>Now the pipeline that produces those dials. It has four stages, and each one exists because the
 previous one is not enough.</p>
 <p><strong>Stage 1 — a scalar cannot drive a network, so it becomes a fingerprint.</strong> One float
@@ -1525,7 +1524,7 @@ express more than one. Its output is the
 <strong>condition vector</strong>, <code>vec</code>, and it is the only form in which the timestep ever
 reaches the blocks.</p>
 <p><strong>Stage 3 — the guidance value takes the same road and is added.</strong> If the configuration has
-<code>use_guidance_embed</code> (§8, true for dev only — and §1.4 explains what the value <em>means</em>),
+<code>use_guidance_embed</code> (§8, true for dev only — and §5.3 explains what the value <em>means</em>),
 the guidance scalar is fingerprinted and MLP'd through its <em>own</em> copy of the same class, and the two
 vectors are summed (L200–203):</p>
 <div class="note math">
@@ -1675,7 +1674,7 @@ cross-attention model inserts the condition as extra keys and values (which is w
 <em>prompt</em>, not for the timestep).</p>
 </div>
 
-<h3>5.6 · What it costs, and the consequence you will meet again</h3>
+<h3>5.7 · What it costs, and the consequence you will meet again</h3>
 <p>Each <code>Modulation</code> is a single bias-free linear layer, so the price is easy to write down:</p>
 <div class="tbl-wrap">
 <table class="data">
@@ -2038,7 +2037,7 @@ computed once per step and handed to all 56 blocks. Had each block kept its own 
 per stream for the 8 double blocks and a 6144 → 18432 matrix for each of the 48 single ones — the
 modulation would have cost <strong>9 059 696 640</strong> parameters instead of the
 <strong>566 231 040</strong> the three shared matrices cost: about <strong>8.5 billion extra</strong>,
-over a quarter of the whole model. §5 explains the mechanism from nothing; §5.6 costs it out.</p>
+over a quarter of the whole model. §5 explains the mechanism from nothing; §5.7 costs it out.</p>
 </div>
 <div class="card">
 <h5><span class="tag" style="background:var(--txt)"></span>There is no dropout anywhere</h5>
@@ -2430,16 +2429,16 @@ would not fit anyway. It is a pragmatic choice, and once you know it the file st
 <p class="dim">Used later: each block owns one of these per stream (§11–§12).</p>
 
 <h3 id="p-mod">9.9 · <span class="sig">Modulation</span> — L400</h3>
-<p>This is the class that gives the timestep its hands: stage 4 of §5.5, the matrix that turns one
+<p>This is the class that gives the timestep its hands: stage 4 of §5.6, the matrix that turns one
 condition vector into everybody's shift, scale and gate. The technique is <strong>adaptive layer
-normalisation</strong> (adaLN), from the DiT paper, and §5.3–§5.4 built the idea from nothing — why a
+normalisation</strong> (adaLN), from the DiT paper, and §5.3–§5.5 built the idea from nothing — why a
 normalisation layer is the place to inject, what the three dials do, and what the <code>1 +</code> is for.
 What is left here is the plumbing, and the plumbing is worth reading closely, because 13 lines decide the
 shapes that all 56 blocks consume and one of them is a tuple convention that reads like a bug.</p>
 
 <div class="codeblock"><div class="cb-head"><span class="dot"></span><span class="fname">src/flux2/model.py</span><span class="ln">lines 400–412 · 13 lines</span></div><pre><table class="lineno"><tbody><tr><td class="ln-col">400</td><td class="code-col"><span class="k">class</span> <span class="t">Modulation</span><span class="p">(</span><span class="t">nn</span><span class="p">.</span>Module<span class="p">)</span><span class="o">:</span></td></tr><tr><td class="ln-col">401</td><td class="code-col">    <span class="k">def</span> <span class="f">__init__</span><span class="p">(</span><span class="self">self</span><span class="p">,</span> dim<span class="o">:</span> <span class="t">int</span><span class="p">,</span> double<span class="o">:</span> <span class="t">bool</span><span class="p">,</span> disable_bias<span class="o">:</span> <span class="t">bool</span> <span class="o">=</span> <span class="k">False</span><span class="p">)</span><span class="o">:</span></td></tr><tr><td class="ln-col">402</td><td class="code-col">        <span class="f">super</span><span class="p">(</span><span class="p">)</span><span class="p">.</span><span class="f">__init__</span><span class="p">(</span><span class="p">)</span></td></tr><tr class="hl"><td class="ln-col">403</td><td class="code-col">        <span class="self">self</span><span class="p">.</span>is_double <span class="o">=</span> double</td></tr><tr class="hl"><td class="ln-col">404</td><td class="code-col">        <span class="self">self</span><span class="p">.</span>multiplier <span class="o">=</span> <span class="n">6</span> <span class="k">if</span> double <span class="k">else</span> <span class="n">3</span></td></tr><tr class="hl"><td class="ln-col">405</td><td class="code-col">        <span class="self">self</span><span class="p">.</span>lin <span class="o">=</span> <span class="t">nn</span><span class="p">.</span><span class="f">Linear</span><span class="p">(</span>dim<span class="p">,</span> <span class="self">self</span><span class="p">.</span>multiplier <span class="o">*</span> dim<span class="p">,</span> bias<span class="o">=</span><span class="k">not</span> disable_bias<span class="p">)</span></td></tr><tr><td class="ln-col">406</td><td class="code-col">&nbsp;</td></tr><tr><td class="ln-col">407</td><td class="code-col">    <span class="k">def</span> <span class="f">forward</span><span class="p">(</span><span class="self">self</span><span class="p">,</span> vec<span class="o">:</span> <span class="t">torch</span><span class="p">.</span><span class="t">Tensor</span><span class="p">)</span><span class="o">:</span></td></tr><tr class="hl"><td class="ln-col">408</td><td class="code-col">        out <span class="o">=</span> <span class="self">self</span><span class="p">.</span><span class="f">lin</span><span class="p">(</span><span class="t">nn</span><span class="p">.</span>functional<span class="p">.</span><span class="f">silu</span><span class="p">(</span>vec<span class="p">)</span><span class="p">)</span></td></tr><tr class="hl"><td class="ln-col">409</td><td class="code-col">        <span class="k">if</span> out<span class="p">.</span>ndim <span class="p">==</span> <span class="n">2</span><span class="o">:</span></td></tr><tr class="hl"><td class="ln-col">410</td><td class="code-col">            out <span class="o">=</span> out<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="k">None</span><span class="p">,</span> <span class="o">:</span><span class="p">]</span></td></tr><tr class="hl"><td class="ln-col">411</td><td class="code-col">        out <span class="o">=</span> out<span class="p">.</span><span class="f">chunk</span><span class="p">(</span><span class="self">self</span><span class="p">.</span>multiplier<span class="p">,</span> dim<span class="o">=</span><span class="o">-</span><span class="n">1</span><span class="p">)</span></td></tr><tr class="hl"><td class="ln-col">412</td><td class="code-col">        <span class="k">return</span> out<span class="p">[</span><span class="o">:</span><span class="n">3</span><span class="p">]</span><span class="p">,</span> out<span class="p">[</span><span class="n">3</span><span class="o">:</span><span class="p">]</span> <span class="k">if</span> <span class="self">self</span><span class="p">.</span>is_double <span class="k">else</span> <span class="k">None</span></td></tr></tbody></table></pre></div>
 
-<div class="trace"><div class="tr-row"><div class="tr-ln"><span>L403</span></div><div class="tr-body"><div class="tr-code">        <span class="self">self</span><span class="p">.</span>is_double <span class="o">=</span> double</div><div class="tr-note"><code>double</code> means "this module serves <em>one stream</em> of a double-stream block". A stream has two sub-layers — attention and MLP — so it needs two independent (shift, scale, gate) triples. The block's other stream is served by a second module of the same kind, which is why <code>__init__</code> builds two of them (§5.5, §13.1).</div></div></div><div class="tr-row"><div class="tr-ln"><span>L404</span></div><div class="tr-body"><div class="tr-code">        <span class="self">self</span><span class="p">.</span>multiplier <span class="o">=</span> <span class="n">6</span> <span class="k">if</span> double <span class="k">else</span> <span class="n">3</span></div><div class="tr-note">Hence the multiplier: 6 output chunks for double blocks, 3 for single blocks.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L405</span></div><div class="tr-body"><div class="tr-code">        <span class="self">self</span><span class="p">.</span>lin <span class="o">=</span> <span class="t">nn</span><span class="p">.</span><span class="f">Linear</span><span class="p">(</span>dim<span class="p">,</span> <span class="self">self</span><span class="p">.</span>multiplier <span class="o">*</span> dim<span class="p">,</span> bias<span class="o">=</span><span class="k">not</span> disable_bias<span class="p">)</span></div><div class="tr-note">A single linear layer, 6144 → multiplier × 6144. For the double-stream image modulation that is 6144 → 36864, i.e. 226 million parameters in one matrix — the largest non-block weight in the file.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L408</span></div><div class="tr-body"><div class="tr-code">        out <span class="o">=</span> <span class="self">self</span><span class="p">.</span><span class="f">lin</span><span class="p">(</span><span class="t">nn</span><span class="p">.</span>functional<span class="p">.</span><span class="f">silu</span><span class="p">(</span>vec<span class="p">)</span><span class="p">)</span></div><div class="tr-note">Activate the conditioning vector before projecting it. Note what this SiLU is <em>not</em>: it is not the gate of §9.2, just a plain nonlinearity between <code>vec</code> and <code>lin</code> — the same shape as <code>MLPEmbedder</code>. SiLU is smooth, dips slightly negative around x ≈ −1.28 and then grows almost linearly, so small (or negative) inputs are squashed towards zero while large ones pass through. <span class="spec">inference</span> That "off region" is presumably the point: it lets the modulation stay near its identity value (shift 0, scale 0, gate 0) for uninformative conditioning vectors.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L409–410</span></div><div class="tr-body"><div class="tr-code">        <span class="k">if</span> out<span class="p">.</span>ndim <span class="p">==</span> <span class="n">2</span><span class="o">:</span><br>            out <span class="o">=</span> out<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="k">None</span><span class="p">,</span> <span class="o">:</span><span class="p">]</span></div><div class="tr-note">If the input was a single vector per batch element, <code>out</code> is (B, 6·D); <code>[:, None, :]</code> inserts a length-1 sequence axis so it becomes (B, 1, 6·D) and can broadcast against token tensors of shape (B, L, D) later.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L411</span></div><div class="tr-body"><div class="tr-code">        out <span class="o">=</span> out<span class="p">.</span><span class="f">chunk</span><span class="p">(</span><span class="self">self</span><span class="p">.</span>multiplier<span class="p">,</span> dim<span class="o">=</span><span class="o">-</span><span class="n">1</span><span class="p">)</span></div><div class="tr-note">Slice into <code>multiplier</code> equal chunks along the feature axis. Chunk order is (shift₁, scale₁, gate₁, shift₂, scale₂, gate₂).</div></div></div><div class="tr-row"><div class="tr-ln"><span>L412</span></div><div class="tr-body"><div class="tr-code">        <span class="k">return</span> out<span class="p">[</span><span class="o">:</span><span class="n">3</span><span class="p">]</span><span class="p">,</span> out<span class="p">[</span><span class="n">3</span><span class="o">:</span><span class="p">]</span> <span class="k">if</span> <span class="self">self</span><span class="p">.</span>is_double <span class="k">else</span> <span class="k">None</span></div><div class="tr-note">Return the first triple, plus the second triple for double blocks — or <code>None</code>. Careful reading: Python parses this as <code>(out[:3], (out[3:] if is_double else None))</code>, so a single-stream modulation returns a 2-tuple whose second element is <code>None</code>. That is why callers write <code>single_block_mod, _ = self.single_stream_modulation(vec)</code>.</div></div></div></div>
+<div class="trace"><div class="tr-row"><div class="tr-ln"><span>L403</span></div><div class="tr-body"><div class="tr-code">        <span class="self">self</span><span class="p">.</span>is_double <span class="o">=</span> double</div><div class="tr-note"><code>double</code> means "this module serves <em>one stream</em> of a double-stream block". A stream has two sub-layers — attention and MLP — so it needs two independent (shift, scale, gate) triples. The block's other stream is served by a second module of the same kind, which is why <code>__init__</code> builds two of them (§5.6, §13.1).</div></div></div><div class="tr-row"><div class="tr-ln"><span>L404</span></div><div class="tr-body"><div class="tr-code">        <span class="self">self</span><span class="p">.</span>multiplier <span class="o">=</span> <span class="n">6</span> <span class="k">if</span> double <span class="k">else</span> <span class="n">3</span></div><div class="tr-note">Hence the multiplier: 6 output chunks for double blocks, 3 for single blocks.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L405</span></div><div class="tr-body"><div class="tr-code">        <span class="self">self</span><span class="p">.</span>lin <span class="o">=</span> <span class="t">nn</span><span class="p">.</span><span class="f">Linear</span><span class="p">(</span>dim<span class="p">,</span> <span class="self">self</span><span class="p">.</span>multiplier <span class="o">*</span> dim<span class="p">,</span> bias<span class="o">=</span><span class="k">not</span> disable_bias<span class="p">)</span></div><div class="tr-note">A single linear layer, 6144 → multiplier × 6144. For the double-stream image modulation that is 6144 → 36864, i.e. 226 million parameters in one matrix — the largest non-block weight in the file.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L408</span></div><div class="tr-body"><div class="tr-code">        out <span class="o">=</span> <span class="self">self</span><span class="p">.</span><span class="f">lin</span><span class="p">(</span><span class="t">nn</span><span class="p">.</span>functional<span class="p">.</span><span class="f">silu</span><span class="p">(</span>vec<span class="p">)</span><span class="p">)</span></div><div class="tr-note">Activate the conditioning vector before projecting it. Note what this SiLU is <em>not</em>: it is not the gate of §9.2, just a plain nonlinearity between <code>vec</code> and <code>lin</code> — the same shape as <code>MLPEmbedder</code>. SiLU is smooth, dips slightly negative around x ≈ −1.28 and then grows almost linearly, so small (or negative) inputs are squashed towards zero while large ones pass through. <span class="spec">inference</span> That "off region" is presumably the point: it lets the modulation stay near its identity value (shift 0, scale 0, gate 0) for uninformative conditioning vectors.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L409–410</span></div><div class="tr-body"><div class="tr-code">        <span class="k">if</span> out<span class="p">.</span>ndim <span class="p">==</span> <span class="n">2</span><span class="o">:</span><br>            out <span class="o">=</span> out<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="k">None</span><span class="p">,</span> <span class="o">:</span><span class="p">]</span></div><div class="tr-note">If the input was a single vector per batch element, <code>out</code> is (B, 6·D); <code>[:, None, :]</code> inserts a length-1 sequence axis so it becomes (B, 1, 6·D) and can broadcast against token tensors of shape (B, L, D) later.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L411</span></div><div class="tr-body"><div class="tr-code">        out <span class="o">=</span> out<span class="p">.</span><span class="f">chunk</span><span class="p">(</span><span class="self">self</span><span class="p">.</span>multiplier<span class="p">,</span> dim<span class="o">=</span><span class="o">-</span><span class="n">1</span><span class="p">)</span></div><div class="tr-note">Slice into <code>multiplier</code> equal chunks along the feature axis. Chunk order is (shift₁, scale₁, gate₁, shift₂, scale₂, gate₂).</div></div></div><div class="tr-row"><div class="tr-ln"><span>L412</span></div><div class="tr-body"><div class="tr-code">        <span class="k">return</span> out<span class="p">[</span><span class="o">:</span><span class="n">3</span><span class="p">]</span><span class="p">,</span> out<span class="p">[</span><span class="n">3</span><span class="o">:</span><span class="p">]</span> <span class="k">if</span> <span class="self">self</span><span class="p">.</span>is_double <span class="k">else</span> <span class="k">None</span></div><div class="tr-note">Return the first triple, plus the second triple for double blocks — or <code>None</code>. Careful reading: Python parses this as <code>(out[:3], (out[3:] if is_double else None))</code>, so a single-stream modulation returns a 2-tuple whose second element is <code>None</code>. That is why callers write <code>single_block_mod, _ = self.single_stream_modulation(vec)</code>.</div></div></div></div>
 
 <p>The same thirteen lines again, this time as a shape trace — the column on the right is what the blocks
 in §11 and §12 actually receive:</p>
@@ -3143,7 +3142,7 @@ fit in your head.
 
 <div class="codeblock"><div class="cb-head"><span class="dot"></span><span class="fname">sampling.py · denoise(), L283–307 — the real Euler loop (condensed, comments added)</span><span class="ln">reference snippet</span></div><pre><table class="lineno"><tbody><tr><td class="ln-col">1</td><td class="code-col">guidance_vec <span class="o">=</span> <span class="t">torch</span><span class="p">.</span><span class="f">full</span><span class="p">(</span><span class="p">(</span>img<span class="p">.</span>shape<span class="p">[</span><span class="n">0</span><span class="p">]</span><span class="p">,</span><span class="p">)</span><span class="p">,</span> guidance<span class="p">,</span> device<span class="o">=</span>img<span class="p">.</span>device<span class="p">,</span> dtype<span class="o">=</span>img<span class="p">.</span>dtype<span class="p">)</span></td></tr><tr><td class="ln-col">2</td><td class="code-col"><span class="k">for</span> t_curr<span class="p">,</span> t_prev <span class="k">in</span> <span class="f">zip</span><span class="p">(</span>timesteps<span class="p">[</span><span class="o">:</span><span class="o">-</span><span class="n">1</span><span class="p">]</span><span class="p">,</span> timesteps<span class="p">[</span><span class="n">1</span><span class="o">:</span><span class="p">]</span><span class="p">)</span><span class="o">:</span></td></tr><tr><td class="ln-col">3</td><td class="code-col">    t_vec <span class="o">=</span> <span class="t">torch</span><span class="p">.</span><span class="f">full</span><span class="p">(</span><span class="p">(</span>img<span class="p">.</span>shape<span class="p">[</span><span class="n">0</span><span class="p">]</span><span class="p">,</span><span class="p">)</span><span class="p">,</span> t_curr<span class="p">,</span> dtype<span class="o">=</span>img<span class="p">.</span>dtype<span class="p">,</span> device<span class="o">=</span>img<span class="p">.</span>device<span class="p">)</span></td></tr><tr><td class="ln-col">4</td><td class="code-col">    img_input <span class="o">=</span> img</td></tr><tr><td class="ln-col">5</td><td class="code-col">    img_input_ids <span class="o">=</span> img_ids</td></tr><tr><td class="ln-col">6</td><td class="code-col">    <span class="k">if</span> img_cond_seq <span class="k">is</span> <span class="k">not</span> <span class="k">None</span><span class="o">:</span>                 <span class="c"># reference images, if this run has any</span></td></tr><tr><td class="ln-col">7</td><td class="code-col">        img_input <span class="o">=</span> <span class="t">torch</span><span class="p">.</span><span class="f">cat</span><span class="p">(</span><span class="p">(</span>img_input<span class="p">,</span> img_cond_seq<span class="p">)</span><span class="p">,</span> dim<span class="o">=</span><span class="n">1</span><span class="p">)</span></td></tr><tr><td class="ln-col">8</td><td class="code-col">        img_input_ids <span class="o">=</span> <span class="t">torch</span><span class="p">.</span><span class="f">cat</span><span class="p">(</span><span class="p">(</span>img_input_ids<span class="p">,</span> img_cond_seq_ids<span class="p">)</span><span class="p">,</span> dim<span class="o">=</span><span class="n">1</span><span class="p">)</span></td></tr><tr><td class="ln-col">9</td><td class="code-col">    pred <span class="o">=</span> <span class="f">model</span><span class="p">(</span>x<span class="o">=</span>img_input<span class="p">,</span> x_ids<span class="o">=</span>img_input_ids<span class="p">,</span> timesteps<span class="o">=</span>t_vec<span class="p">,</span></td></tr><tr><td class="ln-col">10</td><td class="code-col">                 ctx<span class="o">=</span>txt<span class="p">,</span> ctx_ids<span class="o">=</span>txt_ids<span class="p">,</span> guidance<span class="o">=</span>guidance_vec<span class="p">)</span></td></tr><tr><td class="ln-col">11</td><td class="code-col">    <span class="k">if</span> img_input_ids <span class="k">is</span> <span class="k">not</span> <span class="k">None</span><span class="o">:</span></td></tr><tr><td class="ln-col">12</td><td class="code-col">        pred <span class="o">=</span> pred<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="o">:</span> img<span class="p">.</span>shape<span class="p">[</span><span class="n">1</span><span class="p">]</span><span class="p">]</span>           <span class="c"># keep only the canvas rows</span></td></tr><tr><td class="ln-col">13</td><td class="code-col">    img <span class="o">=</span> img <span class="o">+</span> <span class="p">(</span>t_prev <span class="o">-</span> t_curr<span class="p">)</span> <span class="o">*</span> pred         <span class="c"># the only line that changes the image</span></td></tr><tr><td class="ln-col">14</td><td class="code-col"><span class="k">return</span> img</td></tr></tbody></table></pre></div>
 
-<p>This is the unabbreviated version of the three lines quoted in §1.2. Two details the abridgement
+<p>This is the loop §1.2 described in words — all of it, unabbreviated. Two details the abridgement
 hid: <code>zip(timesteps[:-1], timesteps[1:])</code> is how the loop pairs each step with the next one
 (no index arithmetic, and it simply stops after the last pair), and the reference tokens — when there are
 any — are concatenated onto the canvas <em>before</em> the call and sliced back off the prediction
@@ -3361,11 +3360,11 @@ ever get lost, this is the map back.
 <li><b>RoPE.</b> Su et al., "RoFormer: Enhanced Transformer with Rotary Position Embedding", arXiv:2104.09864 — the rotation mechanism generalised to four axes in §4.</li>
 <li><b>SwiGLU.</b> Shazeer, "GLU Variants Improve Transformer", arXiv:2002.05202 — the <code>silu(x₁)·x₂</code> gate of §9.2.</li>
 <li><b>Classifier-free guidance.</b> Ho &amp; Salimans, "Classifier-Free Diffusion Guidance", 2022 —
-arXiv:2207.12598. The two-pass extrapolation of §1.4 that <code>use_guidance_embed</code> lets a distilled
+arXiv:2207.12598. The two-pass extrapolation of §5.3 that <code>use_guidance_embed</code> lets a distilled
 model skip.</li>
 <li><b>adaLN-single.</b> Chen et al., "PixArt-α: Fast Training of Diffusion Transformer for
 Photorealistic Text-to-Image Synthesis", 2023 — arXiv:2310.00426. The observation that per-block
-modulation is a large share of a DiT's parameters, and the shared-vector answer to it; §5.6 compares the
+modulation is a large share of a DiT's parameters, and the shared-vector answer to it; §5.7 compares the
 two against what FLUX.2 does.</li>
 <li><b>FiLM.</b> Perez et al., "FiLM: Visual Reasoning with a General Conditioning Layer", 2018 —
 arXiv:1709.07871. Shift-and-scale conditioning in its general form; adaLN is FiLM applied at a layer

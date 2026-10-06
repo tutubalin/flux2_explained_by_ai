@@ -360,9 +360,9 @@ would not fit anyway. It is a pragmatic choice, and once you know it the file st
 <p class="dim">Used later: each block owns one of these per stream (§11–§12).</p>
 
 <h3 id="p-mod">9.9 · <span class="sig">Modulation</span> — L400</h3>
-<p>This is the class that gives the timestep its hands: stage 4 of §5.5, the matrix that turns one
+<p>This is the class that gives the timestep its hands: stage 4 of §5.6, the matrix that turns one
 condition vector into everybody's shift, scale and gate. The technique is <strong>adaptive layer
-normalisation</strong> (adaLN), from the DiT paper, and §5.3–§5.4 built the idea from nothing — why a
+normalisation</strong> (adaLN), from the DiT paper, and §5.3–§5.5 built the idea from nothing — why a
 normalisation layer is the place to inject, what the three dials do, and what the <code>1 +</code> is for.
 What is left here is the plumbing, and the plumbing is worth reading closely, because 13 lines decide the
 shapes that all 56 blocks consume and one of them is a tuple convention that reads like a bug.</p>
@@ -370,7 +370,7 @@ shapes that all 56 blocks consume and one of them is a tuple convention that rea
 <!--CODE 400-412 title="model.py" hl="403,404,405,408,409,410,411,412"-->
 
 <!--TRACE-->
-<!--T 403|<code>double</code> means "this module serves <em>one stream</em> of a double-stream block". A stream has two sub-layers — attention and MLP — so it needs two independent (shift, scale, gate) triples. The block's other stream is served by a second module of the same kind, which is why <code>__init__</code> builds two of them (§5.5, §13.1).-->
+<!--T 403|<code>double</code> means "this module serves <em>one stream</em> of a double-stream block". A stream has two sub-layers — attention and MLP — so it needs two independent (shift, scale, gate) triples. The block's other stream is served by a second module of the same kind, which is why <code>__init__</code> builds two of them (§5.6, §13.1).-->
 <!--T 404|Hence the multiplier: 6 output chunks for double blocks, 3 for single blocks.-->
 <!--T 405|A single linear layer, 6144 → multiplier × 6144. For the double-stream image modulation that is 6144 → 36864, i.e. 226 million parameters in one matrix — the largest non-block weight in the file.-->
 <!--T 408|Activate the conditioning vector before projecting it. Note what this SiLU is <em>not</em>: it is not the gate of §9.2, just a plain nonlinearity between <code>vec</code> and <code>lin</code> — the same shape as <code>MLPEmbedder</code>. SiLU is smooth, dips slightly negative around x ≈ −1.28 and then grows almost linearly, so small (or negative) inputs are squashed towards zero while large ones pass through. <span class="spec">inference</span> That "off region" is presumably the point: it lets the modulation stay near its identity value (shift 0, scale 0, gate 0) for uninformative conditioning vectors.-->

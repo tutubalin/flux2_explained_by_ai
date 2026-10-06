@@ -340,7 +340,7 @@ if PAGE.exists():
         ("measured speedup, 4 refs @512²", "2.66"), ("measured speedup, 1 ref @512²", "1.78"),
         ("measured speedup, 1 ref @1440²", "1.21"), ("measured speedup, 4 refs @1440²", "1.85"),
         ("step-size row of the ladder", "0.183"), ("last stride, share of the range", "58%"),
-        ("eight model calls, nine schedule entries", "makes8calls"),
+        ("eight model calls, nine schedule entries", "ninescheduleentriesmakeeightsteps"),
         ("the stride from 0.58 to 0", "0.580"), ("biggest stride vs smallest", "39times"),
         ("171 Linear", "171"), ("128 RMSNorm", "128"), ("81 LayerNorm", "81"),
         ("fastest fingerprint channel, cycles", "159"), ("slowest channel, % of a cycle", "1.7%"),

@@ -48,7 +48,7 @@ told several different things, and FLUX.2 tells them through <em>different chann
 <tr><td>the prompt</td><td>512 tokens × 15 360 numbers</td><td><strong>tokens in the sequence</strong>, attending jointly with the image</td><td><code>txt_in</code> at L70; the joint attention of §3 and §12; the merge at L153–154 (§13.2)</td></tr>
 <tr><td>reference images</td><td>up to 16 384 tokens × 128</td><td><strong>tokens too</strong> — but sealed off from the canvas</td><td>§2.4, and the router that isolates them (§10)</td></tr>
 <tr><td>the timestep <code>t</code></td><td>one float</td><td><strong>modulation</strong>: shift, scale and gate on every norm</td><td>this section; code at §9.1, §9.3, §9.9</td></tr>
-<tr><td>the guidance strength <code>g</code> (§1.4)</td><td>one float (dev only)</td><td><strong>the same modulation channel</strong>, added to <code>t</code>'s vector</td><td>L74, L200–203; §8 (<code>use_guidance_embed</code>)</td></tr>
+<tr><td>the guidance strength <code>g</code> (§5.3)</td><td>one float (dev only)</td><td><strong>the same modulation channel</strong>, added to <code>t</code>'s vector</td><td>L74, L200–203; §8 (<code>use_guidance_embed</code>)</td></tr>
 </tbody>
 </table>
 </div>
@@ -60,6 +60,41 @@ to another (§3). A timestep is a setting: it has to apply to <em>every token in
 uniformly. Broadcasting one scalar through attention would be slow and lossy; handing it to each layer's
 normalisation reaches all 16 896 tokens in one multiplication. The guidance value is a setting for the
 same reason — it says "push harder towards the prompt", not "look at this".</p>
+</div>
+
+<h3>5.3 · The other setting: what "guidance" actually is</h3>
+<p>The loop above passes the model four things — noisy latents, their position ids, the timestep, the
+text — and for some checkpoints a fifth: <code>guidance</code>. It is one number, and the file never
+explains it, so here it is. It matters twice: it is the second "setting" that §5 routes into the network,
+and it is a config field in §8 (<code>use_guidance_embed</code>).</p>
+<p><strong>The problem.</strong> A model trained to follow a prompt follows it politely. It produces
+something consistent with the words but hedged — washed out, under-committed, averaging over everything
+the prompt could have meant. <em>Classifier-free guidance</em> (Ho &amp; Salimans, 2022 — §19) is the
+classic fix: run the network <strong>twice</strong> per step, once with the prompt and once with an empty
+one, and extrapolate past the conditional prediction.</p>
+<div class="note math">
+<div class="nh">Σ Classifier-free guidance, one step</div>
+<p><span class="mathblk">v = v_uncond + w · (v_cond − v_uncond)</span></p>
+<p style="margin-top:6px"><span class="shape">w = 1 → the plain conditional prediction · w &gt; 1 → step further along "what the prompt changes" · w = 0 → ignore the prompt</span></p>
+</div>
+<p>The bracket is exactly <em>what the prompt changes</em>, so multiplying it by w &gt; 1 amplifies only
+that. It works — and it doubles the cost: 100 network evaluations for a 50-step image.</p>
+<p><strong>What FLUX.2 does instead.</strong> <code>use_guidance_embed</code> says whether the model takes
+<code>w</code> as an <em>input</em>. Where it does, the value is fingerprinted and embedded exactly like
+the timestep and added to the same condition vector (§5.6), so a <em>single</em> pass approximates what the
+two-pass extrapolation would have produced — the model was trained to reproduce it, which is what
+"guidance distillation" means. The dev configuration sets <code>use_guidance_embed=True</code> and
+<code>util.py</code> drives it with <code>guidance=4.0</code> over 50 steps. Both klein configurations set
+it to <code>False</code>: those networks have no guidance input at all, and <code>util.py</code>
+accordingly runs them with <code>guidance=1.0</code> — no amplification — in 4 steps.</p>
+<p><code>sampling.py</code> still carries the two-pass version as its own entry point
+(<code>denoise_cfg</code>): it duplicates the batch, passes <code>guidance=None</code> to the model, and
+combines the two predictions outside the network. Same idea, no distilled input, twice the compute.</p>
+<div class="note warn">
+<div class="nh">⚠ Do not confuse the two</div>
+<p>A <em>distilled</em> guidance value — this file's <code>guidance_in</code> — is one scalar fed into one
+forward pass. <em>True</em> classifier-free guidance is two forward passes combined afterwards. Nothing in
+<code>model.py</code> ever does the second: the file only sees the scalar.</p>
 </div>
 
 <h3>5.3 · LayerNorm from zero — and why it is the place to inject</h3>
@@ -102,7 +137,7 @@ happening" is the default state and the network only has to learn a <em>deviatio
 same idea as a residual connection, applied to the modulation itself — and it is why the modulation can be
 shared by 56 blocks without every block being forced into the same extreme behaviour.</p>
 
-<h3>5.4 · Shift, scale, gate: three dials per sub-layer</h3>
+<h3>5.5 · Shift, scale, gate: three dials per sub-layer</h3>
 <p>Shift and scale re-tune what a block <em>sees</em>. DiT (Peebles &amp; Xie, 2022 — see §19) added a
 third dial, and FLUX.2 keeps it: a <strong>gate</strong> that multiplies the sub-layer's <em>output</em>
 before it is added back into the residual stream.</p>
@@ -145,7 +180,7 @@ contains no initialisation code at all (every matrix is a plain <code>nn.Linear(
 and the checkpoints arrive trained), so whether FLUX.2's gates started at zero cannot be read off this
 file.</p>
 
-<h3>5.5 · From one float to 56 blocks' worth of dials</h3>
+<h3>5.6 · From one float to 56 blocks' worth of dials</h3>
 <p>Now the pipeline that produces those dials. It has four stages, and each one exists because the
 previous one is not enough.</p>
 <p><strong>Stage 1 — a scalar cannot drive a network, so it becomes a fingerprint.</strong> One float
@@ -182,7 +217,7 @@ express more than one. Its output is the
 <strong>condition vector</strong>, <code>vec</code>, and it is the only form in which the timestep ever
 reaches the blocks.</p>
 <p><strong>Stage 3 — the guidance value takes the same road and is added.</strong> If the configuration has
-<code>use_guidance_embed</code> (§8, true for dev only — and §1.4 explains what the value <em>means</em>),
+<code>use_guidance_embed</code> (§8, true for dev only — and §5.3 explains what the value <em>means</em>),
 the guidance scalar is fingerprinted and MLP'd through its <em>own</em> copy of the same class, and the two
 vectors are summed (L200–203):</p>
 <div class="note math">
@@ -332,7 +367,7 @@ cross-attention model inserts the condition as extra keys and values (which is w
 <em>prompt</em>, not for the timestep).</p>
 </div>
 
-<h3>5.6 · What it costs, and the consequence you will meet again</h3>
+<h3>5.7 · What it costs, and the consequence you will meet again</h3>
 <p>Each <code>Modulation</code> is a single bias-free linear layer, so the price is easy to write down:</p>
 <div class="tbl-wrap">
 <table class="data">
