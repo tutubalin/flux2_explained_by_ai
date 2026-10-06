@@ -447,12 +447,12 @@ rotary position embedding does in §8 with four coordinates per token instead of
 <p>The 256 numbers are fixed and meaningless on their own — a code, not an interpretation. Two more steps
 turn them into something the network can act on, and both are in Part 3:</p>
 <ul>
-<li><strong>A learned widening.</strong> A small two-layer network (256 → 6144 → 6144, §12.3) maps the code
+<li><strong>A learned widening.</strong> A small two-layer network (256 → 6144 → 6144, §13.3) maps the code
 to a single <em>condition vector</em>. This is where meaning is learned: which patterns of fast and slow
 readings correspond to "still noise", "shapes forming", "finishing touches". Nothing before it has a single
 parameter.</li>
 <li><strong>A learned projection into dials.</strong> Three matrices turn that vector into the shift, scale
-and gate values that every block is modulated by (§11). The fingerprint never reaches a block; only the
+and gate values that every block is modulated by (§12). The fingerprint never reaches a block; only the
 dials do.</li>
 </ul>
 <p>So the full journey of one float is: <em>multiply by 1000, read 128 clocks twice each, learn a meaning
@@ -466,7 +466,7 @@ position — with the identical frequency-ladder machinery, but keeps the result
 of flattening it into a feature vector. Same idea, two different jobs: one tells the network <em>when</em>
 it is, the other tells it <em>where</em> each token sits.</p>
 </div>
-<p class="dim">Used later: §8 (positions, the same ladder as rotations), §12.1 (<code>timestep_embedding</code>,
-the eleven lines that implement this chapter), §12.3 (<code>MLPEmbedder</code>, the learned widening), §11
+<p class="dim">Used later: §8 (positions, the same ladder as rotations), §13.1 (<code>timestep_embedding</code>,
+the eleven lines that implement this chapter), §13.3 (<code>MLPEmbedder</code>, the learned widening), §12
 (what the dials do once they exist).</p>
 </section>

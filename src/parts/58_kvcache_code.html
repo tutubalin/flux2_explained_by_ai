@@ -1,7 +1,7 @@
 <section id="kvcache">
-<h2><span class="secno">§18</span>The KV cache: why it is exact, and what it costs</h2>
+<h2><span class="secno">§19</span>The KV cache: why it is exact, and what it costs</h2>
 <p class="section-intro">
-Everything in §12–§17 was building towards this. The claim: <strong>reference tokens produce byte-identical
+Everything in §13–§18 was building towards this. The claim: <strong>reference tokens produce byte-identical
 keys and values at every denoising step</strong>, so they can be computed once and replayed. Nothing
 in <code>model.py</code> states this as a theorem — it emerges from three design decisions that only
 make sense together.
@@ -51,7 +51,7 @@ make sense together.
 <text x="40" y="312" class="ax">cost of an N-step run with reference images: 1 full step + (N−1) discounted ones instead of N full ones</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 22</span><b>Two phases, one sequence contract.</b> Step 0 pays full price and
+<figcaption><span class="figno">FIG 23</span><b>Two phases, one sequence contract.</b> Step 0 pays full price and
 banks the reference keys and values from all 56 blocks. Every later step omits the reference tokens from
 the sequence entirely and splices the stored keys back in at attention time — so the queries still see
 the references, but nothing about them is ever recomputed. The checkpoint this path ships with,
@@ -59,7 +59,7 @@ the references, but nothing about them is ever recomputed. The checkpoint this p
 discounted ones, and the cache still has to be read on all four.</figcaption>
 </figure>
 
-<h3>18.1 · The three conditions that make it exact</h3>
+<h3>19.1 · The three conditions that make it exact</h3>
 <div class="tbl-wrap">
 <table class="data">
 <thead><tr><th style="width:270px">condition</th><th style="width:180px">where it lives</th><th>what it guarantees</th></tr></thead>
@@ -83,7 +83,7 @@ values that were <strong>bit-identical</strong> — not merely close. Feeding th
 is exact.</p>
 </div>
 
-<h3>18.2 · What it costs in memory</h3>
+<h3>19.2 · What it costs in memory</h3>
 <p>The cache is not free: it stores two tensors per block per reference token, in the network's working
 precision. The formula is</p>
 <div class="note math">
@@ -111,7 +111,7 @@ centre-cropped to a multiple of 16, so a single 2024²-capped square reference r
 <p class="dim" style="font-size:13.6px">The two columns are close because the token cap shrinks each
 reference when there are several: four references at 1024² occupy barely more cache than one at 2024².</p>
 
-<h3>18.3 · What it buys</h3>
+<h3>19.3 · What it buys</h3>
 <p>Measured speedups from the upstream <code>docs/flux2_klein_kv_cache.md</code>:</p>
 <div class="tbl-wrap">
 <table class="data">

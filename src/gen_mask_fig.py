@@ -77,9 +77,9 @@ fig = f'''<figure>
 <div class="fig">
 {svg}
 </div>
-<figcaption><span class="figno">FIG 19</span><b>The isolation rule, measured.</b> I fed one-hot values
+<figcaption><span class="figno">FIG 20</span><b>The isolation rule, measured.</b> I fed one-hot values
 through <code>causal_attn_fn</code> and read back which key each query actually mixed: on the left is what
-came out. (No mask tensor exists anywhere in the code — this pattern is what the <em>slicing</em> of §13.2
+came out. (No mask tensor exists anywhere in the code — this pattern is what the <em>slicing</em> of §14.2
 produces, and it is drawn as a grid only because a grid is the easiest way to see it.) Text and image rows are completely dense — every token sees every token, in both directions. The
 reference block is an isolated island: references read each other and nothing else. On the right, the
 cached variant: the reference <em>rows</em> are gone (we no longer compute their outputs) but their

@@ -1,5 +1,5 @@
 <section id="loop">
-<h2><span class="secno">§19</span>The denoising loop — where <code>model.py</code> meets the world</h2>
+<h2><span class="secno">§20</span>The denoising loop — where <code>model.py</code> meets the world</h2>
 <p class="section-intro">
 <code>model.py</code> never loops. It answers one question per call: "given this noisy image at this
 timestep, which way is clean?" The loop lives in <code>sampling.py</code>, and it is short enough to
@@ -29,7 +29,7 @@ hid: <code>zip(timesteps[:-1], timesteps[1:])</code> is how the loop pairs each 
 any — are concatenated onto the canvas <em>before</em> the call and sliced back off the prediction
 afterwards. <code>denoise</code> calls <code>model(...)</code>, i.e. <code>Flux2.forward</code>, which
 always passes <code>num_ref_tokens=0</code>: on this path the references are ordinary image tokens
-(§16.4).</p>
+(§17.4).</p>
 
 <p>Read the update rule slowly, because it is the whole of rectified flow: the model predicts a
 <em>velocity</em> — the direction and speed at which the image should move — and the sampler takes one
@@ -38,7 +38,7 @@ landing exactly on the clean latent, which the autoencoder then decodes into pix
 injected anywhere: this is an ordinary differential equation being integrated, not a stochastic
 process.</p>
 
-<h3>19.1 · Which timesteps? A deterministic, shifted ladder</h3>
+<h3>20.1 · Which timesteps? A deterministic, shifted ladder</h3>
 <p>The step times are not evenly spaced — but they are not random either.
 <code>get_schedule(num_steps, image_seq_len)</code> (<code>sampling.py</code> L244–248) builds a uniform
 ladder <code>torch.linspace(1, 0, num_steps + 1)</code> and warps every rung through the shift function
@@ -81,7 +81,7 @@ shift concentrates steps where training concentrated probability — but they ar
 statement.</p>
 </div>
 
-<h3>19.2 · What a step costs</h3>
+<h3>20.2 · What a step costs</h3>
 <p>Attention is quadratic in sequence length and the block matmuls are linear, so the cost of a step is
 dominated by token count. The counting rule, applied to the dev configuration:</p>
 <div class="note math">
@@ -113,7 +113,7 @@ percent.</p>
 <p>Quadrupling the pixels multiplies the work by ~4.7× — the attention term growing as the square is
 where the extra 0.7 comes from (at 4 MP it is already 30 % of the step). This table is also the honest
 explanation of the KV cache's value: at 512² four reference images add 16 384 tokens to a 1 024-token
-canvas (§18.2), so removing them from every step but the first is worth the 2.66× measured in §18.</p>
+canvas (§19.2), so removing them from every step but the first is worth the 2.66× measured in §19.</p>
 
 <div class="tbl-wrap">
 <table class="data">
@@ -129,7 +129,7 @@ canvas (§18.2), so removing them from every step but the first is worth the 2.6
 checkpoints ship in — two bytes per number, so a parameter count divided by 5 × 10⁸ is its size in
 gigabytes. The <code>fp8</code> and <code>int4</code> columns are the same weights at one byte and half a
 byte per number after quantisation; <code>model.py</code> itself is precision-agnostic apart from the
-float32 islands of §20.</p>
+float32 islands of §21.</p>
 <p class="dim" style="font-size:13.6px">Exact parameter counts, obtained by constructing each
 configuration on the meta device and summing <code>numel()</code> over every tensor — including the
 16 384 RMSNorm values and excluding nothing. There are zero bias vectors and zero dropout layers

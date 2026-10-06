@@ -1,0 +1,129 @@
+<section id="silu">
+<h2><span class="secno">§ 9</span>SiLUActivation — the soft switch</h2>
+<p class="section-intro">
+Between any two linear layers, a network needs something that is <em>not</em> linear, or the two layers
+collapse into one and the depth buys nothing. FLUX.2 uses exactly one such function, in two different
+jobs, and it has its own class in <code>model.py</code>. It is four lines long. This chapter is about the
+idea, which is older than the file and worth understanding on its own terms.
+</p>
+
+<h3>9.1 · The problem with a hard corner</h3>
+<p>The classic choice is ReLU: <span class="shape">relu(x) = max(0, x)</span>. Negative inputs become
+exactly zero, positive ones pass through. It is cheap and it works, and it has one bad property: a unit
+whose input is negative has <em>no gradient at all</em>. During training, if a unit drifts into that
+region it stops learning — the famous "dead neuron" — and the capacity spent on it is lost. The corner at
+zero is also a discontinuity in the derivative, which makes the loss surface kinked in a way optimisers
+do not love.</p>
+<p>The fix is to soften the corner. Instead of switching off abruptly, switch off <em>gradually</em>: use a
+smooth function that is near zero for very negative inputs and near one for very positive ones, and
+multiply the input by it. That smooth switch is the sigmoid
+<span class="shape">σ(x) = 1 / (1 + e<sup>−x</sup>)</span>, and the result is SiLU — also called Swish:</p>
+<div class="note math">
+<div class="nh">Σ SiLU, in full</div>
+<p><span class="mathblk">silu(x) = x · σ(x) = x / (1 + e<sup>−x</sup>)</span></p>
+<p style="margin-top:6px"><span class="shape">smooth everywhere · no dead region · non-monotonic: it dips slightly negative before climbing</span></p>
+</div>
+<p>Read it as a sentence: <em>a number, multiplied by its own smoothed on/off switch.</em> Large positive
+inputs are essentially untouched (σ ≈ 1). Large negative inputs are essentially erased (σ ≈ 0) — but
+"essentially" is doing the work: they are multiplied by a tiny number rather than set to zero, so a
+gradient still flows and the unit can come back. And around x ≈ −1.28 the product dips to about −0.28
+before recovering, which means the function is not simply "a soft ReLU": it can express a small negative
+response, something ReLU cannot do at all.</p>
+<figure>
+<div class="fig">
+<svg viewBox="0 0 1560 470" role="img" aria-label="Left: the graph of silu, x times sigmoid of x. It hugs zero for very negative inputs, dips slightly to minus 0.28 near x = minus 1.28, then follows the line y = x for positive inputs. The sigmoid itself is drawn faintly. Right: the two roles silu plays in FLUX.2 - as a plain activation between two linear layers, and as a valve multiplied against the other half of an MLP input.">
+<defs><marker id="slA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7d8da1"/></marker></defs>
+<text x="40" y="34" class="ttl">SiLU: a number multiplied by its own smoothed on/off switch</text>
+<text x="40" y="60" class="ax" fill="#a9b8c9">silu(x) = x · σ(x), where σ is the logistic sigmoid — the same function doing two different jobs in this file</text>
+<line x1="120" y1="300" x2="680" y2="300" stroke="#2e4054" stroke-width="1.4"/>
+<line x1="60" y1="370" x2="60" y2="111" stroke="#2e4054" stroke-width="1.4"/>
+<line x1="120" y1="335" x2="680" y2="335" stroke="#22303f" stroke-width="1" stroke-dasharray="4 4"/>
+<polyline points="120.0,510.0 680.0,90.0" fill="none" stroke="#7d8da1" stroke-width="1.4" stroke-dasharray="6 5" opacity=".8"/>
+<polyline points="120.0,299.9 122.8,299.9 125.6,299.9 128.4,299.9 131.2,299.9 134.0,299.9 136.8,299.9 139.6,299.9 142.4,299.9 145.2,299.9 148.0,299.8 150.8,299.8 153.6,299.8 156.4,299.8 159.2,299.8 162.0,299.8 164.8,299.8 167.6,299.8 170.4,299.7 173.2,299.7 176.0,299.7 178.8,299.7 181.6,299.7 184.4,299.7 187.2,299.6 190.0,299.6 192.8,299.6 195.6,299.6 198.4,299.5 201.2,299.5 204.0,299.5 206.8,299.5 209.6,299.4 212.4,299.4 215.2,299.3 218.0,299.3 220.8,299.3 223.6,299.2 226.4,299.2 229.2,299.1 232.0,299.1 234.8,299.0 237.6,299.0 240.4,298.9 243.2,298.8 246.0,298.8 248.8,298.7 251.6,298.6 254.4,298.5 257.2,298.4 260.0,298.3 262.8,298.2 265.6,298.1 268.4,298.0 271.2,297.9 274.0,297.8 276.8,297.7 279.6,297.5 282.4,297.4 285.2,297.2 288.0,297.1 290.8,296.9 293.6,296.8 296.4,296.6 299.2,296.4 302.0,296.2 304.8,296.0 307.6,295.8 310.4,295.5 313.2,295.3 316.0,295.0 318.8,294.8 321.6,294.5 324.4,294.2 327.2,293.9 330.0,293.6 332.8,293.3 335.6,293.0 338.4,292.6 341.2,292.3 344.0,291.9 346.8,291.5 349.6,291.1 352.4,290.7 355.2,290.3 358.0,289.9 360.8,289.4 363.6,289.0 366.4,288.5 369.2,288.1 372.0,287.6 374.8,287.1 377.6,286.6 380.4,286.1 383.2,285.6 386.0,285.1 388.8,284.6 391.6,284.1 394.4,283.5 397.2,283.0 400.0,282.5 402.8,282.0 405.6,281.5 408.4,280.9 411.2,280.4 414.0,279.9 416.8,279.4 419.6,278.9 422.4,278.4 425.2,277.9 428.0,277.4 430.8,276.9 433.6,276.5 436.4,276.0 439.2,275.6 442.0,275.1 444.8,274.7 447.6,274.3 450.4,273.9 453.2,273.5 456.0,273.1 458.8,272.7 461.6,272.4 464.4,272.0 467.2,271.7 470.0,271.4 472.8,271.1 475.6,270.8 478.4,270.5 481.2,270.2 484.0,270.0 486.8,269.7 489.6,269.5 492.4,269.2 495.2,269.0 498.0,268.8 500.8,268.6 503.6,268.4 506.4,268.2 509.2,268.1 512.0,267.9 514.8,267.8 517.6,267.6 520.4,267.5 523.2,267.3 526.0,267.2 528.8,267.1 531.6,267.0 534.4,266.9 537.2,266.8 540.0,266.7 542.8,266.6 545.6,266.5 548.4,266.4 551.2,266.3 554.0,266.2 556.8,266.2 559.6,266.1 562.4,266.0 565.2,266.0 568.0,265.9 570.8,265.9 573.6,265.8 576.4,265.8 579.2,265.7 582.0,265.7 584.8,265.7 587.6,265.6 590.4,265.6 593.2,265.5 596.0,265.5 598.8,265.5 601.6,265.5 604.4,265.4 607.2,265.4 610.0,265.4 612.8,265.4 615.6,265.3 618.4,265.3 621.2,265.3 624.0,265.3 626.8,265.3 629.6,265.3 632.4,265.2 635.2,265.2 638.0,265.2 640.8,265.2 643.6,265.2 646.4,265.2 649.2,265.2 652.0,265.2 654.8,265.1 657.6,265.1 660.4,265.1 663.2,265.1 666.0,265.1 668.8,265.1 671.6,265.1 674.4,265.1 677.2,265.1 680.0,265.1" fill="none" stroke="#35d6f0" stroke-width="1.6" opacity=".55"/>
+<polyline points="120.0,300.5 121.9,300.5 123.7,300.6 125.6,300.6 127.5,300.6 129.3,300.6 131.2,300.6 133.1,300.7 134.9,300.7 136.8,300.7 138.7,300.7 140.5,300.7 142.4,300.8 144.3,300.8 146.1,300.8 148.0,300.8 149.9,300.9 151.7,300.9 153.6,300.9 155.5,301.0 157.3,301.0 159.2,301.0 161.1,301.1 162.9,301.1 164.8,301.1 166.7,301.2 168.5,301.2 170.4,301.2 172.3,301.3 174.1,301.3 176.0,301.4 177.9,301.4 179.7,301.5 181.6,301.5 183.5,301.6 185.3,301.6 187.2,301.7 189.1,301.7 190.9,301.8 192.8,301.8 194.7,301.9 196.5,301.9 198.4,302.0 200.3,302.0 202.1,302.1 204.0,302.2 205.9,302.2 207.7,302.3 209.6,302.4 211.5,302.4 213.3,302.5 215.2,302.6 217.1,302.7 218.9,302.7 220.8,302.8 222.7,302.9 224.5,303.0 226.4,303.1 228.3,303.2 230.1,303.3 232.0,303.4 233.9,303.4 235.7,303.5 237.6,303.6 239.5,303.7 241.3,303.8 243.2,303.9 245.1,304.1 246.9,304.2 248.8,304.3 250.7,304.4 252.5,304.5 254.4,304.6 256.3,304.7 258.1,304.9 260.0,305.0 261.9,305.1 263.7,305.2 265.6,305.4 267.5,305.5 269.3,305.6 271.2,305.8 273.1,305.9 274.9,306.0 276.8,306.2 278.7,306.3 280.5,306.4 282.4,306.6 284.3,306.7 286.1,306.8 288.0,307.0 289.9,307.1 291.7,307.3 293.6,307.4 295.5,307.5 297.3,307.7 299.2,307.8 301.1,308.0 302.9,308.1 304.8,308.2 306.7,308.3 308.5,308.5 310.4,308.6 312.3,308.7 314.1,308.8 316.0,308.9 317.9,309.0 319.7,309.1 321.6,309.2 323.5,309.3 325.3,309.4 327.2,309.5 329.1,309.5 330.9,309.6 332.8,309.7 334.7,309.7 336.5,309.7 338.4,309.7 340.3,309.7 342.1,309.7 344.0,309.7 345.9,309.7 347.7,309.6 349.6,309.6 351.5,309.5 353.3,309.4 355.2,309.3 357.1,309.2 358.9,309.0 360.8,308.9 362.7,308.7 364.5,308.5 366.4,308.3 368.3,308.0 370.1,307.7 372.0,307.4 373.9,307.1 375.7,306.8 377.6,306.4 379.5,306.0 381.3,305.6 383.2,305.2 385.1,304.7 386.9,304.2 388.8,303.7 390.7,303.2 392.5,302.6 394.4,302.0 396.3,301.3 398.1,300.7 400.0,300.0 401.9,299.3 403.7,298.5 405.6,297.8 407.5,297.0 409.3,296.2 411.2,295.3 413.1,294.4 414.9,293.5 416.8,292.6 418.7,291.6 420.5,290.6 422.4,289.6 424.3,288.6 426.1,287.5 428.0,286.4 429.9,285.3 431.7,284.2 433.6,283.1 435.5,281.9 437.3,280.7 439.2,279.5 441.1,278.2 442.9,277.0 444.8,275.7 446.7,274.4 448.5,273.1 450.4,271.8 452.3,270.4 454.1,269.1 456.0,267.7 457.9,266.3 459.7,264.9 461.6,263.5 463.5,262.1 465.3,260.7 467.2,259.3 469.1,257.8 470.9,256.3 472.8,254.9 474.7,253.4 476.5,251.9 478.4,250.4 480.3,248.9 482.1,247.4 484.0,245.9 485.9,244.4 487.7,242.9 489.6,241.4 491.5,239.9 493.3,238.3 495.2,236.8 497.1,235.3 498.9,233.8 500.8,232.2 502.7,230.7 504.5,229.1 506.4,227.6 508.3,226.1 510.1,224.5 512.0,223.0 513.9,221.4 515.7,219.9 517.6,218.4 519.5,216.8 521.3,215.3 523.2,213.8 525.1,212.2 526.9,210.7 528.8,209.2 530.7,207.6 532.5,206.1 534.4,204.6 536.3,203.0 538.1,201.5 540.0,200.0 541.9,198.5 543.7,196.9 545.6,195.4 547.5,193.9 549.3,192.4 551.2,190.9 553.1,189.4 554.9,187.9 556.8,186.3 558.7,184.8 560.5,183.3 562.4,181.8 564.3,180.3 566.1,178.8 568.0,177.4 569.9,175.9 571.7,174.4 573.6,172.9 575.5,171.4 577.3,169.9 579.2,168.4 581.1,166.9 582.9,165.5 584.8,164.0 586.7,162.5 588.5,161.0 590.4,159.6 592.3,158.1 594.1,156.6 596.0,155.2 597.9,153.7 599.7,152.2 601.6,150.8 603.5,149.3 605.3,147.9 607.2,146.4 609.1,145.0 610.9,143.5 612.8,142.1 614.7,140.6 616.5,139.2 618.4,137.7 620.3,136.3 622.1,134.8 624.0,133.4 625.9,131.9 627.7,130.5 629.6,129.0 631.5,127.6 633.3,126.2 635.2,124.7 637.1,123.3 638.9,121.9 640.8,120.4 642.7,119.0 644.5,117.6 646.4,116.1 648.3,114.7 650.1,113.3 652.0,111.8 653.9,110.4 655.7,109.0 657.6,107.6 659.5,106.1 661.3,104.7 663.2,103.3 665.1,101.9 666.9,100.5 668.8,99.0 670.7,97.6 672.5,96.2 674.4,94.8 676.3,93.4 678.1,91.9 680.0,90.5" fill="none" stroke="#f6a93b" stroke-width="2.8"/>
+<circle cx="340.3" cy="309.7" r="5" fill="#ff7ab8"/>
+<text x="330.3" y="331.7" class="eq" text-anchor="end" fill="#ff7ab8">dip: (−1.28, −0.28)</text>
+<text x="661" y="118" class="eq" fill="#7d8da1">y = x</text>
+<text x="559" y="253" class="eq" fill="#35d6f0">σ(x), the switch</text>
+<text x="521" y="226" class="eq" fill="#f6a93b">silu(x) = x · σ(x)</text>
+<text x="120" y="324" class="eq">−6</text>
+<text x="400" y="324" class="eq" text-anchor="middle">0</text>
+<text x="680" y="324" class="eq" text-anchor="end">+6</text>
+<text x="50" y="125" class="eq" text-anchor="end">+5</text>
+<text x="50" y="335" class="eq" text-anchor="end">−1</text>
+<rect x="760" y="96" width="760" height="196" rx="14" fill="#0e1622" stroke="#2e4054"/>
+<text x="786" y="128" class="axb">Role 1 · a plain activation</text>
+<rect x="786" y="146" width="150" height="52" rx="9" fill="#121a26" stroke="#2e4054"/>
+<text x="861" y="170" class="eq" text-anchor="middle">linear output</text>
+<text x="861" y="188" class="eq" text-anchor="middle" fill="#a9b8c9">(B, 6144)</text>
+<path d="M940,172 L992,172" stroke="#7d8da1" stroke-width="1.8" fill="none" marker-end="url(#slA)"/>
+<rect x="996" y="146" width="120" height="52" rx="9" fill="rgba(246,169,59,.14)" stroke="#f6a93b" stroke-opacity=".7"/>
+<text x="1056" y="170" class="eq" text-anchor="middle" fill="#f6a93b">silu</text>
+<text x="1056" y="188" class="eq" text-anchor="middle" fill="#a9b8c9">kink</text>
+<path d="M1120,172 L1172,172" stroke="#7d8da1" stroke-width="1.8" fill="none" marker-end="url(#slA)"/>
+<rect x="1176" y="146" width="150" height="52" rx="9" fill="#121a26" stroke="#2e4054"/>
+<text x="1251" y="170" class="eq" text-anchor="middle">next linear</text>
+<text x="1251" y="188" class="eq" text-anchor="middle" fill="#a9b8c9">→ condition vector</text>
+<text x="1352" y="166" class="eq" fill="#a9b8c9">in MLPEmbedder (§13.3)</text>
+<text x="1352" y="186" class="eq" fill="#a9b8c9">and Modulation (§13.9)</text>
+<text x="786" y="238" class="axb">Role 2 · a valve in the MLPs</text>
+<rect x="786" y="252" width="150" height="46" rx="9" fill="#121a26" stroke="#2e4054"/>
+<text x="861" y="280" class="eq" text-anchor="middle">half A of the MLP</text>
+<rect x="786" y="252" width="150" height="0" rx="0" fill="none"/>
+<path d="M940,275 L992,275" stroke="#7d8da1" stroke-width="1.8" fill="none" marker-end="url(#slA)"/>
+<rect x="996" y="252" width="120" height="46" rx="9" fill="rgba(246,169,59,.14)" stroke="#f6a93b" stroke-opacity=".7"/>
+<text x="1056" y="280" class="eq" text-anchor="middle" fill="#f6a93b">silu(A)</text>
+<path d="M1120,275 L1160,275" stroke="#7d8da1" stroke-width="1.8" fill="none" marker-end="url(#slA)"/>
+<circle cx="1182" cy="275" r="17" fill="#121a26" stroke="#5fe08a" stroke-width="2"/>
+<text x="1182" y="281" class="axb" text-anchor="middle" fill="#5fe08a">×</text>
+<rect x="996" y="316" width="150" height="40" rx="9" fill="#121a26" stroke="#2e4054"/>
+<text x="1071" y="341" class="eq" text-anchor="middle">half B, untouched</text>
+<path d="M1150,336 L1182,336 L1182,296" stroke="#7d8da1" stroke-width="1.8" fill="none" marker-end="url(#slA)"/>
+<path d="M1203,275 L1255,275" stroke="#7d8da1" stroke-width="1.8" fill="none" marker-end="url(#slA)"/>
+<rect x="1259" y="252" width="150" height="46" rx="9" fill="#121a26" stroke="#2e4054"/>
+<text x="1334" y="280" class="eq" text-anchor="middle">the MLP output</text>
+<text x="786" y="384" class="eq" fill="#a9b8c9">silu(A) · B — SwiGLU: A decides how much of B gets through, per channel.</text>
+<text x="40" y="446" class="ax">Left: no hard corner anywhere, and no region that is permanently dead — only softened.</text>
+</svg>
+</div>
+<figcaption><span class="figno">FIG 16</span><b>The curve and its two jobs.</b> On the left, the function:
+flat and near zero for very negative inputs, a small dip to −0.28 around x = −1.28, then indistinguishable
+from the identity for positive ones. The faint blue curve is σ(x) — the switch that x multiplies itself by.
+On the right, the two roles it plays in FLUX.2: an ordinary activation between linear layers, and a
+<em>valve</em> inside the blocks' MLPs, where one half of the projection is passed through SiLU and
+multiplied against the other half.</figcaption>
+</figure>
+<h3>9.2 · Job one: an activation</h3>
+<p>The ordinary use. Anywhere the file needs a nonlinearity between two linear layers — the two-layer
+network that turns a timestep fingerprint into a condition vector (§13.3), and the projection that turns
+that vector into modulation dials (§13.9) — it puts SiLU in the middle. Two linear maps with nothing
+between them would compose into a single linear map, so all that depth would be wasted; one SiLU is what
+makes them two genuinely different transformations.</p>
+<h3>9.3 · Job two: a valve</h3>
+<p>The second use is more interesting, and it is why the class exists at all rather than being a call to
+<code>torch.nn.functional.silu</code>. Inside every one of the 56 blocks, the MLP projection is made twice
+as wide as it needs to be, and then split in half:</p>
+<div class="note math">
+<div class="nh">Σ SwiGLU — what the blocks' MLPs actually compute</div>
+<p><span class="mathblk">mlp_out = silu(A) ⊙ B</span></p>
+<p style="margin-top:6px"><span class="shape">A and B are the two halves of one wide projection · ⊙ is element-wise · one half decides how much of the other half gets through</span></p>
+</div>
+<p>Here SiLU is not shaping a signal, it is <em>gating</em> one. Half of the projection (A) is turned into
+a set of per-channel valves — mostly open, mostly shut, or anywhere between — and the other half (B) is
+the content that gets through them. The network learns, per token and per channel, how much of its own
+computation to let pass. This is the SwiGLU family of gated MLPs (Shazeer 2020, §23), and it is the same
+"multiply by a learned amount" idea that the modulation gate of §8.4 applies to whole sub-layers — one at
+channel level, one at block level.</p>
+<p>It is also why the class is a module and not a function: the blocks hold it as
+<code>self.mlp_act</code>, so it appears in the module tree, and it is why the MLP widths in the
+configuration are not what they seem — a "3×" MLP ratio produces a projection that is split, so the
+effective hidden width is 3× while the matrix is 6× wide (§13.2 has the arithmetic).</p>
+<div class="note beginner">
+<div class="nh">◇ The one-line summary</div>
+<p>SiLU is <em>x</em> times a smooth switch that depends on <em>x</em> itself. Used between two linear
+layers it makes depth meaningful; used against a second copy of the signal it becomes a per-channel valve.
+FLUX.2 does both, with the same four lines, in 58 places.</p>
+</div>
+<p class="dim">Used later: §13.2 (<code>SiLUActivation</code>, the class), §13.3 and §13.9 (job one),
+§15–§16 (job two, inside every block's MLP), and §13.2 for the four lines of code that implement it.</p>
+</section>

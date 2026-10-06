@@ -1,5 +1,5 @@
 <section id="double">
-<h2><span class="secno">§15</span><span class="sig">DoubleStreamBlock</span> · L524</h2>
+<h2><span class="secno">§16</span><span class="sig">DoubleStreamBlock</span> · L524</h2>
 <p class="section-intro">
 The first eight blocks of the network are different. Text and image keep <em>separate weights</em> —
 separate norms, separate projections, separate MLPs — and meet only inside the attention, where their
@@ -70,7 +70,7 @@ other.
 <path d="M992,100 L972,100 M992,326 L972,326 M992,414 L972,414" stroke="#5fe08a" stroke-width="1.3" fill="none" stroke-dasharray="4 4" marker-end="url(#dV)"/>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 21</span><b>The double-stream block.</b> Everything is doubled except the attention.
+<figcaption><span class="figno">FIG 22</span><b>The double-stream block.</b> Everything is doubled except the attention.
 Text tokens are transformed by text weights and image tokens by image weights; only when it is time to
 <em>compare</em> them are their q/k/v concatenated into one sequence. After attention the streams split
 again and each finishes with its own projection and its own MLP. Eight of these teach the two
@@ -81,9 +81,9 @@ modalities to talk; then the 48 single-stream blocks let them merge completely.<
 
 <!--TRACE-->
 <!--T 531-532|MLP width, 3 × hidden = 18 432, exactly as in the single block. Note that <code>mlp_ratio</code> has no default here (the single block defaults it to 4.0): <code>Flux2.__init__</code> always passes the config's 3.0.-->
-<!--T 533-534|A hard <code>assert</code> rather than a raised <code>ValueError</code> — one of only two asserts in the file (the other guards <code>rope</code> at L819, §12.4). It repeats the divisibility requirement that <code>Flux2.__init__</code> checks with a <code>ValueError</code> at L58, so the block is also safe to construct on its own.-->
-<!--T 536-538|<code>img_norm1</code>: the image stream's pre-attention norm, parameter-free. <code>mlp_mult_factor = 2</code>, the SwiGLU doubling of §12.2, again.-->
-<!--T 540-543|The image stream's <em>own</em> attention parameter bundle — its own qkv matrix and its own output projection (§12.8), completely separate from the text stream's.-->
+<!--T 533-534|A hard <code>assert</code> rather than a raised <code>ValueError</code> — one of only two asserts in the file (the other guards <code>rope</code> at L819, §13.4). It repeats the divisibility requirement that <code>Flux2.__init__</code> checks with a <code>ValueError</code> at L58, so the block is also safe to construct on its own.-->
+<!--T 536-538|<code>img_norm1</code>: the image stream's pre-attention norm, parameter-free. <code>mlp_mult_factor = 2</code>, the SwiGLU doubling of §13.2, again.-->
+<!--T 540-543|The image stream's <em>own</em> attention parameter bundle — its own qkv matrix and its own output projection (§13.8), completely separate from the text stream's.-->
 <!--T 545-550|The image stream's pre-MLP norm and its own MLP: linear(6144 → 36864) → SwiGLU → linear(18432 → 6144).-->
 <!--T 552-556|The mirror image for text: <code>txt_norm1</code> and <code>txt_attn</code>, a second full attention parameter bundle.-->
 <!--T 558-567|And the text stream's norm2 + MLP — the same three layers as the image side, spelled out over ten lines because the first linear is written across four of them. In total a double block owns <em>two</em> of everything a single block owns one of, which is exactly why it costs twice as much: 981 467 648 vs 490 733 824 parameters.-->
@@ -115,7 +115,7 @@ modalities to talk; then the 48 single-stream blocks let them merge completely.<
 <!--TRACE-->
 <!--T 648-649|Prepare and rotate. Because the concatenation put text first, <code>pe_full</code> (text positions then image positions) lines up with <code>q</code> and <code>k</code> exactly.-->
 <!--T 651-656|Slice the reference part of k and v into this block's cache. In a double block the reference tokens live inside the <em>image</em> stream (they are image tokens), so the slice starts at <code>num_txt_tokens</code> — the references sit immediately after the text block in the joint sequence.-->
-<!--T 658-659|Run the routing attention of §13 over the joint sequence — with a real <code>num_ref_tokens</code>, so the references are sealed off — and split the result back at the text boundary: everything before it is <code>txt_attn</code>, everything from it on is <code>img_attn</code>.-->
+<!--T 658-659|Run the routing attention of §14 over the joint sequence — with a real <code>num_ref_tokens</code>, so the references are sealed off — and split the result back at the text boundary: everything before it is <code>txt_attn</code>, everything from it on is <code>img_attn</code>.-->
 <!--T 660-661|Apply the four gated residuals and return both streams plus the cache.-->
 <!--T 673-680|The cached variant, line for line: same preparation (L674) and rotation (L675), but the reference count is read back out of the cache's own shape (L677), the attention call receives the cached k/v (L678), and only the two streams come back — no cache is produced, because nothing new was learned about the references. The text stream is recomputed from scratch every step; only the reference slice is frozen.-->
 <!--/TRACE-->

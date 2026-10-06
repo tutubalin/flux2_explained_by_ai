@@ -1,5 +1,5 @@
 <section id="attention">
-<h2><span class="secno">§13</span><span class="sig">causal_attn_fn</span> — the attention router · L758</h2>
+<h2><span class="secno">§14</span><span class="sig">causal_attn_fn</span> — the attention router · L758</h2>
 <p class="section-intro">
 Fifty-eight lines that decide, for every query in the sequence, which keys it is allowed to read.
 Despite its name there is nothing autoregressive here — the "causality" is of a different, more
@@ -14,7 +14,7 @@ mask that makes text generation possible. <code>causal_attn_fn</code> contains
 calls pass <code>is_causal=False</code>. What it implements instead is a <em>block-diagonal isolation
 rule</em>: reference tokens are causally <em>cut off</em> from the rest of the sequence — they may read
 each other, and nobody's updates may leak into them. That single property is what makes the KV cache
-of §18 mathematically exact. Read the name as "references are sealed", not as "left-to-right".</p>
+of §19 mathematically exact. Read the name as "references are sealed", not as "left-to-right".</p>
 </div>
 
 <!--CODE 758-815 title="model.py" hl="771,772,775,776,777,778,779,780,781,782,783,784,785,786,790,791,793,794,795,796,797,798,799,800,801,802,803,805,806,808,811,813,815"-->
