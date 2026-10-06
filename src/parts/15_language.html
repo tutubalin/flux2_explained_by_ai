@@ -1,0 +1,232 @@
+<section id="language">
+<h2><span class="secno">§ 5</span>One language — how 128 and 15 360 both become 6 144</h2>
+<p class="section-intro">
+The transformer has exactly one internal width. Whatever arrives — a patch of a photograph, a reference
+image, a piece of your sentence — has to be re-expressed as a row of <strong>6 144</strong> numbers before
+it can take part, and whatever leaves is 6 144 numbers too. Two matrices do the translating. They are the
+first thing <code>Flux2.forward</code> touches and among the simplest objects in the file, but nothing
+downstream makes sense until you have seen why they exist and what they cost.
+</p>
+
+<h3>5.1 · Two doors, one corridor</h3>
+<div class="tbl-wrap">
+<table class="data">
+<thead><tr><th style="width:150px">door</th><th style="width:150px">what walks in</th><th style="width:190px">what it is</th><th style="width:140px">parameters</th><th>and what walks out</th></tr></thead>
+<tbody>
+<tr><td><code>img_in</code></td><td>the canvas, and any reference images</td><td>one matrix, 128 → 6 144, no bias</td><td class="num">786 432</td><td>4 096 rows of 6 144 at 1024² — plus up to 16 384 more if references are supplied</td></tr>
+<tr><td><code>txt_in</code></td><td>the prompt, as the language model left it</td><td>one matrix, 15 360 → 6 144, no bias</td><td class="num">94 371 840</td><td>512 rows of 6 144</td></tr>
+</tbody>
+</table>
+</div>
+<p>Both are a single <code>nn.Linear</code> with <code>bias=False</code> — no nonlinearity, no second
+layer, no normalisation. One matrix multiply per token, and that is the whole door.</p>
+<figure>
+<div class="fig">
+<svg viewBox="0 0 1560 560" role="img" aria-label="Three inputs on the left: the canvas as 4096 rows of 128 numbers, reference images as up to 16384 rows of 128, and the prompt as 512 rows of 15360. The two image inputs pass through img_in, a single matrix from 128 to 6144; the prompt passes through txt_in, a single matrix from 15360 to 6144. Both doors open into one corridor of N rows of 6144, and one row of that corridor is 48 heads of 128, each head being 64 rotation planes.">
+<defs><marker id="lgA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7d8da1"/></marker>
+<marker id="lgI" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#f6a93b"/></marker>
+<marker id="lgC" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#35d6f0"/></marker></defs>
+<text x="40" y="34" class="ttl">Two doors, one corridor: everything inside the transformer is 6 144 wide</text>
+<text x="40" y="60" class="ax" fill="#a9b8c9">the corridor is the only place the 56 blocks live — nothing outside it has that width</text>
+
+<rect x="40" y="92" width="300" height="80" rx="11" fill="#121a26" stroke="#f6a93b" stroke-opacity=".6"/>
+<text x="190" y="120" class="axb" text-anchor="middle" fill="#f6a93b">the canvas</text>
+<text x="190" y="142" class="eq" text-anchor="middle">4 096 rows × 128 numbers</text>
+<text x="190" y="160" class="eq" text-anchor="middle" fill="#a9b8c9">one row per 16 × 16 pixels (§4)</text>
+
+<rect x="40" y="196" width="300" height="80" rx="11" fill="#121a26" stroke="#b18cff" stroke-opacity=".6"/>
+<text x="190" y="224" class="axb" text-anchor="middle" fill="#b18cff">reference images</text>
+<text x="190" y="246" class="eq" text-anchor="middle">up to 16 384 rows × 128</text>
+<text x="190" y="264" class="eq" text-anchor="middle" fill="#a9b8c9">optional — and the same shape</text>
+
+<rect x="40" y="356" width="300" height="80" rx="11" fill="#121a26" stroke="#35d6f0" stroke-opacity=".6"/>
+<text x="190" y="384" class="axb" text-anchor="middle" fill="#35d6f0">the prompt</text>
+<text x="190" y="406" class="eq" text-anchor="middle">512 rows × 15 360 numbers</text>
+<text x="190" y="424" class="eq" text-anchor="middle" fill="#a9b8c9">three depths of an LLM (§3)</text>
+
+<rect x="430" y="130" width="300" height="122" rx="13" fill="#182231" stroke="#f6a93b" stroke-opacity=".75"/>
+<text x="580" y="160" class="axb" text-anchor="middle" fill="#f6a93b">img_in</text>
+<text x="580" y="184" class="eq" text-anchor="middle">one matrix · 128 → 6 144</text>
+<text x="580" y="206" class="eq" text-anchor="middle" fill="#ffd479">786 432 parameters</text>
+<text x="580" y="228" class="eq" text-anchor="middle" fill="#a9b8c9">the smallest matrix in the file</text>
+
+<rect x="430" y="336" width="300" height="122" rx="13" fill="#182231" stroke="#35d6f0" stroke-opacity=".75"/>
+<text x="580" y="366" class="axb" text-anchor="middle" fill="#35d6f0">txt_in</text>
+<text x="580" y="390" class="eq" text-anchor="middle">one matrix · 15 360 → 6 144</text>
+<text x="580" y="412" class="eq" text-anchor="middle" fill="#ffd479">94 371 840 parameters</text>
+<text x="580" y="434" class="eq" text-anchor="middle" fill="#a9b8c9">120× the image door</text>
+
+<path d="M340,132 L392,168 L428,178" stroke="#f6a93b" stroke-width="1.9" fill="none" marker-end="url(#lgI)"/>
+<path d="M340,236 L392,212 L428,204" stroke="#b18cff" stroke-width="1.9" fill="none" marker-end="url(#lgI)"/>
+<path d="M340,396 L428,396" stroke="#35d6f0" stroke-width="1.9" fill="none" marker-end="url(#lgC)"/>
+<text x="386" y="256" class="eq" text-anchor="middle" fill="#a9b8c9">references join the</text>
+<text x="386" y="272" class="eq" text-anchor="middle" fill="#a9b8c9">canvas BEFORE the door</text>
+
+<rect x="820" y="92" width="380" height="366" rx="15" fill="#0e1622" stroke="#5fe08a" stroke-opacity=".55"/>
+<text x="1010" y="124" class="axb" text-anchor="middle" fill="#5fe08a">one sequence, one width</text>
+<text x="1010" y="150" class="eq" text-anchor="middle">N rows × 6 144 numbers</text>
+<rect x="850" y="176" width="320" height="34" rx="6" fill="rgba(53,214,240,.16)" stroke="#35d6f0" stroke-opacity=".6"/>
+<text x="1010" y="198" class="eq" text-anchor="middle" fill="#35d6f0">text · 512 rows</text>
+<rect x="850" y="216" width="320" height="34" rx="6" fill="rgba(177,140,255,.16)" stroke="#b18cff" stroke-opacity=".6"/>
+<text x="1010" y="238" class="eq" text-anchor="middle" fill="#b18cff">references · up to 16 384 rows</text>
+<rect x="850" y="256" width="320" height="34" rx="6" fill="rgba(246,169,59,.16)" stroke="#f6a93b" stroke-opacity=".6"/>
+<text x="1010" y="278" class="eq" text-anchor="middle" fill="#f6a93b">canvas · 4 096 rows</text>
+<text x="1010" y="322" class="eq" text-anchor="middle">every row the same shape, so one</text>
+<text x="1010" y="342" class="eq" text-anchor="middle">attention can read all of them (§6)</text>
+<text x="1010" y="374" class="eq" text-anchor="middle" fill="#a9b8c9">4 608 rows at 1024² with no references,</text>
+<text x="1010" y="392" class="eq" text-anchor="middle" fill="#a9b8c9">20 992 with four of them (§20)</text>
+<text x="1010" y="428" class="eq" text-anchor="middle" fill="#ffd479">the order is [text, references, canvas]</text>
+<path d="M730,190 L818,220" stroke="#f6a93b" stroke-width="1.9" fill="none" marker-end="url(#lgI)"/>
+<path d="M730,398 L818,340" stroke="#35d6f0" stroke-width="1.9" fill="none" marker-end="url(#lgC)"/>
+
+<rect x="1250" y="92" width="270" height="366" rx="15" fill="#0e1622" stroke="#ffd479" stroke-opacity=".45"/>
+<text x="1385" y="124" class="axb" text-anchor="middle" fill="#ffd479">inside one row</text>
+<text x="1385" y="150" class="eq" text-anchor="middle">6 144 = 48 heads × 128</text>
+<rect x="1298" y="172" width="20" height="20" rx="3" fill="rgba(255,212,121,.55)" stroke="#ffd479" stroke-opacity=".95"/>
+<rect x="1320" y="172" width="20" height="20" rx="3" fill="rgba(246,169,59,.18)" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1342" y="172" width="20" height="20" rx="3" fill="rgba(246,169,59,.18)" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1364" y="172" width="20" height="20" rx="3" fill="rgba(246,169,59,.18)" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1386" y="172" width="20" height="20" rx="3" fill="rgba(246,169,59,.18)" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1408" y="172" width="20" height="20" rx="3" fill="rgba(246,169,59,.18)" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1430" y="172" width="20" height="20" rx="3" fill="rgba(246,169,59,.18)" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1452" y="172" width="20" height="20" rx="3" fill="rgba(246,169,59,.18)" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1298" y="194" width="20" height="20" rx="3" fill="rgba(246,169,59,.18)" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1320" y="194" width="20" height="20" rx="3" fill="rgba(246,169,59,.18)" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1342" y="194" width="20" height="20" rx="3" fill="rgba(246,169,59,.18)" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1364" y="194" width="20" height="20" rx="3" fill="rgba(246,169,59,.18)" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1386" y="194" width="20" height="20" rx="3" fill="rgba(246,169,59,.18)" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1408" y="194" width="20" height="20" rx="3" fill="rgba(246,169,59,.18)" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1430" y="194" width="20" height="20" rx="3" fill="rgba(246,169,59,.18)" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1452" y="194" width="20" height="20" rx="3" fill="rgba(246,169,59,.18)" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1298" y="216" width="20" height="20" rx="3" fill="rgba(246,169,59,.18)" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1320" y="216" width="20" height="20" rx="3" fill="rgba(246,169,59,.18)" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1342" y="216" width="20" height="20" rx="3" fill="rgba(246,169,59,.18)" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1364" y="216" width="20" height="20" rx="3" fill="rgba(246,169,59,.18)" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1386" y="216" width="20" height="20" rx="3" fill="rgba(246,169,59,.18)" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1408" y="216" width="20" height="20" rx="3" fill="rgba(246,169,59,.18)" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1430" y="216" width="20" height="20" rx="3" fill="rgba(246,169,59,.18)" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1452" y="216" width="20" height="20" rx="3" fill="rgba(246,169,59,.18)" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1298" y="238" width="20" height="20" rx="3" fill="rgba(246,169,59,.18)" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1320" y="238" width="20" height="20" rx="3" fill="rgba(246,169,59,.18)" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1342" y="238" width="20" height="20" rx="3" fill="rgba(246,169,59,.18)" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1364" y="238" width="20" height="20" rx="3" fill="rgba(246,169,59,.18)" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1386" y="238" width="20" height="20" rx="3" fill="rgba(246,169,59,.18)" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1408" y="238" width="20" height="20" rx="3" fill="rgba(246,169,59,.18)" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1430" y="238" width="20" height="20" rx="3" fill="rgba(246,169,59,.18)" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1452" y="238" width="20" height="20" rx="3" fill="rgba(246,169,59,.18)" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1298" y="260" width="20" height="20" rx="3" fill="rgba(246,169,59,.18)" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1320" y="260" width="20" height="20" rx="3" fill="rgba(246,169,59,.18)" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1342" y="260" width="20" height="20" rx="3" fill="rgba(246,169,59,.18)" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1364" y="260" width="20" height="20" rx="3" fill="rgba(246,169,59,.18)" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1386" y="260" width="20" height="20" rx="3" fill="rgba(246,169,59,.18)" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1408" y="260" width="20" height="20" rx="3" fill="rgba(246,169,59,.18)" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1430" y="260" width="20" height="20" rx="3" fill="rgba(246,169,59,.18)" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1452" y="260" width="20" height="20" rx="3" fill="rgba(246,169,59,.18)" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1298" y="282" width="20" height="20" rx="3" fill="rgba(246,169,59,.18)" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1320" y="282" width="20" height="20" rx="3" fill="rgba(246,169,59,.18)" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1342" y="282" width="20" height="20" rx="3" fill="rgba(246,169,59,.18)" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1364" y="282" width="20" height="20" rx="3" fill="rgba(246,169,59,.18)" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1386" y="282" width="20" height="20" rx="3" fill="rgba(246,169,59,.18)" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1408" y="282" width="20" height="20" rx="3" fill="rgba(246,169,59,.18)" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1430" y="282" width="20" height="20" rx="3" fill="rgba(246,169,59,.18)" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1452" y="282" width="20" height="20" rx="3" fill="rgba(246,169,59,.18)" stroke="#f6a93b" stroke-opacity=".45"/>
+<text x="1331" y="166" class="eq" fill="#ffd479">one head = 128 numbers</text>
+<text x="1385" y="330" class="eq" text-anchor="middle">each head's 128 numbers are</text>
+<text x="1385" y="350" class="eq" text-anchor="middle">64 rotating pairs (§8)</text>
+<text x="1385" y="382" class="eq" text-anchor="middle" fill="#a9b8c9">klein-9B: 4 096 = 32 × 128</text>
+<text x="1385" y="402" class="eq" text-anchor="middle" fill="#a9b8c9">klein-4B: 3 072 = 24 × 128</text>
+<text x="1385" y="430" class="eq" text-anchor="middle" fill="#ffd479">head_dim is 128 in all three</text>
+<path d="M1200,270 L1248,270" stroke="#7d8da1" stroke-width="1.9" fill="none" marker-end="url(#lgA)"/>
+
+<text x="40" y="502" class="ax">The 56 blocks never see 128 or 15 360. They only ever see rows of 6 144 — and they only ever return rows of 6 144, until the exit</text>
+<text x="40" y="524" class="ax">door at the end of §5.4 turns them back into 128 latent channels for the VAE decoder.</text>
+</svg>
+</div>
+<figcaption><span class="figno">FIG 8</span><b>The corridor.</b> Two matrices, and every token in the
+network passes through one of them. The image door is tiny — 128 inputs, so 786 432 weights, the smallest
+matrix in a 32-billion-parameter file. The text door is 120 times larger, because the language model's
+representation is 2.5× wider than the transformer's and something has to choose what to keep. Reference
+images are concatenated onto the canvas <em>before</em> the image door (L192, then L213), so they are
+translated by exactly the same matrix as the pixels being generated — which is one of the reasons the KV
+cache of §20 can treat them as ordinary image tokens.</figcaption>
+</figure>
+
+<h3>5.2 · Widening and narrowing are the same operation</h3>
+<p>The two doors look opposite — one multiplies the width by 48, the other divides it by 2.5 — but they are
+the same kind of thing: a change of basis. Each output number is a learned weighted sum of the inputs, and
+nothing else happens.</p>
+<div class="tbl-wrap">
+<table class="data">
+<thead><tr><th style="width:120px">door</th><th style="width:200px">what the arithmetic does</th><th>what it cannot do, and why that is fine</th></tr></thead>
+<tbody>
+<tr><td><b>128 → 6 144</b><br><span class="dim">widening</span></td><td>spreads each token's 128 latent numbers across 6 144 coordinates, in the directions the network's weights expect</td><td>It creates no information: 6 144 numbers that live in a 128-dimensional subspace still carry 128 numbers' worth. That is enough — the point is not more content but a <em>shared format</em>, so that the same 56 blocks can act on a patch and on a word with the same matrices.</td></tr>
+<tr><td><b>15 360 → 6 144</b><br><span class="dim">narrowing</span></td><td>selects and combines: the language model's three-depth description is far richer than the corridor, so the matrix learns which of it to keep</td><td>It cannot keep everything — 15 360 dimensions cannot fit into 6 144 without loss. What is dropped is whatever 56 blocks of image-making turned out not to need, and that was settled during training, not by anyone reasoning about it.</td></tr>
+</tbody>
+</table>
+</div>
+<div class="note idea">
+<div class="nh">💡 Why the doors are plain matrices, while the time door is an MLP</div>
+<p>Compare them with the third and fourth doors, which you met in §7: <code>time_in</code> and
+<code>guidance_in</code> are <em>two</em> linear layers with a SiLU between them (256 → 6 144 → 6 144,
+39 321 600 parameters each). Why the difference? Because of what arrives. A prompt row has already been
+through a 24-billion-parameter language model and a patch row through a trained autoencoder — their
+<em>meaning</em> is computed, and all that is left is a change of basis, which one matrix does. A timestep
+fingerprint is the opposite: 256 numbers produced by a fixed formula, carrying no learned meaning at all.
+Something has to decide what "t = 0.62" <em>means</em>, and that something is the MLP.
+<span class="spec">inference</span> — the shapes are in the file; the reasoning about why one door needs
+depth and the other does not is not written down anywhere.</p>
+</div>
+
+<h3>5.3 · Why 6 144, of all numbers</h3>
+<p>The corridor's width is not free. It has to divide evenly into attention heads, because a head is just a
+slice of the row: <span class="shape">head_dim = hidden_size // num_heads</span>. FLUX.2 keeps the slice
+size fixed at 128 across all three checkpoints and varies the number of slices instead:</p>
+<div class="tbl-wrap">
+<table class="data">
+<thead><tr><th style="width:190px">checkpoint</th><th style="width:130px">hidden_size</th><th style="width:110px">heads</th><th style="width:120px">head_dim</th><th style="width:150px">img_in</th><th>txt_in</th></tr></thead>
+<tbody>
+<tr><td>FLUX.2 [dev]</td><td class="num">6 144</td><td class="num">48</td><td class="num">128</td><td class="num">786 432</td><td class="num">94 371 840</td></tr>
+<tr><td>FLUX.2 [klein-9B]</td><td class="num">4 096</td><td class="num">32</td><td class="num">128</td><td class="num">524 288</td><td class="num">50 331 648</td></tr>
+<tr><td>FLUX.2 [klein-4B]</td><td class="num">3 072</td><td class="num">24</td><td class="num">128</td><td class="num">393 216</td><td class="num">23 592 960</td></tr>
+</tbody>
+</table>
+</div>
+<p>A fixed head width means the part of the architecture that is most geometry-sensitive stays constant
+while the model is scaled: every head, in every checkpoint, is 128 numbers = 64 rotation planes, so the
+RoPE ladder of §8 has the same shape everywhere and the attention temperature <code>1/√128</code> never
+changes. Shrinking the model removes <em>heads</em>, not resolution within a head.</p>
+<div class="note warn">
+<div class="nh">⚠ Two different 128s</div>
+<p>They are unrelated and it is very easy to conflate them. <strong><code>in_channels</code> = 128</strong>
+is how many numbers one <em>token</em> carries into the network: 4 latent cells × 32 channels (§4).
+<strong><code>head_dim</code> = 128</strong> is how wide one <em>attention head</em> is inside the
+network: hidden_size ÷ num_heads. One describes the outside world, the other the corridor. They would
+still both be 128 if the other were 96.</p>
+</div>
+
+<h3>5.4 · The exit door</h3>
+<p>After 56 blocks the rows are still 6 144 wide, and they are still not an image — they are the network's
+opinion about which way each token should move. Turning that back into latents takes one more projection,
+and it is the mirror of <code>img_in</code>: 6 144 → 128, again a single bias-free matrix.</p>
+<p>The exit has one thing the entrance does not: its own modulation. <code>final_layer</code> normalises
+each row with a parameter-free LayerNorm, applies a shift and a scale derived from the same condition
+vector <code>vec</code> that steered all 56 blocks — a <em>fourth</em>, private set of dials — and only
+then projects down. There is no gate, because there is no residual stream left to add anything to: this is
+the last operation, so "contribute nothing" is not an option it needs.</p>
+<p>What comes out is 4 096 rows of 128 numbers, which is folded back into a 128 × 128 × 32 latent grid and
+handed to the VAE decoder — the only component in the whole system that has ever seen a pixel (§4.2).</p>
+<div class="note beginner">
+<div class="nh">◇ The shape of a whole run, in six lines</div>
+<p><span class="shape">noise (B, 4096, 128) → img_in → (B, 4096, 6144)</span><br>
+<span class="shape">prompt (B, 512, 15360) → txt_in → (B, 512, 6144)</span><br>
+<span class="shape">concatenate → (B, 4608, 6144) → 8 double blocks (two streams) → merge → 48 single blocks</span><br>
+<span class="shape">drop the text rows → (B, 4096, 6144) → final_layer → (B, 4096, 128)</span><br>
+<span class="shape">reshape → (B, 32, 128, 128) latents → VAE decoder → (B, 3, 1024, 1024) pixels</span><br>
+Every one of those arrows is either a matrix multiply or a reshape. Repeat the middle of that fifty times and
+you have generated an image.</p>
+</div>
+<p class="dim">Used later: §6 (what the 6 144-wide rows do to each other), §8 (why a head is 64 planes),
+§14.3 (<code>MLPEmbedder</code>, the two-layer door that <em>time</em> uses), §14.10
+(<code>LastLayer</code>, the exit), §18.1 (the two lines that build these doors), §18.2 (where the text
+rows are dropped again).</p>
+</section>

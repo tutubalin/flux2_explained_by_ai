@@ -1,5 +1,5 @@
 <section id="configs">
-<h2><span class="secno">§ 12</span>The three configurations</h2>
+<h2><span class="secno">§ 13</span>The three configurations</h2>
 <p class="section-intro">
 The first 49 lines of the file are not code at all — they are three dataclasses, each a list of ten
 numbers. Those numbers <em>are</em> the architecture: everything else in the file is a pure function of
@@ -31,7 +31,7 @@ them.
 </table>
 </div>
 
-<h3>12.1 · The two guards in <code>__init__</code></h3>
+<h3>13.1 · The two guards in <code>__init__</code></h3>
 <p>The constructor refuses to build a model whose numbers do not add up. Both checks are worth
 understanding rather than skimming:</p>
 
@@ -42,14 +42,14 @@ understanding rather than skimming:</p>
 
 <div class="note beginner">
 <div class="nh">◇ Beginner · why is theta only 2000?</div>
-<p>Think of the 16 planes of one axis as the wheels of an odometer (§7.2). The fastest wheel turns once
+<p>Think of the 16 planes of one axis as the wheels of an odometer (§8.2). The fastest wheel turns once
 every 2π positions — it is what tells position 41 from position 42. The slowest wheel turns once every
 2π·θ positions — it is what tells position 4 from position 4000, because the fast wheels have gone round
 and round and look identical again. Language models use θ = 10 000 or more because their positions run
 into the hundreds of thousands: they need a wheel slow enough not to wrap inside the context.</p>
 <p>FLUX.2's coordinates are tiny by comparison — grid indices under ~200, text indices under 512, and a
 <em>t</em> axis that only ever reaches about 100 — so its slowest plane (period 2π·2000 ≈ 12 566
-positions, FIG 14) is already far slower than the longest distance it will ever be asked about.
+positions, FIG 15) is already far slower than the longest distance it will ever be asked about.
 <span class="spec">inference</span> A smaller base than 10 000 therefore costs nothing here and keeps the
 rest of the ladder in the range of distances the model actually needs to resolve; <code>model.py</code>
 simply states <code>theta: int = 2000</code> (L19) without saying why.</p>

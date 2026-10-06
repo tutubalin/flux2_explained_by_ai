@@ -1,5 +1,5 @@
 <section id="fingerprint">
-<h2><span class="secno">§ 6</span>The frequency trick — how one number becomes a vector</h2>
+<h2><span class="secno">§ 7</span>The frequency trick — how one number becomes a vector</h2>
 <p class="section-intro">
 The sampler hands the network a single float: <code>t = 0.62</code>. One number. And that number has to
 change the behaviour of 32 billion parameters, 56 blocks deep, in a way that is different at 0.62 than at
@@ -7,7 +7,7 @@ change the behaviour of 32 billion parameters, 56 blocks deep, in a way that is 
 chapter uses for positions, and one of the oldest ideas in the transformer literature.
 </p>
 
-<h3>6.1 · Why one float is a terrible input</h3>
+<h3>7.1 · Why one float is a terrible input</h3>
 <p>Everything a neural network does with a number begins by multiplying it. So imagine the naive version:
 <code>t</code> goes straight into a weight matrix. Every output is then a fixed multiple of <code>t</code>,
 and the network's entire response to the timestep is a straight line — it can only ever respond
@@ -23,7 +23,7 @@ no signal for a network to grab hold of.</p>
 — some that change fast, some that barely change at all — and let it learn which readings matter.</p>
 </div>
 
-<h3>6.2 · Tell the time with many clocks</h3>
+<h3>7.2 · Tell the time with many clocks</h3>
 <p>An analogue clock solves exactly this problem. If it had only an hour hand, 12:00 and 1:00 would be
 distinguishable but 12:00 and 12:05 would look identical — the hand moves too slowly to resolve small
 differences. Add a minute hand and the two readings are obvious. Add a second hand and even 12:00:00 and
@@ -348,7 +348,7 @@ coordinates oscillate smoothly between −1 and 1, a quarter turn out of phase w
 <text x="40" y="536" class="ax">Read at t = 0.62 the fastest lane has gone round 99 times and is mid-cycle; the slowest has not moved at all. Both are part of the answer.</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 9</span><b>One number, 128 speeds.</b> Each lane plots
+<figcaption><span class="figno">FIG 10</span><b>One number, 128 speeds.</b> Each lane plots
 <code>cos(t′ · ωᵢ)</code> against t, with <code>t′ = 1000·t</code>. The gold line is one moment of one
 run; the dots are the five readings at that moment. Consecutive lanes differ by a factor of ten in rate, so
 the wall contains a hand for every scale of change — and the real encoding stacks 128 of them, then adds
@@ -356,7 +356,7 @@ the matching 128 sines, giving 256 numbers between −1 and 1 with no parameters
 anywhere.</figcaption>
 </figure>
 
-<h3>6.3 · The recipe, exactly</h3>
+<h3>7.3 · The recipe, exactly</h3>
 <div class="note math">
 <div class="nh">Σ From one float to 256 numbers</div>
 <p><span class="mathblk">t′ = 1000 · t</span></p>
@@ -389,7 +389,7 @@ rather than jumping.</li>
 to 1, which puts the useful part of the frequency ladder where the cycles are. It is not a consequence of
 the schedule and it carries no meaning of its own.</p>
 
-<h3>6.4 · Why a cosine <em>and</em> a sine</h3>
+<h3>7.4 · Why a cosine <em>and</em> a sine</h3>
 <p>128 rates would be enough to make the reading unique, so why does the encoding use 256 numbers — a
 cosine <em>and</em> a sine at every rate? Because a lone sinusoid is ambiguous about where it is in its
 cycle, and a pair is not.</p>
@@ -432,7 +432,7 @@ cycle, and a pair is not.</p>
 <text x="846" y="330" class="eq">(cos θ, sin θ) is a point on the circle — the two times land in different places.</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 10</span><b>The reason for 256 instead of 128.</b> On the left, two
+<figcaption><span class="figno">FIG 11</span><b>The reason for 256 instead of 128.</b> On the left, two
 moments of the run produce the same cosine value — a network reading only that channel cannot know which
 one it is being asked about, or which way time is moving. On the right, the same two moments as points on
 the circle that the (cos, sin) pair traces: distinct positions, and the direction of travel is visible too.
@@ -441,18 +441,18 @@ Stacking a pair per rate is what makes the fingerprint a <em>phase</em>, not jus
 <p>There is a bonus, and it is the hinge to the next chapter. A point on a circle at angle θ, moved on by a
 fixed amount Δ, is the same point <em>rotated</em> — and a rotation is a 2 × 2 matrix acting on the pair
 (cos θ, sin θ). So "a shift in position" becomes "multiply by a small matrix", which is exactly what
-rotary position embedding does in §8 with four coordinates per token instead of one.</p>
+rotary position embedding does in §9 with four coordinates per token instead of one.</p>
 
-<h3>6.5 · What happens to the fingerprint next</h3>
+<h3>7.5 · What happens to the fingerprint next</h3>
 <p>The 256 numbers are fixed and meaningless on their own — a code, not an interpretation. Two more steps
 turn them into something the network can act on, and both are in Part 3:</p>
 <ul>
-<li><strong>A learned widening.</strong> A small two-layer network (256 → 6144 → 6144, §13.3) maps the code
+<li><strong>A learned widening.</strong> A small two-layer network (256 → 6144 → 6144, §14.3) maps the code
 to a single <em>condition vector</em>. This is where meaning is learned: which patterns of fast and slow
 readings correspond to "still noise", "shapes forming", "finishing touches". Nothing before it has a single
 parameter.</li>
 <li><strong>A learned projection into dials.</strong> Three matrices turn that vector into the shift, scale
-and gate values that every block is modulated by (§12). The fingerprint never reaches a block; only the
+and gate values that every block is modulated by (§13). The fingerprint never reaches a block; only the
 dials do.</li>
 </ul>
 <p>So the full journey of one float is: <em>multiply by 1000, read 128 clocks twice each, learn a meaning
@@ -466,7 +466,7 @@ position — with the identical frequency-ladder machinery, but keeps the result
 of flattening it into a feature vector. Same idea, two different jobs: one tells the network <em>when</em>
 it is, the other tells it <em>where</em> each token sits.</p>
 </div>
-<p class="dim">Used later: §8 (positions, the same ladder as rotations), §13.1 (<code>timestep_embedding</code>,
-the eleven lines that implement this chapter), §13.3 (<code>MLPEmbedder</code>, the learned widening), §12
+<p class="dim">Used later: §9 (positions, the same ladder as rotations), §14.1 (<code>timestep_embedding</code>,
+the eleven lines that implement this chapter), §14.3 (<code>MLPEmbedder</code>, the learned widening), §13
 (what the dials do once they exist).</p>
 </section>

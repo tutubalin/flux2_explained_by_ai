@@ -1,5 +1,5 @@
 <section id="primitives">
-<h2><span class="secno">§13</span>The eleven small parts</h2>
+<h2><span class="secno">§14</span>The eleven small parts</h2>
 <p class="section-intro">
 Every large structure in this file is assembled from eleven small ones. This section meets each of
 them, line by line, <strong>strictly bottom-up: no subsection ever uses a piece that has not already
@@ -11,21 +11,21 @@ this table is your map. Read it top to bottom and nothing will ever feel like it
 <table class="data">
 <thead><tr><th style="width:230px">part</th><th style="width:210px">needs (all earlier)</th><th>feeds (all later)</th></tr></thead>
 <tbody>
-<tr><td>13.1 <code>timestep_embedding</code></td><td>nothing</td><td>the noise-level code → MLPEmbedder</td></tr>
-<tr><td>13.2 <code>SiLUActivation</code></td><td>nothing</td><td>the block MLPs (§15–§16) only</td></tr>
-<tr><td>13.3 <code>MLPEmbedder</code></td><td>13.1</td><td>the condition vector <code>vec</code> (§17)</td></tr>
-<tr><td>13.4 <code>rope</code></td><td>the rotation idea of §7</td><td>EmbedND</td></tr>
-<tr><td>13.5 <code>EmbedND</code></td><td>13.4</td><td>the rotation stack consumed by apply_rope</td></tr>
-<tr><td>13.6 <code>apply_rope</code></td><td>8.4, 13.5</td><td>rotated q, k inside the blocks (§15–§16)</td></tr>
-<tr><td>13.7 <code>RMSNorm</code> &amp; <code>QKNorm</code></td><td>nothing</td><td>SelfAttention</td></tr>
-<tr><td>13.8 <code>SelfAttention</code></td><td>13.7</td><td>the blocks' attention parameters (§15–§16)</td></tr>
-<tr><td>13.9 <code>Modulation</code></td><td>nothing — its <code>nn.SiLU</code> is PyTorch's</td><td>the adaLN dials of every block (§15–§16)</td></tr>
-<tr><td>13.10 <code>LastLayer</code></td><td>13.9's adaLN formula</td><td>the model's output (§17)</td></tr>
+<tr><td>14.1 <code>timestep_embedding</code></td><td>nothing</td><td>the noise-level code → MLPEmbedder</td></tr>
+<tr><td>14.2 <code>SiLUActivation</code></td><td>nothing</td><td>the block MLPs (§16–§17) only</td></tr>
+<tr><td>14.3 <code>MLPEmbedder</code></td><td>14.1</td><td>the condition vector <code>vec</code> (§18)</td></tr>
+<tr><td>14.4 <code>rope</code></td><td>the rotation idea of §8</td><td>EmbedND</td></tr>
+<tr><td>14.5 <code>EmbedND</code></td><td>14.4</td><td>the rotation stack consumed by apply_rope</td></tr>
+<tr><td>14.6 <code>apply_rope</code></td><td>8.4, 14.5</td><td>rotated q, k inside the blocks (§16–§17)</td></tr>
+<tr><td>14.7 <code>RMSNorm</code> &amp; <code>QKNorm</code></td><td>nothing</td><td>SelfAttention</td></tr>
+<tr><td>14.8 <code>SelfAttention</code></td><td>14.7</td><td>the blocks' attention parameters (§16–§17)</td></tr>
+<tr><td>14.9 <code>Modulation</code></td><td>nothing — its <code>nn.SiLU</code> is PyTorch's</td><td>the adaLN dials of every block (§16–§17)</td></tr>
+<tr><td>14.10 <code>LastLayer</code></td><td>14.9's adaLN formula</td><td>the model's output (§18)</td></tr>
 </tbody>
 </table>
 </div>
 
-<h3 id="p-timestep">13.1 · <span class="sig">timestep_embedding(t, dim, max_period, time_factor)</span> — L710</h3>
+<h3 id="p-timestep">14.1 · <span class="sig">timestep_embedding(t, dim, max_period, time_factor)</span> — L710</h3>
 <p>The model needs to know <em>how noisy its input is</em>. But a single float like 0.87 is a terrible
 input for a neural network: one number cannot be meaningfully multiplied by a 6144-column weight
 matrix in a way that distinguishes 0.87 from 0.86. The standard fix, inherited from the original
@@ -56,9 +56,9 @@ coordinates and slow in others — so a linear layer reading it can resolve both
 and "exactly how noisy".</p>
 </div>
 
-<p class="dim">Used later: MLPEmbedder (§13.3) turns this code into the condition vector.</p>
+<p class="dim">Used later: MLPEmbedder (§14.3) turns this code into the condition vector.</p>
 
-<h3 id="p-glu">13.2 · <span class="sig">SiLUActivation</span> — L390</h3>
+<h3 id="p-glu">14.2 · <span class="sig">SiLUActivation</span> — L390</h3>
 <p>Despite the name, this is not just an activation function: it is a <strong>gate</strong>, and it
 halves the width of whatever you give it.</p>
 
@@ -76,9 +76,9 @@ and L538 (double block) — and then appears in four width expressions:
 the <code>torch.split</code> that undoes it) and at L547 and L562 (the two streams' MLPs). Half of those
 columns are the gate, and they will be consumed by this multiplication.</p>
 
-<p class="dim">Used later: every block MLP (§15–§16) — and nowhere else. <code>MLPEmbedder</code> (§13.3) and <code>Modulation</code> (§13.9) use a plain SiLU — <code>nn.SiLU()</code> in one, <code>nn.functional.silu</code> in the other — with no gate and no halving.</p>
+<p class="dim">Used later: every block MLP (§16–§17) — and nowhere else. <code>MLPEmbedder</code> (§14.3) and <code>Modulation</code> (§14.9) use a plain SiLU — <code>nn.SiLU()</code> in one, <code>nn.functional.silu</code> in the other — with no gate and no halving.</p>
 
-<h3 id="p-mlp">13.3 · <span class="sig">MLPEmbedder</span> — L683</h3>
+<h3 id="p-mlp">14.3 · <span class="sig">MLPEmbedder</span> — L683</h3>
 <p>The sinusoidal fingerprint is still just a fixed code; the model needs to <em>learn</em> what to do
 with it. <code>MLPEmbedder</code> is the smallest possible learned transformer of a vector: two linear
 layers with a nonlinearity between them.</p>
@@ -87,7 +87,7 @@ layers with a nonlinearity between them.</p>
 
 <!--TRACE-->
 <!--T 686|First projection, 256 → 6144. Notice <code>bias=not disable_bias</code>: the class can be told to drop biases, and FLUX.2 always does (<code>disable_bias=True</code> at both call sites). Both call sites are <code>time_in</code> (L69) and <code>guidance_in</code> (L74). Why drop the biases? The file does not say. <span class="spec">inference</span> The downstream adaLN generates its own per-token shift, so a constant offset here is largely redundant — and 6144 fewer parameters per layer is free.-->
-<!--T 687|<code>nn.SiLU</code> is the smooth activation x·σ(x), also called swish. It is the same <em>function</em> that <code>SiLUActivation</code> of §13.2 uses as its gate, but here it is applied plainly — no <code>chunk</code>, no multiplication, no halving. Keep the two apart: <code>nn.SiLU</code> is an ordinary nonlinearity between two linear layers; <code>SiLUActivation</code> is a gated one. SiLU (not ReLU or GELU) is what this file uses everywhere.-->
+<!--T 687|<code>nn.SiLU</code> is the smooth activation x·σ(x), also called swish. It is the same <em>function</em> that <code>SiLUActivation</code> of §14.2 uses as its gate, but here it is applied plainly — no <code>chunk</code>, no multiplication, no halving. Keep the two apart: <code>nn.SiLU</code> is an ordinary nonlinearity between two linear layers; <code>SiLUActivation</code> is a gated one. SiLU (not ReLU or GELU) is what this file uses everywhere.-->
 <!--T 688|Second projection, 6144 → 6144. This is the expensive part: 37.7 million parameters for one call, per step. It exists so the timestep signal gets a full-width, learned, nonlinear transformation before it is allowed to touch the image stream.-->
 <!--T 691|The whole forward is one expression: <code>out(in(x))</code> with a SiLU sandwiched. Input (N, 256) → output (N, 6144).-->
 <!--/TRACE-->
@@ -96,10 +96,10 @@ layers with a nonlinearity between them.</p>
 and, when <code>use_guidance_embed</code> is set, as <code>guidance_in</code> for the guidance strength.
 Their outputs are simply <em>added</em>, so both signals share every downstream modulation weight.</p>
 
-<p class="dim">Used later: <code>Flux2</code> builds <code>time_in</code> and <code>guidance_in</code> from this class (§17).</p>
+<p class="dim">Used later: <code>Flux2</code> builds <code>time_in</code> and <code>guidance_in</code> from this class (§18).</p>
 
-<h3 id="p-rope">13.4 · <span class="sig">rope</span> — L818</h3>
-<p><code>rope</code> is the factory that manufactures the 2×2 rotation matrices of §7.1 from raw
+<h3 id="p-rope">14.4 · <span class="sig">rope</span> — L818</h3>
+<p><code>rope</code> is the factory that manufactures the 2×2 rotation matrices of §8.1 from raw
 position numbers — honestly the densest eight lines in the file, so we will take them extremely
 slowly. <b>In:</b> a tensor <code>pos</code> of shape <span class="shape">(B, L)</span> holding one
 axis's coordinate for every token, a dimension budget <code>dim</code> (32 for each FLUX.2 axis) and
@@ -111,18 +111,18 @@ rotation matrix per rotation plane per token.</p>
 <!--TRACE-->
 <!--T 819|Refuse odd dimension budgets: rotations consume dimensions in pairs, so an axis with an odd number of dimensions would leave one dimension un-rotated and therefore position-blind.-->
 <!--T 820|Build the exponent ladder for this axis: <code>arange(0, dim, 2)</code> steps by two — one entry per rotation <em>plane</em>, i.e. 0, 2, 4, …, 30 for dim = 32 — then divides by <code>dim</code> to get fractions 0, 1/16, 2/16, …, 15/16. (Dividing by <code>dim</code> rather than by the plane count is just the standard RoPE formula written with the full dimension.)-->
-<!--T 821|<code>omega = 1 / θ^scale</code>: the angular speed of each plane. With θ = 2000 and dim = 32 the 16 speeds run from 1.0 down to 0.000804 — the odometer wheels of §7.2, drawn in FIG 14.-->
+<!--T 821|<code>omega = 1 / θ^scale</code>: the angular speed of each plane. With θ = 2000 and dim = 32 the 16 speeds run from 1.0 down to 0.000804 — the odometer wheels of §8.2, drawn in FIG 15.-->
 <!--T 822|<code>einsum("...n,d-&gt;...nd", pos, omega)</code> multiplies every position (the "n" axis) by every frequency (the "d" axis): the angle of plane <em>d</em> at position <em>p</em> is <code>p·ω_d</code>. Shape goes from (B, L) to (B, L, 16). The <code>...</code> keeps it general over any leading batch axes.-->
 <!--T 823|Here is the clever bit. For each angle φ we need the rotation matrix [[cos φ, −sin φ], [sin φ, cos φ]]. Read row-major, that matrix's four entries are exactly <code>[cos, −sin, sin, cos]</code> — so stacking those four tensors along a new last axis yields, in one shot, every rotation matrix. Shape: (B, L, 16, 4).-->
 <!--T 824|Reshape the flat 4 into a genuine 2×2: <code>(i j)</code> with i = j = 2 splits the last axis into two. Now the tensor is (B, L, 16, 2, 2) — a real matrix per plane, per token.-->
-<!--T 825|Cast to float32 and return. Rotations are computed and stored in full precision; the function that applies them (§13.6) works in float32 and casts back only at the very end. This is a deliberate accuracy choice <span class="spec">inference</span> — the file gives no comment, but the rotation is the one place where a tiny angular error would be applied to <em>every</em> query and key in all 56 blocks, and cos/sin of a bfloat16 angle loses most of its significant digits.-->
+<!--T 825|Cast to float32 and return. Rotations are computed and stored in full precision; the function that applies them (§14.6) works in float32 and casts back only at the very end. This is a deliberate accuracy choice <span class="spec">inference</span> — the file gives no comment, but the rotation is the one place where a tiny angular error would be applied to <em>every</em> query and key in all 56 blocks, and cos/sin of a bfloat16 angle loses most of its significant digits.-->
 <!--/TRACE-->
 
-<p class="dim">Used later: EmbedND (§13.5) calls it once per position axis.</p>
+<p class="dim">Used later: EmbedND (§14.5) calls it once per position axis.</p>
 
-<h3 id="p-embednd">13.5 · <span class="sig">EmbedND</span> — L694</h3>
+<h3 id="p-embednd">14.5 · <span class="sig">EmbedND</span> — L694</h3>
 <p>Every token that enters FLUX.2 carries a small address: four numbers, one per position axis
-(§7). <code>EmbedND</code> is the machine that turns those addresses into something attention can
+(§8). <code>EmbedND</code> is the machine that turns those addresses into something attention can
 actually use — a stack of rotation matrices, one per rotation plane of the head. It owns
 <strong>no parameters at all</strong>: no weights, no tables, just trigonometry, recomputed from
 scratch on every call.</p>
@@ -149,10 +149,10 @@ dimensions each axis owns.</p>
 <p><b>Step 1 — slice off one column.</b> <code>ids[..., i]</code> takes axis <em>i</em>'s coordinate
 for every token at once: a <span class="shape">(B, L)</span> tensor of plain positions. For i = 1
 that is the list of all row numbers; for i = 3 the list of word indices.</p>
-<p><b>Step 2 — rope that column.</b> Each slice is handed to <code>rope</code> (§13.4) together with
+<p><b>Step 2 — rope that column.</b> Each slice is handed to <code>rope</code> (§14.4) together with
 that axis's dimension budget, <code>axes_dim[i] = 32</code>. <code>rope</code> pairs those 32
 dimensions into 16 rotation planes and writes one 2×2 rotation matrix per plane per token — the
-matrix from §7.1, with angle <em>position × ω</em> of that plane. Output per axis:
+matrix from §8.1, with angle <em>position × ω</em> of that plane. Output per axis:
 <span class="shape">(B, L, 16, 2, 2)</span> = batch × token × plane × 2×2 matrix.</p>
 <p><b>Step 3 — glue the four bundles together.</b> <code>torch.cat([...], dim=-3)</code> stacks the
 four bundles of planes end-to-end along the <em>plane</em> axis: 16 + 16 + 16 + 16 = 64 planes,
@@ -161,7 +161,7 @@ right: −1 is the matrix column, −2 the matrix row, −3 the plane. Concatena
 2×2 matrix untouched and simply lines the planes up in axis order — t's 16 planes first, then h's,
 then w's, then l's. That order is a contract: plane <em>j</em> of this output is exactly the rotation
 that <code>apply_rope</code> will apply to dimensions <em>(2j, 2j+1)</em> of q and k, which is
-precisely the dim-split drawn in <a href="#rope">FIG 14</a>.</p>
+precisely the dim-split drawn in <a href="#rope">FIG 15</a>.</p>
 <p><b>Step 4 — make room for heads.</b> <code>unsqueeze(1)</code> inserts a size-1 axis at position
 1: <span class="shape">(B, 1, L, 64, 2, 2)</span>. All 48 heads of a layer share the same rotations,
 so a size-1 axis lets one computed copy broadcast across every head for free during
@@ -258,10 +258,10 @@ so a size-1 axis lets one computed copy broadcast across every head for free dur
 <text x="840" y="474" class="eq" text-anchor="middle">→ (B, 1, L, 64, 2, 2) — 1 broadcasts to 48 heads</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 18</span><b>Inside EmbedND.</b> The four coordinate columns are sliced apart,
+<figcaption><span class="figno">FIG 19</span><b>Inside EmbedND.</b> The four coordinate columns are sliced apart,
 each runs through <code>rope</code> on its own dimension budget, and the four bundles of 16 rotation
 planes are glued end-to-end along the plane axis. The colour order — t, h, w, l — is not cosmetic: it
-is the same dim-split as FIG 14, and it is what lets <code>apply_rope</code> pair plane <em>j</em> with
+is the same dim-split as FIG 15, and it is what lets <code>apply_rope</code> pair plane <em>j</em> with
 head dimensions <em>(2j, 2j+1)</em> without any bookkeeping.</figcaption>
 </figure>
 
@@ -274,13 +274,13 @@ and for the real thing: ids (1, 4608, 4) → pe (1, 1, 4608, 64, 2, 2), 1.18 M f
 </p>
 </div>
 
-<p class="dim">Used later: every block feeds this output to apply_rope (§13.6).</p>
+<p class="dim">Used later: every block feeds this output to apply_rope (§14.6).</p>
 
-<h3 id="p-applyrope">13.6 · <span class="sig">apply_rope</span> — L828</h3>
+<h3 id="p-applyrope">14.6 · <span class="sig">apply_rope</span> — L828</h3>
 <p><code>rope</code> built the rotations; <code>apply_rope</code> is the small consumer that actually
 turns q and k with them. <b>In:</b> a query or key tensor of shape <span class="shape">(B, H, L, 128)</span>
 and the rotation stack <code>freqs_cis</code> of shape <span class="shape">(B, 1, L, 64, 2, 2)</span> —
-exactly what <code>EmbedND</code> returned in §13.5, its size-1 head axis broadcasting over all heads.
+exactly what <code>EmbedND</code> returned in §14.5, its size-1 head axis broadcasting over all heads.
 <b>Out:</b> the same shape as the input, every adjacent pair of dimensions rotated, computed in
 float32 and cast back.</p>
 
@@ -298,13 +298,13 @@ float32 and cast back.</p>
 forwards, L649 and L675 in the double block's two forwards: it is always applied
 to <code>q, k</code> only. That is correct and important. Position information must live in the
 <em>comparison</em> between a query and a key; rotating the values too would rotate the information
-being retrieved, which is not what you want. The relative-distance trick from §7.1 works precisely
+being retrieved, which is not what you want. The relative-distance trick from §8.1 works precisely
 because q and k are rotated <em>identically</em>.</p>
 </div>
 
-<p class="dim">Used later: all four attention sites inside the blocks (§15–§16).</p>
+<p class="dim">Used later: all four attention sites inside the blocks (§16–§17).</p>
 
-<h3 id="p-norms">13.7 · <span class="sig">RMSNorm</span> and <span class="sig">QKNorm</span> — L734, L746</h3>
+<h3 id="p-norms">14.7 · <span class="sig">RMSNorm</span> and <span class="sig">QKNorm</span> — L734, L746</h3>
 <p>Attention scores are dot products of queries and keys. During training those vectors can grow large,
 and a few oversized keys can dominate every softmax in the layer — a well-known instability. The fix
 used here — normalise queries and keys <em>per head</em> before the dot product — is
@@ -326,9 +326,9 @@ root-mean-square statistic it is computed with is <a href="#refs">Zhang &amp; Se
 16,384 scale values are the <em>only</em> parameters in the file that are not part of a matrix
 multiply.</p>
 
-<p class="dim">Used later: SelfAttention (§13.8) owns one QKNorm per attention bundle.</p>
+<p class="dim">Used later: SelfAttention (§14.8) owns one QKNorm per attention bundle.</p>
 
-<h3 id="p-selfattn">13.8 · <span class="sig">SelfAttention</span> — L375</h3>
+<h3 id="p-selfattn">14.8 · <span class="sig">SelfAttention</span> — L375</h3>
 <p>Now for something genuinely surprising. Read the whole class:</p>
 
 <!--CODE 375-387 title="model.py" hl="384,386,387"-->
@@ -337,13 +337,13 @@ multiply.</p>
 <code>self.img_attn(x)</code> — Python would raise <code>NotImplementedError</code> from
 <code>nn.Module</code>'s fallback. <code>SelfAttention</code> is used purely as a
 <em>container of parameters</em>: the fused QKV projection, the QK normalisation, and the output
-projection. The actual attention mathematics lives elsewhere: the blocks of §15–§16 read
-<code>.qkv</code> and <code>.norm</code> directly, the attention routine of §14 does the softmax, and
+projection. The actual attention mathematics lives elsewhere: the blocks of §16–§17 read
+<code>.qkv</code> and <code>.norm</code> directly, the attention routine of §15 does the softmax, and
 <code>.proj</code> finishes the result inside the blocks' residual step.</p>
 
 <!--TRACE-->
 <!--T 384|One linear layer producing queries, keys and values at once: 6144 → 18432. Fusing the three projections into a single matrix multiply is faster on GPUs than three separate ones and is universal in modern implementations.-->
-<!--T 386|The QK normalisation from §13.7, sized to the head width (128), because normalisation happens per head after the split.-->
+<!--T 386|The QK normalisation from §14.7, sized to the head width (128), because normalisation happens per head after the split.-->
 <!--T 387|The output projection, 6144 → 6144, applied after attention mixes the tokens. No bias, like everything else here.-->
 <!--/TRACE-->
 
@@ -352,17 +352,17 @@ projection. The actual attention mathematics lives elsewhere: the blocks of §15
 <p>Honest answer: it groups the four attention parameters under one name so that
 <code>block.img_attn.qkv.weight</code> reads clearly and so checkpoint keys stay tidy, while letting the
 <em>block</em> control exactly how and when each piece is used. FLUX.2's blocks need to interleave
-attention with modulation, RoPE and the reference routing of §14, so a rigid <code>forward(x) → x</code>
+attention with modulation, RoPE and the reference routing of §15, so a rigid <code>forward(x) → x</code>
 would not fit anyway. It is a pragmatic choice, and once you know it the file stops being confusing: whenever you see
 <code>self.X_attn.</code> followed by a member name, you are looking at parameter access, not a call.</p>
 </div>
 
-<p class="dim">Used later: each block owns one of these per stream (§15–§16).</p>
+<p class="dim">Used later: each block owns one of these per stream (§16–§17).</p>
 
-<h3 id="p-mod">13.9 · <span class="sig">Modulation</span> — L400</h3>
-<p>This is the class that gives the timestep its hands: stage 4 of §8.6, the matrix that turns one
+<h3 id="p-mod">14.9 · <span class="sig">Modulation</span> — L400</h3>
+<p>This is the class that gives the timestep its hands: stage 4 of §9.6, the matrix that turns one
 condition vector into everybody's shift, scale and gate. The technique is <strong>adaptive layer
-normalisation</strong> (adaLN), from the DiT paper, and §8.3–§8.5 built the idea from nothing — why a
+normalisation</strong> (adaLN), from the DiT paper, and §9.3–§9.5 built the idea from nothing — why a
 normalisation layer is the place to inject, what the three dials do, and what the <code>1 +</code> is for.
 What is left here is the plumbing, and the plumbing is worth reading closely, because 13 lines decide the
 shapes that all 56 blocks consume and one of them is a tuple convention that reads like a bug.</p>
@@ -370,17 +370,17 @@ shapes that all 56 blocks consume and one of them is a tuple convention that rea
 <!--CODE 400-412 title="model.py" hl="403,404,405,408,409,410,411,412"-->
 
 <!--TRACE-->
-<!--T 403|<code>double</code> means "this module serves <em>one stream</em> of a double-stream block". A stream has two sub-layers — attention and MLP — so it needs two independent (shift, scale, gate) triples. The block's other stream is served by a second module of the same kind, which is why <code>__init__</code> builds two of them (§8.6, §17.1).-->
+<!--T 403|<code>double</code> means "this module serves <em>one stream</em> of a double-stream block". A stream has two sub-layers — attention and MLP — so it needs two independent (shift, scale, gate) triples. The block's other stream is served by a second module of the same kind, which is why <code>__init__</code> builds two of them (§9.6, §18.1).-->
 <!--T 404|Hence the multiplier: 6 output chunks for double blocks, 3 for single blocks.-->
 <!--T 405|A single linear layer, 6144 → multiplier × 6144. For the double-stream image modulation that is 6144 → 36864, i.e. 226 million parameters in one matrix — the largest non-block weight in the file.-->
-<!--T 408|Activate the conditioning vector before projecting it. Note what this SiLU is <em>not</em>: it is not the gate of §13.2, just a plain nonlinearity between <code>vec</code> and <code>lin</code> — the same shape as <code>MLPEmbedder</code>. SiLU is smooth, dips slightly negative around x ≈ −1.28 and then grows almost linearly, so small (or negative) inputs are squashed towards zero while large ones pass through. <span class="spec">inference</span> That "off region" is presumably the point: it lets the modulation stay near its identity value (shift 0, scale 0, gate 0) for uninformative conditioning vectors.-->
+<!--T 408|Activate the conditioning vector before projecting it. Note what this SiLU is <em>not</em>: it is not the gate of §14.2, just a plain nonlinearity between <code>vec</code> and <code>lin</code> — the same shape as <code>MLPEmbedder</code>. SiLU is smooth, dips slightly negative around x ≈ −1.28 and then grows almost linearly, so small (or negative) inputs are squashed towards zero while large ones pass through. <span class="spec">inference</span> That "off region" is presumably the point: it lets the modulation stay near its identity value (shift 0, scale 0, gate 0) for uninformative conditioning vectors.-->
 <!--T 409-410|If the input was a single vector per batch element, <code>out</code> is (B, 6·D); <code>[:, None, :]</code> inserts a length-1 sequence axis so it becomes (B, 1, 6·D) and can broadcast against token tensors of shape (B, L, D) later.-->
 <!--T 411|Slice into <code>multiplier</code> equal chunks along the feature axis. Chunk order is (shift₁, scale₁, gate₁, shift₂, scale₂, gate₂).-->
 <!--T 412|Return the first triple, plus the second triple for double blocks — or <code>None</code>. Careful reading: Python parses this as <code>(out[:3], (out[3:] if is_double else None))</code>, so a single-stream modulation returns a 2-tuple whose second element is <code>None</code>. That is why callers write <code>single_block_mod, _ = self.single_stream_modulation(vec)</code>.-->
 <!--/TRACE-->
 
 <p>The same thirteen lines again, this time as a shape trace — the column on the right is what the blocks
-in §15 and §16 actually receive:</p>
+in §16 and §17 actually receive:</p>
 <div class="tbl-wrap">
 <table class="data">
 <thead><tr><th style="width:80px">line</th><th style="width:210px">what it does</th><th style="width:290px">shapes, for <code>double_stream_modulation_img</code></th><th>why it is written that way</th></tr></thead>
@@ -402,8 +402,8 @@ silently applies a gate where a shift belongs.</p>
 
 <div class="note beginner">
 <div class="nh">◇ One timestep, end to end</div>
-<p>Take <code>t = 0.62</code> in a dev run with <code>guidance = 4.0</code>. §13.1 turns the scalar into 256
-numbers between −1 and 1; §13.3 turns those into <code>vec</code>, 6144 numbers; the guidance value takes
+<p>Take <code>t = 0.62</code> in a dev run with <code>guidance = 4.0</code>. §14.1 turns the scalar into 256
+numbers between −1 and 1; §14.3 turns those into <code>vec</code>, 6144 numbers; the guidance value takes
 the same two steps through its own copy and is added in (L130). Now this class applies SiLU to those 6144
 numbers, multiplies by a 6144 × 36 864 matrix, and slices the result into six vectors of 6144. Double block
 0 takes the first three: <code>img_mod1_scale</code> and <code>img_mod1_shift</code> are multiplied and
@@ -425,7 +425,7 @@ exactly what is shared and what is not:</p>
 </tbody>
 </table>
 </div>
-<p>Two details in that table are the whole of §18 in advance. First, <code>double_stream_modulation_txt</code>
+<p>Two details in that table are the whole of §19 in advance. First, <code>double_stream_modulation_txt</code>
 has no reference call: the text stream contains no reference tokens, so its dials can stay one broadcast
 value per step. Second, <code>_img</code> and <code>single_stream_modulation</code> are each called
 <em>twice</em> in <code>forward_kv_extract</code> — once with <code>vec</code> (the real timestep) and once
@@ -434,7 +434,7 @@ tokens are clean and the rest are not". Splicing the two results is what the thr
 <code>_blend_*</code> functions do.</p>
 <p class="dim">And one absence: <code>bias=False</code>. A bias on this matrix would be a constant added to
 every dial, but <code>shift</code> is already an additive dial, so a bias could only ever be absorbed into
-it — redundant parameters with no extra expressiveness. That is the file-wide rule of §11.1 (zero biases in
+it — redundant parameters with no extra expressiveness. That is the file-wide rule of §12.1 (zero biases in
 171 linear layers) showing up in the one place where a bias would have been most defensible.</p>
 
 <figure>
@@ -491,7 +491,7 @@ it — redundant parameters with no extra expressiveness. That is the file-wide 
 <text x="740" y="106" class="eq" fill="#5fe08a">gate</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 19</span><b>adaLN in one picture.</b> The green dials are generated, not learned
+<figcaption><span class="figno">FIG 20</span><b>adaLN in one picture.</b> The green dials are generated, not learned
 per-layer: the same <code>vec</code> that encodes "we are 62 % noisy" decides how strongly every
 sub-layer of every block is allowed to speak. The gate is also what makes DiT's
 "adaLN-Zero" trick possible: a block whose gate is zero starts life as the identity function, which is
@@ -501,10 +501,10 @@ tells you how the gates start out.</figcaption>
 </figure>
 
 <p class="dim">Used later: <code>Flux2</code> builds the three modules at L98–108 and calls them at
-L132–134, L206–211 and L290–292 (§17); every block consumes their triples (§15–§16); §18 splices two runs
+L132–134, L206–211 and L290–292 (§18); every block consumes their triples (§16–§17); §19 splices two runs
 of them together for the reference tokens.</p>
 
-<h3 id="p-last">13.10 · <span class="sig">LastLayer</span> — L415</h3>
+<h3 id="p-last">14.10 · <span class="sig">LastLayer</span> — L415</h3>
 <p>The exit door. It must turn 6144-dim hidden states back into 128-dim latent tokens, and it gets one
 final chance to let the timestep modulate the result.</p>
 
@@ -520,7 +520,7 @@ final chance to let the timestep modulate the result.</p>
 <!--/TRACE-->
 
 <div class="note beginner">
-<div class="nh">◇ Beginner · recap of section 13</div>
+<div class="nh">◇ Beginner · recap of section 14</div>
 <p>You now hold every tool the big blocks use, in the order they were built: a sinusoidal
 time code (<code>timestep_embedding</code>), the gate (<code>SiLUActivation</code>), the learned
 conditioner (<code>MLPEmbedder</code>), the position factory (<code>rope</code>), the four-axis

@@ -34,7 +34,7 @@ single reason — the middle one cannot read a word, and it cannot see a pixel.
 <rect x="310" y="228" width="290" height="76" rx="11" fill="#0e1622" stroke="#35d6f0" stroke-opacity=".45"/>
 <text x="455" y="254" class="eq" text-anchor="middle" fill="#35d6f0">512 rows × 15 360 numbers</text>
 <text x="455" y="276" class="eq" text-anchor="middle">the prompt, as the transformer</text>
-<text x="455" y="292" class="eq" text-anchor="middle">can actually read it (§5)</text>
+<text x="455" y="292" class="eq" text-anchor="middle">can actually read it (§6)</text>
 <path d="M455,192 L455,226" stroke="#35d6f0" stroke-width="1.9" fill="none" marker-end="url(#stC)"/>
 
 <!-- reference photos -->
@@ -111,9 +111,9 @@ VAE, run backwards once, turns the finished latents into the picture you downloa
 <tr><td>the canvas</td><td>4 096 rows × 128 numbers</td><td>pure Gaussian noise, reshaped — no model produced it</td></tr>
 <tr><td>the prompt</td><td>512 rows × 15 360 numbers</td><td>the text encoder (§3)</td></tr>
 <tr><td>reference images</td><td>up to 16 384 rows × 128</td><td>the VAE encoder (§4), if this run has any</td></tr>
-<tr><td>positions</td><td>one row of 4 integers per token</td><td>a counter, no model at all (§7)</td></tr>
+<tr><td>positions</td><td>one row of 4 integers per token</td><td>a counter, no model at all (§8)</td></tr>
 <tr><td>the time</td><td>one float</td><td>the schedule (§1)</td></tr>
-<tr><td>the guidance</td><td>one float</td><td>a setting you chose (§8)</td></tr>
+<tr><td>the guidance</td><td>one float</td><td>a setting you chose (§9)</td></tr>
 </tbody>
 </table>
 </div>
@@ -146,11 +146,11 @@ absence of a single bias — is a decision about the cost of one call, multiplie
 <p>Because it runs once. Its cost is a fixed entry fee, not a per-step tax, so FLUX.2 can afford a text
 encoder larger than most image generators are in total — and gets, in exchange, an understanding of prompts
 that a small CLIP-style encoder cannot match: long sentences, negations, counts, and legible spelling in
-the image itself. §5 is about that model and the strange shape of its output.
+the image itself. §6 is about that model and the strange shape of its output.
 <span class="spec">inference</span> — the sizes and the single call are in the code; the reasoning about
 why that trade is worth making is not written down anywhere.</p>
 </div>
-<p class="dim">Used later: §3 (the text encoder's 15 360), §4 (the VAE's 16× and the 128 channels), §7
-(the four position integers), §13 (the eleven parts that make up the middle box), §17 (where all six inputs
+<p class="dim">Used later: §3 (the text encoder's 15 360), §4 (the VAE's 16× and the 128 channels), §8
+(the four position integers), §14 (the eleven parts that make up the middle box), §18 (where all six inputs
 are received, in <code>Flux2.forward</code>).</p>
 </section>

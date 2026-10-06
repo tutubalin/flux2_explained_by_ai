@@ -1,5 +1,5 @@
 <section id="silu">
-<h2><span class="secno">§ 9</span>SiLUActivation — the soft switch</h2>
+<h2><span class="secno">§ 10</span>SiLUActivation — the soft switch</h2>
 <p class="section-intro">
 Between any two linear layers, a network needs something that is <em>not</em> linear, or the two layers
 collapse into one and the depth buys nothing. FLUX.2 uses exactly one such function, in two different
@@ -7,7 +7,7 @@ jobs, and it has its own class in <code>model.py</code>. It is four lines long. 
 idea, which is older than the file and worth understanding on its own terms.
 </p>
 
-<h3>9.1 · The problem with a hard corner</h3>
+<h3>10.1 · The problem with a hard corner</h3>
 <p>The classic choice is ReLU: <span class="shape">relu(x) = max(0, x)</span>. Negative inputs become
 exactly zero, positive ones pass through. It is cheap and it works, and it has one bad property: a unit
 whose input is negative has <em>no gradient at all</em>. During training, if a unit drifts into that
@@ -64,8 +64,8 @@ response, something ReLU cannot do at all.</p>
 <rect x="1176" y="146" width="150" height="52" rx="9" fill="#121a26" stroke="#2e4054"/>
 <text x="1251" y="170" class="eq" text-anchor="middle">next linear</text>
 <text x="1251" y="188" class="eq" text-anchor="middle" fill="#a9b8c9">→ condition vector</text>
-<text x="1352" y="166" class="eq" fill="#a9b8c9">in MLPEmbedder (§13.3)</text>
-<text x="1352" y="186" class="eq" fill="#a9b8c9">and Modulation (§13.9)</text>
+<text x="1352" y="166" class="eq" fill="#a9b8c9">in MLPEmbedder (§14.3)</text>
+<text x="1352" y="186" class="eq" fill="#a9b8c9">and Modulation (§14.9)</text>
 <text x="786" y="238" class="axb">Role 2 · a valve in the MLPs</text>
 <rect x="786" y="252" width="150" height="46" rx="9" fill="#121a26" stroke="#2e4054"/>
 <text x="861" y="280" class="eq" text-anchor="middle">half A of the MLP</text>
@@ -86,20 +86,20 @@ response, something ReLU cannot do at all.</p>
 <text x="40" y="446" class="ax">Left: no hard corner anywhere, and no region that is permanently dead — only softened.</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 16</span><b>The curve and its two jobs.</b> On the left, the function:
+<figcaption><span class="figno">FIG 17</span><b>The curve and its two jobs.</b> On the left, the function:
 flat and near zero for very negative inputs, a small dip to −0.28 around x = −1.28, then indistinguishable
 from the identity for positive ones. The faint blue curve is σ(x) — the switch that x multiplies itself by.
 On the right, the two roles it plays in FLUX.2: an ordinary activation between linear layers, and a
 <em>valve</em> inside the blocks' MLPs, where one half of the projection is passed through SiLU and
 multiplied against the other half.</figcaption>
 </figure>
-<h3>9.2 · Job one: an activation</h3>
+<h3>10.2 · Job one: an activation</h3>
 <p>The ordinary use. Anywhere the file needs a nonlinearity between two linear layers — the two-layer
-network that turns a timestep fingerprint into a condition vector (§13.3), and the projection that turns
-that vector into modulation dials (§13.9) — it puts SiLU in the middle. Two linear maps with nothing
+network that turns a timestep fingerprint into a condition vector (§14.3), and the projection that turns
+that vector into modulation dials (§14.9) — it puts SiLU in the middle. Two linear maps with nothing
 between them would compose into a single linear map, so all that depth would be wasted; one SiLU is what
 makes them two genuinely different transformations.</p>
-<h3>9.3 · Job two: a valve</h3>
+<h3>10.3 · Job two: a valve</h3>
 <p>The second use is more interesting, and it is why the class exists at all rather than being a call to
 <code>torch.nn.functional.silu</code>. Inside every one of the 56 blocks, the MLP projection is made twice
 as wide as it needs to be, and then split in half:</p>
@@ -111,19 +111,19 @@ as wide as it needs to be, and then split in half:</p>
 <p>Here SiLU is not shaping a signal, it is <em>gating</em> one. Half of the projection (A) is turned into
 a set of per-channel valves — mostly open, mostly shut, or anywhere between — and the other half (B) is
 the content that gets through them. The network learns, per token and per channel, how much of its own
-computation to let pass. This is the SwiGLU family of gated MLPs (Shazeer 2020, §23), and it is the same
-"multiply by a learned amount" idea that the modulation gate of §8.4 applies to whole sub-layers — one at
+computation to let pass. This is the SwiGLU family of gated MLPs (Shazeer 2020, §24), and it is the same
+"multiply by a learned amount" idea that the modulation gate of §9.4 applies to whole sub-layers — one at
 channel level, one at block level.</p>
 <p>It is also why the class is a module and not a function: the blocks hold it as
 <code>self.mlp_act</code>, so it appears in the module tree, and it is why the MLP widths in the
 configuration are not what they seem — a "3×" MLP ratio produces a projection that is split, so the
-effective hidden width is 3× while the matrix is 6× wide (§13.2 has the arithmetic).</p>
+effective hidden width is 3× while the matrix is 6× wide (§14.2 has the arithmetic).</p>
 <div class="note beginner">
 <div class="nh">◇ The one-line summary</div>
 <p>SiLU is <em>x</em> times a smooth switch that depends on <em>x</em> itself. Used between two linear
 layers it makes depth meaningful; used against a second copy of the signal it becomes a per-channel valve.
 FLUX.2 does both, with the same four lines, in 58 places.</p>
 </div>
-<p class="dim">Used later: §13.2 (<code>SiLUActivation</code>, the class), §13.3 and §13.9 (job one),
-§15–§16 (job two, inside every block's MLP), and §13.2 for the four lines of code that implement it.</p>
+<p class="dim">Used later: §14.2 (<code>SiLUActivation</code>, the class), §14.3 and §14.9 (job one),
+§16–§17 (job two, inside every block's MLP), and §14.2 for the four lines of code that implement it.</p>
 </section>

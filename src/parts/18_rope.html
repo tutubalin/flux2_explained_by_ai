@@ -1,14 +1,14 @@
 <section id="rope">
-<h2><span class="secno">§ 7</span>Position: the four-axis rotary embedding</h2>
+<h2><span class="secno">§ 8</span>Position: the four-axis rotary embedding</h2>
 <p class="section-intro">
-§5 ended on attention's blind spot: a dot product cannot see order. Feed the same tokens shuffled and
+§6 ended on attention's blind spot: a dot product cannot see order. Feed the same tokens shuffled and
 the scores shuffle with them — nothing in the mechanism knows which token came first, or which patch
 sits next to which. Everything spatial about an image, and everything sequential about a sentence, must
 be injected deliberately, into q and k, <em>before</em> attention runs. FLUX.2 does it with
 <strong>RoPE</strong>, extended to four axes at once.
 </p>
 
-<h3>7.1 · RoPE in one paragraph — and three pictures</h3>
+<h3>8.1 · RoPE in one paragraph — and three pictures</h3>
 <p>Attention scores are dot products: <code>score = ⟨q, k⟩</code>. And a dot product is blind to order —
 shuffle the tokens and the scores shuffle with them, without ever changing value. Position therefore
 has to be baked into <code>q</code> and <code>k</code> themselves, and there are two classic ways to do
@@ -77,14 +77,14 @@ tokens are</b>. Zero learned parameters, no maximum sequence length, nothing to 
 <text x="40" y="306" class="ax">both vectors spun by the same extra 7·ω — the angle between them, and therefore the attention score, is untouched</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 11</span><b>The relative-angle trick.</b> Left: a query at position 3 and a key at
+<figcaption><span class="figno">FIG 12</span><b>The relative-angle trick.</b> Left: a query at position 3 and a key at
 position 11, each rotated by its own position times ω. Right: the same pair moved seven positions along —
 both vectors spin by the same extra angle, so the angle <em>between</em> them never changes, and neither
 does the attention score. Absolute position cancels out of the equation; distance stays in it.</figcaption>
 </figure>
 
 <p>One plane, though, would not be enough. A head pairs its 128 dimensions into 64 rotation planes.
-In FLUX.2 those planes come in four groups of 16 — one group per position axis (§7.2) — and within a
+In FLUX.2 those planes come in four groups of 16 — one group per position axis (§8.2) — and within a
 group the planes run at speeds <span class="mm">ωⱼ = θ^(−2j/32)</span>, j = 0…15: a geometric ladder
 from <span class="mm">ω₀ = 1</span> (a full turn every 6.28 positions on that axis) down to
 <span class="mm">ω₁₅ = 1/θ^(30/32) ≈ 0.0008</span> (barely moving at all). The score is the sum of 64
@@ -125,7 +125,7 @@ apart. Summed together, the ladder gives every gap its own fingerprint.</p>
 <text x="80" y="302" class="ax">slow plane 7 barely moves: unambiguous but coarse. Attention sums all 64 planes — and only the sum is unique per gap</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 12</span><b>Why one plane is not enough.</b> Every plane contributes
+<figcaption><span class="figno">FIG 13</span><b>Why one plane is not enough.</b> Every plane contributes
 cos(gap·ωᵢ) to the attention score. The fast plane oscillates and aliases — every peak looks like every
 other. The slow plane never repeats but cannot resolve neighbours. The geometric ladder of 64 speeds
 between those extremes gives each gap a distinct summed fingerprint: no learned parameters, no length
@@ -149,7 +149,7 @@ gap = 3 : (p=0, p=3) → 6.703997 &nbsp; (p=5, p=8) → 6.703996
 <code>det R = +1.000000</code>, and that <code>apply_rope</code> leaves every vector's norm unchanged.</p>
 </div>
 
-<h3>7.2 · How 64 rotations fill one head's 128 numbers</h3>
+<h3>8.2 · How 64 rotations fill one head's 128 numbers</h3>
 <p>The paragraph above said "rotate the query and the key". This is what that means mechanically, because
 it is the part that is easiest to imagine wrongly: nothing is multiplied by a big matrix, and no dimension
 is ever mixed with any other.</p>
@@ -159,7 +159,7 @@ two-dimensional plane, and each plane is independent of all the others.</p>
 <p><strong>Step two: give every plane an angle.</strong> Plane <em>i</em> turns by
 <span class="shape">θᵢ = position × ωᵢ</span>, where the rates form a ladder
 <span class="shape">ωᵢ = θ<sub>base</sub><sup>−2i/dim</sup></span> with θ<sub>base</sub> = 2000 — the same
-geometric spread of fast and slow as the clock wall of §6, and for the same reason. Fast planes distinguish
+geometric spread of fast and slow as the clock wall of §7, and for the same reason. Fast planes distinguish
 neighbouring positions; slow ones carry the coarse distance.</p>
 <p><strong>Step three: rotate each pair with its own 2 × 2 matrix.</strong></p>
 <div class="note math">
@@ -420,11 +420,11 @@ matrix, no matrix product, just four multiplications and two additions per pair.
 <text x="40" y="486" class="ax">16 planes × 4 axes = 64 planes = 128 numbers. This is why __init__ refuses to build a model whose axes_dim does not sum to head_dim.</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 13</span><b>Where the 128 numbers go.</b> RoPE does not mix a head's
+<figcaption><span class="figno">FIG 14</span><b>Where the 128 numbers go.</b> RoPE does not mix a head's
 dimensions; it pairs them up — (x₀,x₁), (x₂,x₃), …, (x₁₂₆,x₁₂₇) — and rotates each pair in its own plane
 by an angle proportional to the token's position on the axis that owns it. Thirty-two numbers per axis
 means sixteen planes per axis, and sixteen planes times four axes is exactly the head width, which is what
-the <code>sum(axes_dim) == hidden_size // num_heads</code> guard in §12.1 is protecting.</figcaption>
+the <code>sum(axes_dim) == hidden_size // num_heads</code> guard in §13.1 is protecting.</figcaption>
 </figure>
 <p><strong>Step four, FLUX.2's part: decide which axis owns which planes.</strong> A language model has one
 position, so all 64 planes would use it. FLUX.2 has four coordinates per token, and it splits the head
@@ -443,14 +443,14 @@ and its direction, so what the network knows about the token and where it sits g
 attention score between two tokens depends on both positions separately, not on the distance between them.
 A rotation leaves the length untouched and has the property that matters: rotating a query by θ₁ and a key
 by θ₂ makes their dot product depend on <strong>θ₁ − θ₂</strong> alone. Distance falls out of the
-arithmetic, which is what FIG 11 showed and what §7.1 promised.</p>
+arithmetic, which is what FIG 12 showed and what §8.1 promised.</p>
 </div>
 <p class="dim">The shapes, if you want them before Part 3: <code>rope()</code> takes one axis's positions
 (B, L) and its 32 dimensions and returns (B, L, 16, 2, 2) — sixteen 2 × 2 blocks, in float32;
 <code>EmbedND</code> concatenates the four axes into (B, 1, L, 64, 2, 2); <code>apply_rope</code> reshapes
-a head to (B, heads, L, 64, 1, 2) and multiplies. All three are walked through line by line in §13.4–§13.6.</p>
+a head to (B, heads, L, 64, 1, 2) and multiplies. All three are walked through line by line in §14.4–§14.6.</p>
 
-<h3>7.3 · FLUX.2's twist: four positions per token</h3>
+<h3>8.3 · FLUX.2's twist: four positions per token</h3>
 <p>A language model needs one position number per token. FLUX.2 needs <em>four</em>, because its tokens
 live in a 3-D volume of images stacked over a "time" axis, plus a separate index for text. Every token
 therefore arrives with a coordinate vector <code>ids</code> of shape
@@ -540,7 +540,7 @@ would do in older architectures.</p>
 <text x="520" y="360" class="ax">slow planes resolve coarse layout (far-apart regions).</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 14</span><b>How 128 dimensions become a 4-D coordinate system.</b> The mixed ladder of
+<figcaption><span class="figno">FIG 15</span><b>How 128 dimensions become a 4-D coordinate system.</b> The mixed ladder of
 fast and slow frequencies is the same idea as the wheels on an odometer: the fast wheel tells you the
 last digit, the slow wheel tells you how far you have really travelled. Stacking four such odometers —
 one per axis — gives every token an unambiguous address in (image, row, column, text-slot) space.</figcaption>
