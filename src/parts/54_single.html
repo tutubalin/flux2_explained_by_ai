@@ -1,5 +1,5 @@
 <section id="single">
-<h2><span class="secno">§11</span><span class="sig">SingleStreamBlock</span> · L437</h2>
+<h2><span class="secno">§13</span><span class="sig">SingleStreamBlock</span> · L437</h2>
 <p class="section-intro">
 The workhorse. FLUX.2 stacks 48 of these — 73 % of all its parameters. A single-stream block treats
 text tokens and image tokens as one undifferentiated sequence and runs one fused attention plus one
@@ -89,7 +89,7 @@ fused MLP over it.
 <text x="430" y="450" class="ax" text-anchor="middle">residual skip — added after the gate, unchanged</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 15</span><b>The single-stream block.</b> The design trick is the fusion:
+<figcaption><span class="figno">FIG 17</span><b>The single-stream block.</b> The design trick is the fusion:
 <code>linear1</code> computes the queries, keys, values <em>and</em> the MLP's input in one matrix
 multiply, and <code>linear2</code> consumes the attention output and the gated MLP output together.
 Two big matmuls per block instead of five smaller ones — much better GPU utilisation, identical
@@ -113,7 +113,7 @@ mathematics. The MLP branch simply waits while attention runs; both halves meet 
 <!--CODE 468-484 title="model.py · _qkv and _out" hl="469,470,472,473,474,478,479,480,483,484"-->
 
 <!--TRACE-->
-<!--T 469|Unpack the three modulation vectors. In the plain path these have shape (B, 1, D) and broadcast over all tokens; in the KV-cache path they have been <em>blended</em> per token (§14) and arrive as (B, L, D).-->
+<!--T 469|Unpack the three modulation vectors. In the plain path these have shape (B, 1, D) and broadcast over all tokens; in the KV-cache path they have been <em>blended</em> per token (§16) and arrive as (B, L, D).-->
 <!--T 470|Adaptive normalisation: standardise, then scale and shift with values generated from the timestep. This is the only place the noise level touches the token stream inside a single-stream block.-->
 <!--T 472-476|Run the fused projection and immediately split its output into the qkv part (first 18432 columns) and the mlp part (last 36864 columns). <code>torch.split</code> returns views — no data is copied.-->
 <!--T 478|The einops pattern <code>"B L (K H D) -&gt; K B H L D"</code> with K=3, H=48 does three jobs at once: it splits qkv into q, k and v (the K axis), splits the feature axis into 48 heads of 128 dims (H and D), and moves heads to their own axis. Result: three tensors of shape (B, 48, L, 128).-->
@@ -128,7 +128,7 @@ mathematics. The MLP branch simply waits while attention runs; both halves meet 
 <!--TRACE-->
 <!--T 495-496|Build q/k/v and rotate q and k by the position matrices. In a single-stream block this happens over the <em>whole</em> mixed sequence — text, references and canvas together.-->
 <!--T 498-503|Carve out the reference slice of k and v and copy it (<code>.clone()</code>) into this block's cache entry. A slice like this is a <em>view</em> — it shares storage with the full <code>k</code>. Cloning gives the cache its own memory, so the 4608-token tensor it was cut from can be freed as soon as this step ends instead of being kept alive by the cache for the rest of the run.-->
-<!--T 505|Run the attention router of §10.-->
+<!--T 505|Run the attention router of §12.-->
 <!--T 506|Combine and return, together with the cache.-->
 <!--T 517-519|The cached path is identical except that the reference count is not an argument any more — it is recovered from the cached tensor's own shape (<code>shape[2]</code> is the token axis of k). A neat bit of self-describing state.-->
 <!--T 520-521|Attention with the cache spliced in, then the same gated residual.-->

@@ -1,0 +1,156 @@
+<section id="structure">
+<h2><span class="secno">§ 2</span>FLUX.2's structure — three models, one job</h2>
+<p class="section-intro">
+Before any of it can be explained, one thing has to be said clearly, because it decides what
+<code>model.py</code> is and is not: <strong>FLUX.2 is not one model.</strong> It is three, bolted
+together, and the file this article walks through is only the middle one. The other two exist for a
+single reason — the middle one cannot read a word, and it cannot see a pixel.
+</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 1560 540" role="img" aria-label="Top level view of FLUX.2: a prompt goes into a frozen text encoder which produces 512 rows of numbers; reference photos go into a VAE encoder which produces reference tokens; pure noise plus those two inputs go into the transformer, which is called once per step in a loop; the resulting latents go into a VAE decoder which produces the image.">
+<defs><marker id="stA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7d8da1"/></marker>
+<marker id="stC" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#35d6f0"/></marker>
+<marker id="stR" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#b18cff"/></marker>
+<marker id="stI" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#f6a93b"/></marker></defs>
+<text x="40" y="32" class="ttl">The three models of FLUX.2 — and which of them model.py is</text>
+
+<!-- prompt -->
+<rect x="40" y="96" width="220" height="72" rx="11" fill="#121a26" stroke="#2e4054"/>
+<text x="150" y="124" class="axb" text-anchor="middle">your prompt</text>
+<text x="150" y="146" class="eq" text-anchor="middle">"a cat on a mat, 35mm"</text>
+
+<!-- text encoder -->
+<rect x="310" y="72" width="290" height="120" rx="13" fill="#121a26" stroke="#35d6f0" stroke-opacity=".7"/>
+<text x="455" y="100" class="axb" text-anchor="middle" fill="#35d6f0">1 · TEXT ENCODER</text>
+<text x="455" y="122" class="eq" text-anchor="middle">Mistral-Small-3.2-24B (dev)</text>
+<text x="455" y="140" class="eq" text-anchor="middle">Qwen3-8B / Qwen3-4B (klein)</text>
+<text x="455" y="164" class="eq" text-anchor="middle" fill="#a9b8c9">a frozen language model</text>
+<text x="455" y="182" class="eq" text-anchor="middle" fill="#a9b8c9">runs ONCE per generation</text>
+<path d="M260,132 L308,132" stroke="#35d6f0" stroke-width="1.9" fill="none" marker-end="url(#stC)"/>
+
+<!-- 512 rows -->
+<rect x="310" y="228" width="290" height="76" rx="11" fill="#0e1622" stroke="#35d6f0" stroke-opacity=".45"/>
+<text x="455" y="254" class="eq" text-anchor="middle" fill="#35d6f0">512 rows × 15 360 numbers</text>
+<text x="455" y="276" class="eq" text-anchor="middle">the prompt, as the transformer</text>
+<text x="455" y="292" class="eq" text-anchor="middle">can actually read it (§5)</text>
+<path d="M455,192 L455,226" stroke="#35d6f0" stroke-width="1.9" fill="none" marker-end="url(#stC)"/>
+
+<!-- reference photos -->
+<rect x="40" y="392" width="220" height="72" rx="11" fill="#121a26" stroke="#2e4054"/>
+<text x="150" y="420" class="axb" text-anchor="middle">reference photos</text>
+<text x="150" y="442" class="eq" text-anchor="middle">up to 10, optional</text>
+
+<!-- vae encoder -->
+<rect x="310" y="380" width="290" height="96" rx="13" fill="#121a26" stroke="#b18cff" stroke-opacity=".7"/>
+<text x="455" y="408" class="axb" text-anchor="middle" fill="#b18cff">3a · VAE ENCODER</text>
+<text x="455" y="430" class="eq" text-anchor="middle">pixels → latents, 16× smaller</text>
+<text x="455" y="452" class="eq" text-anchor="middle" fill="#a9b8c9">runs once per reference image</text>
+<path d="M260,428 L308,428" stroke="#b18cff" stroke-width="1.9" fill="none" marker-end="url(#stR)"/>
+
+<!-- noise -->
+<rect x="660" y="404" width="200" height="60" rx="11" fill="#121a26" stroke="#2e4054"/>
+<text x="760" y="430" class="axb" text-anchor="middle">pure noise</text>
+<text x="760" y="450" class="eq" text-anchor="middle">t = 1 (§1)</text>
+
+<!-- transformer -->
+<rect x="660" y="96" width="420" height="264" rx="15" fill="#182231" stroke="#f6a93b" stroke-width="1.8"/>
+<text x="870" y="128" class="axb" text-anchor="middle" fill="#f6a93b">2 · THE TRANSFORMER</text>
+<text x="870" y="152" class="eq" text-anchor="middle">model.py — every line of this article</text>
+<text x="870" y="176" class="eq" text-anchor="middle" fill="#ffd479">32 223 281 152 parameters (dev)</text>
+<text x="870" y="204" class="eq" text-anchor="middle">in: rows of numbers + a time</text>
+<text x="870" y="222" class="eq" text-anchor="middle">out: rows of numbers — a velocity</text>
+<text x="870" y="252" class="eq" text-anchor="middle" fill="#a9b8c9">no pixels, no words, no randomness</text>
+<text x="870" y="276" class="eq" text-anchor="middle" fill="#a9b8c9">56 blocks, one after another</text>
+<path d="M870,300 C760,330 760,300 800,286" stroke="#f6a93b" stroke-width="1.7" fill="none" stroke-dasharray="5 4"/>
+<text x="870" y="330" class="axb" text-anchor="middle" fill="#f6a93b">called once per step — 4, 8 or 50 times</text>
+<text x="870" y="348" class="eq" text-anchor="middle">the only part of FLUX.2 that repeats</text>
+
+<path d="M600,266 L658,240" stroke="#35d6f0" stroke-width="1.9" fill="none" marker-end="url(#stC)"/>
+<path d="M600,428 L640,428 L640,362" stroke="#b18cff" stroke-width="1.9" fill="none" marker-end="url(#stR)"/>
+<path d="M760,404 L760,362" stroke="#7d8da1" stroke-width="1.9" fill="none" marker-end="url(#stA)"/>
+
+<!-- latents -->
+<rect x="1140" y="176" width="150" height="76" rx="11" fill="#0e1622" stroke="#f6a93b" stroke-opacity=".5"/>
+<text x="1215" y="204" class="eq" text-anchor="middle" fill="#f6a93b">latents</text>
+<text x="1215" y="226" class="eq" text-anchor="middle">128 channels</text>
+<text x="1215" y="242" class="eq" text-anchor="middle">16× smaller</text>
+<path d="M1080,214 L1138,214" stroke="#f6a93b" stroke-width="1.9" fill="none" marker-end="url(#stI)"/>
+
+<!-- vae decoder -->
+<rect x="1330" y="164" width="190" height="100" rx="13" fill="#121a26" stroke="#b18cff" stroke-opacity=".7"/>
+<text x="1425" y="192" class="axb" text-anchor="middle" fill="#b18cff">3b · VAE DECODER</text>
+<text x="1425" y="214" class="eq" text-anchor="middle">latents → pixels</text>
+<text x="1425" y="238" class="eq" text-anchor="middle" fill="#a9b8c9">runs ONCE, at the end</text>
+<path d="M1290,214 L1328,214" stroke="#b18cff" stroke-width="1.9" fill="none" marker-end="url(#stR)"/>
+
+<!-- result -->
+<rect x="1330" y="316" width="190" height="66" rx="11" fill="#121a26" stroke="#5fe08a" stroke-opacity=".6"/>
+<text x="1425" y="344" class="axb" text-anchor="middle" fill="#5fe08a">the image</text>
+<text x="1425" y="364" class="eq" text-anchor="middle">up to 4 megapixels</text>
+<path d="M1425,264 L1425,314" stroke="#5fe08a" stroke-width="1.9" fill="none" marker-end="url(#stA)"/>
+
+<text x="40" y="504" class="ax">Two translators and one thinker. The translators run once each; the thinker runs once per step — which is why</text>
+<text x="40" y="526" class="ax">essentially all of the engineering, and all of this article, is about the middle box.</text>
+</svg>
+</div>
+<figcaption><span class="figno">FIG 5</span><b>FLUX.2 at a glance.</b> A language model turns your prompt into
+rows of numbers; a VAE turns reference photos into rows of numbers; the transformer takes those rows plus
+pure noise plus one time value and returns a velocity; the loop of §1 runs it again and again; and the same
+VAE, run backwards once, turns the finished latents into the picture you downloaded. Only the middle box is
+<code>model.py</code>.</figcaption>
+</figure>
+
+<h3>2.1 · What the transformer never sees</h3>
+<p>The middle box has no idea what a word is and no idea what a pixel is. Its inputs are, in full:</p>
+<div class="tbl-wrap">
+<table class="data">
+<thead><tr><th style="width:190px">input</th><th style="width:200px">shape, at 1024²</th><th>where it came from</th></tr></thead>
+<tbody>
+<tr><td>the canvas</td><td>4 096 rows × 128 numbers</td><td>pure Gaussian noise, reshaped — no model produced it</td></tr>
+<tr><td>the prompt</td><td>512 rows × 15 360 numbers</td><td>the text encoder (§3)</td></tr>
+<tr><td>reference images</td><td>up to 16 384 rows × 128</td><td>the VAE encoder (§4), if this run has any</td></tr>
+<tr><td>positions</td><td>one row of 4 integers per token</td><td>a counter, no model at all (§6)</td></tr>
+<tr><td>the time</td><td>one float</td><td>the schedule (§1)</td></tr>
+<tr><td>the guidance</td><td>one float</td><td>a setting you chose (§7)</td></tr>
+</tbody>
+</table>
+</div>
+<p>Everything else — the meaning of the prompt, the look of a photograph, the fact that the output is
+supposed to be a picture of a cat — has already been converted into arithmetic by the time this file sees
+it. That is worth internalising before reading a single line of code, because it explains two things that
+otherwise look like odd choices. The network needs no vocabulary and no image handling, so it has none. And
+its output is not an image either: it is <em>4 096 rows of 128 numbers describing which way to move</em>,
+which the sampler adds to the canvas and the VAE eventually turns into pixels.</p>
+
+<h3>2.2 · What runs how often</h3>
+<p>One asymmetry explains where all the effort in this file goes.</p>
+<div class="tbl-wrap">
+<table class="data">
+<thead><tr><th style="width:190px">model</th><th style="width:150px">calls per image</th><th style="width:190px">its size</th><th>what that implies</th></tr></thead>
+<tbody>
+<tr><td>text encoder</td><td class="num">1</td><td>24 B (dev), 8 B / 4 B (klein)</td><td>huge but amortised: its cost does not grow with the step count, so a bigger, better language model is affordable</td></tr>
+<tr><td>VAE encoder</td><td class="num">0–10</td><td rowspan="2">small next to the other two</td><td>once per reference image, before the loop starts</td></tr>
+<tr><td>VAE decoder</td><td class="num">1</td><td>once, after the last step</td></tr>
+<tr><td><b>transformer</b></td><td class="num"><b>4 – 50</b></td><td><b>32.2 B (dev)</b></td><td><b>every step, on every token — so this is where speed, memory and precision are all spent, and why 56 blocks of it are engineered down to the last bias term</b></td></tr>
+</tbody>
+</table>
+</div>
+<p>Read the last row against the first: the text encoder is three quarters the size of the transformer and
+runs <em>once</em>. The transformer runs fifty times. Almost every decision in <code>model.py</code> — the
+shared modulation, the parameter-free norms, the fused projections, the KV cache for reference tokens, the
+absence of a single bias — is a decision about the cost of one call, multiplied by the number of steps.</p>
+<div class="note idea">
+<div class="nh">💡 Why a 24-billion-parameter language model is a reasonable text encoder</div>
+<p>Because it runs once. Its cost is a fixed entry fee, not a per-step tax, so FLUX.2 can afford a text
+encoder larger than most image generators are in total — and gets, in exchange, an understanding of prompts
+that a small CLIP-style encoder cannot match: long sentences, negations, counts, and legible spelling in
+the image itself. §5 is about that model and the strange shape of its output.
+<span class="spec">inference</span> — the sizes and the single call are in the code; the reasoning about
+why that trade is worth making is not written down anywhere.</p>
+</div>
+<p class="dim">Used later: §3 (the text encoder's 15 360), §4 (the VAE's 16× and the 128 channels), §6
+(the four position integers), §11 (the eleven parts that make up the middle box), §15 (where all six inputs
+are received, in <code>Flux2.forward</code>).</p>
+</section>

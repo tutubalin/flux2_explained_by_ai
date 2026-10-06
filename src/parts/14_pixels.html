@@ -1,12 +1,12 @@
 <section id="tokens">
-<h2><span class="secno">§ 2</span>From pixels to tokens: what the model actually eats</h2>
+<h2><span class="secno">§ 4</span>From pixels to tokens: what the model actually eats</h2>
 <p class="section-intro">
 <code>model.py</code> has no convolutions and no image logic. It receives images that have already been
 flattened into a list of vectors. To understand its shapes you must know exactly how that flattening
 happens.
 </p>
 
-<h3>2.1 · Three stages of compression</h3>
+<h3>4.1 · Three stages of compression</h3>
 <p>Two of the three stages happen inside the VAE, in <code>autoencoder.py</code>'s
 <code>encode()</code>: the convolutional 8× downsample to 32 channels, and the 2×2 patchify that folds
 four latent cells into one 128-number token. The third — flattening that 2-D grid of tokens into a plain
@@ -70,7 +70,7 @@ before the model is called:</p>
 <text x="942" y="194" class="eq" text-anchor="middle">→ 6144</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 5</span><b>Sixteen-fold compression in each spatial direction.</b> The VAE shrinks
+<figcaption><span class="figno">FIG 7</span><b>Sixteen-fold compression in each spatial direction.</b> The VAE shrinks
 1024² to 128² with 32 channels; then each 2×2 block of latent cells is folded into a single token of
 4 × 32 = 128 numbers (<code>autoencoder.py</code> literally does this with an einops
 <code>rearrange</code> and calls it <code>ps = [2, 2]</code>). The result is a flat list the transformer
@@ -89,7 +89,7 @@ everything a human would notice. One detail worth knowing, because it explains a
 scale/shift factors for the transformer to carry around.</p>
 </div>
 
-<h3>2.2 · How many tokens is that, really?</h3>
+<h3>4.2 · How many tokens is that, really?</h3>
 <div class="tbl-wrap">
 <table class="data">
 <thead><tr><th>Output size</th><th>Megapixels</th><th>Latent grid</th><th style="text-align:right">image tokens</th><th style="text-align:right">+ 512 text</th><th style="text-align:right">attention pairs (L²)</th></tr></thead>
@@ -106,46 +106,15 @@ scale/shift factors for the transformer to carry around.</p>
 <p>Quadrupling the pixels quadruples the <em>image</em> tokens — 4096 at 1 MP, 16 384 at 4 MP. The 512
 text tokens do not grow, so the joint sequence goes 4608 → 16 896, a factor of 3.7, and attention work,
 which is quadratic in that joint length, by <strong>13.4×</strong>.
-That single fact explains most of FLUX.2's engineering: the KV cache for references (§15), the shared
-modulation (§17), and the choice of 48 cheap single-stream blocks over expensive double-stream ones.</p>
+That single fact explains most of FLUX.2's engineering: the KV cache for references (§17), the shared
+modulation (§19), and the choice of 48 cheap single-stream blocks over expensive double-stream ones.</p>
 
-<h3>2.3 · Text tokens, and the mystery of 15360</h3>
-<p>The text side is simpler but has one surprise. The 24-billion-parameter Mistral VLM is run over your
-prompt, and then <em>three of its internal layers</em> — layers 10, 20 and 30 — are pulled out and
-stacked side by side:</p>
-
-<!--RAW title="text_encoder.py · Mistral3SmallEmbedder.forward — the layer sandwich (condensed)"-->
-    OUTPUT_LAYERS_MISTRAL = [10, 20, 30]      # which VLM layers to read
-
-    out = torch.stack([output.hidden_states[k] for k in OUTPUT_LAYERS_MISTRAL], dim=1)
-    return rearrange(out, "b c l d -> b l (c d)")   # (B, 512, 3*5120) = (B, 512, 15360)
-<!--/RAW-->
-
-<p>Mistral-Small-3.2 has a hidden width of 5120, so each prompt token arrives as
-3 × 5120 = <strong>15360</strong> numbers. That is precisely <code>Flux2Params.context_in_dim</code>.
-And the reason the Klein configs use 12288 and 7680 is exactly the same trick with different teachers:
-Qwen3-8B (4096 × 3) and Qwen3-4B (2560 × 3). Using mid-depth layers rather than only the last one gives
-the flow transformer access to both syntactic and semantic features — a trick also used in
-<a href="#refs">SD3</a>.</p>
-
-<p>Prompts are padded and truncated to <code>MAX_LENGTH = 512</code> tokens, which is where the
-"512 text tokens" column above comes from.</p>
-
-<div class="note proof">
-<div class="nh">◆ Verified · the arithmetic behind every config's context_in_dim</div>
-<p style="font-family:var(--mono);font-size:13.6px">
-FLUX.2 [dev]  : Mistral-Small-3.2-24B, layers [10,20,30], hidden 5120 → 3 × 5120 = <b>15360</b> ✓<br>
-Klein 9B      : Qwen3-8B,           layers [ 9,18,27], hidden 4096 → 3 × 4096 = <b>12288</b> ✓<br>
-Klein 4B      : Qwen3-4B,           layers [ 9,18,27], hidden 2560 → 3 × 2560 = <b>7680</b> ✓
-</p>
-</div>
-
-<h3>2.4 · Reference images are just more tokens</h3>
+<h3>4.3 · Reference images are just more tokens</h3>
 <p>For editing and multi-reference generation, reference images go through the same VAE encoder and
 the same patchify, and their tokens are simply <em>appended to the sequence</em>. Up to ten references
 are supported; to keep the cost sane the pipeline caps reference pixels at 1024² each when there are
 several, and 2024² when there is only one (<code>sampling.py</code> L56–58 spells it
 <code>2024**2</code>, which is what upstream says — almost certainly a typo for 2048²). The only thing
 that distinguishes a reference token from a canvas token is its <em>position id</em> — which is the
-subject of §4.</p>
+subject of §6.</p>
 </section>

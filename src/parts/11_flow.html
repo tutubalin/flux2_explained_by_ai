@@ -32,7 +32,7 @@ the direction and speed you would have to travel along that line. Formally it le
 why FLUX.2 is called a <em>flow</em> model rather than a diffusion model: it is trained to integrate an
 ordinary differential equation along (approximately) straight paths — <em>flow matching</em>
 (<a href="#refs">Lipman et al., 2022</a>) with <em>rectified flows</em> (<a href="#refs">Liu et al.,
-2022</a>), both in §19.</p>
+2022</a>), both in §21.</p>
 
 <figure>
 <div class="fig">
@@ -147,7 +147,7 @@ is trained for the right-hand picture.</figcaption>
 </figure>
 
 <h3>1.2 · The walk: ask, move, ask again</h3>
-<p>Generation is a loop, and it is worth stating in words before any code appears (the code is in §16,
+<p>Generation is a loop, and it is worth stating in words before any code appears (the code is in §18,
 where the loop lives). The sampler starts at pure noise and repeats, until it runs out of schedule:
 
 
@@ -367,7 +367,7 @@ same starting noise plus the same prompt gives the same picture every time.</p>
 </svg>
 </div>
 <figcaption><span class="figno">FIG 3</span><b>The walk, drawn.</b> Four of the eight calls in a real
-1024² schedule (the times are the ladder of §16.1). The noise thins and the picture sharpens, but the
+1024² schedule (the times are the ladder of §18.1). The noise thins and the picture sharpens, but the
 question is identical every time — <em>which way, and how fast?</em> The last panel is where the final
 stride lands: t = 0 is a destination, so it is the one time the network is never asked about.</figcaption>
 </figure>
@@ -382,7 +382,7 @@ instead would require already knowing it.</p>
 to. It is only ever asked a local question — <em>"at this image and this time, which way, and how
 fast?"</em> — while the sampler owns the plan, having computed every one of the times before the walk
 began. That division of labour is why one set of weights can serve a 4-step, an 8-step and a 50-step run
-unchanged. §16 shows the code that does it.</p>
+unchanged. §18 shows the code that does it.</p>
 </div>
 
 <div class="note warn">
@@ -460,7 +460,7 @@ pushes its steps into the noisy end. Here are the schedules that produces, plott
 the noisy end — and only dives toward 0 in the last few steps. The larger the canvas, the
 harder it hugs (the green curve is 4 megapixels): the run spends its budget where the picture is decided.
 The dashed diagonal is the naive uniform schedule, for comparison. The exact rungs, and how many of them
-sit above any given t, are worked out in §16.1.</figcaption>
+sit above any given t, are worked out in §18.1.</figcaption>
 </figure>
 
 <div class="note idea">
