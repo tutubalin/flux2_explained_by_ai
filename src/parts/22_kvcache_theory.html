@@ -1,0 +1,205 @@
+<section id="kvcachetheory">
+<h2><span class="secno">§ 12</span>The KV cache — paying for a computation once</h2>
+<p class="section-intro">
+A generation run calls the same network dozens of times, and most of what it computes on any given call has
+nothing to do with the step it is on. This chapter is about noticing that, about the one part of FLUX.2's
+input that genuinely never changes, and about the three conditions that make reusing it <em>exact</em>
+rather than an approximation. No code — the three forward passes that implement it are §20 and §22.
+</p>
+
+<h3>12.1 · The waste</h3>
+<p>Look at what one step of a reference-guided run has to process. At 1024² with four reference images the
+sequence is 20 992 rows: 512 of text, 16 384 of reference, 4 096 of canvas (§5). Every row goes through
+both kinds of block, and inside each block every row is projected into queries, keys and values by three
+large matrices.</p>
+<p>Now ask which of those rows <em>change</em> between step 1 and step 2:</p>
+<div class="tbl-wrap">
+<table class="data">
+<thead><tr><th style="width:170px">rows</th><th style="width:120px">count</th><th style="width:220px">do they change?</th><th>so what is recomputed for nothing?</th></tr></thead>
+<tbody>
+<tr><td>canvas</td><td class="num">4 096</td><td><b>yes — every step</b>, that is the point of the walk</td><td>nothing: this work has to be done</td></tr>
+<tr><td>text</td><td class="num">512</td><td>no — the prompt is fixed, but the tokens are conditioned at the <em>current</em> t, so their values move</td><td>a little; and they are only 2 % of the sequence anyway</td></tr>
+<tr><td><b>references</b></td><td class="num"><b>16 384</b></td><td><b>no, and provably so</b> — same latents, same fixed timestep, sealed off from the canvas</td><td><b>79 % of the sequence, recomputed identically, 49 times out of 50</b></td></tr>
+</tbody>
+</table>
+</div>
+<p>That last row is the whole opportunity. The reference tokens are the same numbers, in the same positions,
+under the same conditioning, at every step of the run — so their keys and values are the same numbers too.
+Computing them again is not a different answer arrived at twice; it is the <em>same</em> answer arrived at
+twice, forty-nine times over.</p>
+
+<h3>12.2 · What gets cached, exactly</h3>
+<p>Not the reference tokens themselves — they were never going anywhere. What gets cached is the two things
+attention actually reads from them:</p>
+<div class="note math">
+<div class="nh">Σ What a cache entry is</div>
+<p><span class="mathblk">per block: k_ref and v_ref — the reference rows' keys and values</span></p>
+<p><span class="mathblk">56 blocks × 2 tensors × 16 384 rows × 6 144 numbers</span></p>
+<p style="margin-top:6px"><span class="shape">that is the whole cache. No queries, no attention outputs, no activations.</span></p>
+</div>
+<ul>
+<li><strong>Why keys and values?</strong> Because those are the only two roles a token can play for
+<em>someone else</em>. A query is how a token asks; a key is how it is found; a value is what it contributes
+once found (§6). The reference tokens are never asking anything in the cached path — they produce no output
+rows — so their queries are never needed. Their keys and values are needed by every canvas token at every
+step, and those are exactly the two tensors that get stored.</li>
+<li><strong>Why per block?</strong> Each block has its own key and value matrices, so each block's version
+of the reference tokens is different. There is no such thing as "the" reference key — there are 56 of them,
+one per block, and the cache holds all 56 pairs.</li>
+<li><strong>Why is it expensive anyway?</strong> 56 × 2 × 16 384 × 6 144 numbers is 11.3 billion values.
+At two bytes each that is 22.55 GB — comparable to the model's own weights, for one image's worth of
+references. The cache trades memory for compute, and it is not a small trade (§22.2 does the arithmetic for
+all three checkpoints).</li>
+</ul>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 1560 560" role="img" aria-label="Two columns. Left, step zero: the sequence is text, references and canvas, all of it is pushed through the network, and the reference keys and values from all 56 blocks are written into a store. Right, step five: the sequence is only text and canvas, the store is read, and the reference keys and values are spliced into the key and value sets at attention time, so canvas queries still see them.">
+<defs><marker id="kvA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7d8da1"/></marker>
+<marker id="kvR" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#b18cff"/></marker></defs>
+<text x="40" y="34" class="ttl">Two phases: pay once, then read</text>
+
+<rect x="40" y="60" width="700" height="420" rx="15" fill="#0e1622" stroke="#2e4054"/>
+<text x="66" y="92" class="axb">STEP 0 · everything is computed</text>
+<rect x="70" y="112" width="90" height="46" rx="7" fill="rgba(53,214,240,.16)" stroke="#35d6f0" stroke-opacity=".6"/>
+<text x="115" y="140" class="eq" text-anchor="middle" fill="#35d6f0">text</text>
+<rect x="166" y="112" width="380" height="46" rx="7" fill="rgba(177,140,255,.16)" stroke="#b18cff" stroke-opacity=".7"/>
+<text x="356" y="140" class="eq" text-anchor="middle" fill="#b18cff">references · 16 384 rows</text>
+<rect x="552" y="112" width="160" height="46" rx="7" fill="rgba(246,169,59,.16)" stroke="#f6a93b" stroke-opacity=".7"/>
+<text x="632" y="140" class="eq" text-anchor="middle" fill="#f6a93b">canvas</text>
+<path d="M390,190 L390,232" stroke="#7d8da1" stroke-width="2.2" fill="none" marker-end="url(#kvA)"/>
+<rect x="230" y="190" width="320" height="42" rx="9" fill="#182231" stroke="#f6a93b" stroke-opacity=".6"/>
+<text x="390" y="216" class="eq" text-anchor="middle" fill="#f6a93b">all 56 blocks, full price</text>
+<text x="390" y="256" class="eq" text-anchor="middle" fill="#a9b8c9">the references are conditioned at t = 0, sealed off</text>
+<text x="390" y="274" class="eq" text-anchor="middle" fill="#a9b8c9">from the canvas, and produce no output rows</text>
+<rect x="180" y="300" width="420" height="86" rx="12" fill="rgba(177,140,255,.1)" stroke="#b18cff" stroke-opacity=".6"/>
+<text x="390" y="330" class="axb" text-anchor="middle" fill="#b18cff">the store</text>
+<text x="390" y="352" class="eq" text-anchor="middle">k_ref and v_ref, one pair per block × 56</text>
+<text x="390" y="370" class="eq" text-anchor="middle" fill="#a9b8c9">22.55 GB at 16-bit, for this one image</text>
+<path d="M390,232 L390,298" stroke="#b18cff" stroke-width="2" fill="none" marker-end="url(#kvR)"/>
+<text x="66" y="420" class="eq">cost: one full pass over 20 992 rows</text>
+<text x="66" y="444" class="eq" fill="#a9b8c9">and this is the ONLY step that pays it</text>
+
+<rect x="820" y="60" width="700" height="420" rx="15" fill="#0e1622" stroke="#5fe08a" stroke-opacity=".4"/>
+<text x="846" y="92" class="axb" fill="#5fe08a">STEPS 1 … N−1 · the references are gone from the sequence</text>
+<rect x="850" y="112" width="90" height="46" rx="7" fill="rgba(53,214,240,.16)" stroke="#35d6f0" stroke-opacity=".6"/>
+<text x="895" y="140" class="eq" text-anchor="middle" fill="#35d6f0">text</text>
+<rect x="946" y="112" width="200" height="46" rx="7" fill="rgba(246,169,59,.16)" stroke="#f6a93b" stroke-opacity=".7"/>
+<text x="1046" y="140" class="eq" text-anchor="middle" fill="#f6a93b">canvas · 4 096 rows</text>
+<text x="1180" y="140" class="eq" fill="#a9b8c9">4 608 rows, not 20 992</text>
+<path d="M1000,190 L1000,232" stroke="#7d8da1" stroke-width="2.2" fill="none" marker-end="url(#kvA)"/>
+<rect x="850" y="190" width="300" height="42" rx="9" fill="#182231" stroke="#f6a93b" stroke-opacity=".6"/>
+<text x="1000" y="216" class="eq" text-anchor="middle" fill="#f6a93b">all 56 blocks, cheaper</text>
+<rect x="1240" y="286" width="240" height="86" rx="12" fill="rgba(177,140,255,.1)" stroke="#b18cff" stroke-opacity=".6"/>
+<text x="1360" y="316" class="axb" text-anchor="middle" fill="#b18cff">the store</text>
+<text x="1360" y="338" class="eq" text-anchor="middle">read, never written</text>
+<text x="1360" y="356" class="eq" text-anchor="middle" fill="#a9b8c9">same 22.55 GB, still in memory</text>
+<path d="M1238,320 L1160,270" stroke="#b18cff" stroke-width="2" fill="none" marker-end="url(#kvR)"/>
+<rect x="850" y="248" width="300" height="66" rx="10" fill="#121a26" stroke="#7ea6ff" stroke-opacity=".5"/>
+<text x="1000" y="272" class="eq" text-anchor="middle" fill="#7ea6ff">inside attention, per block:</text>
+<text x="1000" y="292" class="eq" text-anchor="middle">keys = [text, cached refs, canvas]</text>
+<text x="1000" y="308" class="eq" text-anchor="middle" fill="#a9b8c9">queries never include the refs</text>
+<text x="846" y="360" class="eq">The canvas still attends to every reference — the geometry is</text>
+<text x="846" y="380" class="eq">untouched. What is skipped is recomputing the references, and</text>
+<text x="846" y="400" class="eq">writing output rows nobody reads.</text>
+<text x="846" y="444" class="eq" fill="#5fe08a">cost: a pass over 4 608 rows, plus reading the store</text>
+
+<text x="40" y="522" class="ax">The trick is not "remember the references". It is that the references were never part of the thing being</text>
+<text x="40" y="544" class="ax">denoised — so the network can be handed their contribution pre-computed, and cannot tell the difference.</text>
+</svg>
+</div>
+<figcaption><span class="figno">FIG 24</span><b>Two phases, one sequence contract.</b> Step 0 pays full
+price and writes 56 pairs of reference keys and values into a store. Every later step drops the reference
+rows from the sequence entirely, and splices the stored keys and values back in at attention time — so the
+canvas queries still see exactly what they saw before, and the only thing that changed is that nobody
+recomputed it. Note what the second phase does <em>not</em> save: the store is still read on every step, and
+the canvas queries still span all 16 384 reference keys.</figcaption>
+</figure>
+
+<h3>12.3 · Why this is exact, and not an approximation</h3>
+<p>Most caching in machine learning trades accuracy for speed: you reuse something that is <em>close
+enough</em>. This one does not, and the difference matters, because it is the only reason the trick can be
+used at all. Three conditions have to hold simultaneously.</p>
+<figure>
+<div class="fig">
+<svg viewBox="0 0 1560 400" role="img" aria-label="Three conditions stacked, each with what would break if it failed: the reference latents never change, the references are always conditioned at t = 0, and the references are isolated from the canvas by the attention router. All three hold, so the cached keys and values are identical to freshly computed ones.">
+<defs><marker id="exA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5fe08a"/></marker></defs>
+<text x="40" y="34" class="ttl">Three conditions, and what each one is holding up</text>
+
+<rect x="40" y="60" width="1010" height="86" rx="12" fill="#0e1622" stroke="#5fe08a" stroke-opacity=".45"/>
+<text x="66" y="90" class="axb" fill="#5fe08a">1 · the input does not change</text>
+<text x="66" y="114" class="eq">the reference latents are encoded once, before the loop, and never touched again</text>
+<text x="66" y="134" class="eq" fill="#a9b8c9">if they changed: the stored keys would describe a different picture</text>
+
+<rect x="40" y="158" width="1010" height="86" rx="12" fill="#0e1622" stroke="#5fe08a" stroke-opacity=".45"/>
+<text x="66" y="188" class="axb" fill="#5fe08a">2 · the conditioning does not change</text>
+<text x="66" y="212" class="eq">references are modulated at a timestep pinned to 0.0, while the canvas is at t (§9)</text>
+<text x="66" y="232" class="eq" fill="#a9b8c9">if they were conditioned at the current t: their keys would drift every step</text>
+
+<rect x="40" y="256" width="1010" height="86" rx="12" fill="#0e1622" stroke="#5fe08a" stroke-opacity=".45"/>
+<text x="66" y="286" class="axb" fill="#5fe08a">3 · nothing leaks in</text>
+<text x="66" y="310" class="eq">the router seals references off from the canvas, so a changing canvas cannot alter them</text>
+<text x="66" y="330" class="eq" fill="#a9b8c9">if they attended to the canvas: their values would depend on the step, and the cache would be stale</text>
+
+<rect x="1090" y="60" width="430" height="282" rx="14" fill="rgba(95,224,138,.07)" stroke="#5fe08a" stroke-opacity=".5"/>
+<text x="1305" y="94" class="axb" text-anchor="middle" fill="#5fe08a">all three hold</text>
+<text x="1112" y="126" class="eq">so k_ref and v_ref at step 40 are</text>
+<text x="1112" y="146" class="eq">bit-for-bit what step 0 computed.</text>
+<text x="1112" y="178" class="eq" fill="#ffd479">measured, not assumed:</text>
+<text x="1112" y="200" class="eq" fill="#ffd479">max |difference| = 0.000e+00</text>
+<text x="1112" y="232" class="eq">Running step 0 at t = 0.9 and again</text>
+<text x="1112" y="252" class="eq">at t = 0.1 gives identical reference</text>
+<text x="1112" y="272" class="eq">keys and values; feeding a stale cache</text>
+<text x="1112" y="292" class="eq">into a later step reproduces the full</text>
+<text x="1112" y="312" class="eq">pass exactly (§22.1).</text>
+</svg>
+</div>
+<figcaption><span class="figno">FIG 25</span><b>Exactness is a property of the design, not a lucky
+accident.</b> Each of the three conditions is doing specific work, and removing any one of them turns the
+cache into an approximation. The third is the interesting one: isolation is normally presented as a way to
+stop references from being corrupted by the noise — which it is — but it is equally what makes them
+<em>cacheable</em>, because a token that cannot see the changing part of the sequence cannot change with
+it.</figcaption>
+</figure>
+<div class="note warn">
+<div class="nh">⚠ The other reference path does not satisfy these, and is not the same model</div>
+<p>There are two ways to drive references in this codebase, and only one of them is cacheable. The plain
+path concatenates the references onto the canvas and runs them <em>with</em> it: they attend to the noisy
+image, they are conditioned at the current timestep, and they are recomputed every step. Different
+mathematics, different pictures — which is why the cached variant ships as its own checkpoint
+(<code>flux.2-klein-9b-kv</code>) rather than as a flag on the ordinary one. A cache is only free when the
+thing you are caching was never going to change; here that is a design decision made in three places at
+once, and §22.1 lists them.</p>
+</div>
+
+<h3>12.4 · What it buys, and why not more</h3>
+<p>The token arithmetic looks spectacular: dropping 16 384 of 20 992 rows should make a step about twelve
+times cheaper. The measured speedup is <strong>2.66×</strong>. Both numbers are right, and the gap is worth
+understanding, because it is the difference between counting tokens and counting work.</p>
+<div class="tbl-wrap">
+<table class="data">
+<thead><tr><th style="width:290px">what the cache removes</th><th style="width:290px">what it does not remove</th><th>why</th></tr></thead>
+<tbody>
+<tr><td>projecting 16 384 reference rows through every block's key, value and query matrices</td><td>the canvas and text projections</td><td>they change every step, by definition</td></tr>
+<tr><td>the reference tokens' own output rows — attention results nobody reads</td><td>reading the store: 22.55 GB per step, from memory rather than from arithmetic</td><td>a cache moves work into bandwidth, it does not delete it</td></tr>
+<tr><td>the modulation for the references, which is now baked into the stored values</td><td>the score computation between canvas queries and reference keys — still 4 096 × 16 384 pairs per head per block</td><td>the canvas must still <em>see</em> the references; that is the entire point of having them</td></tr>
+</tbody>
+</table>
+</div>
+<p>So the honest summary is: the cache deletes the reference tokens' <em>projections</em> and their
+<em>output rows</em>, and keeps everything about how the canvas reads them. Where references dominate the
+sequence that is a large win — 2.66× at 512² with four of them — and where they do not it is a small one:
+at 1440² the canvas has grown to 8 100 rows, the references are 67 % of the sequence instead of 94 %, and
+the measured win falls to 1.85×. §22.3 has all four measurements and the arithmetic behind each.</p>
+<div class="note idea">
+<div class="nh">💡 The general lesson</div>
+<p>A KV cache is not a trick specific to image models or to FLUX.2 — it is the same observation that makes
+autoregressive language models usable: <em>some tokens' keys and values do not change, so compute them
+once</em>. In a language model the unchanging tokens are everything generated so far. Here they are the
+reference images. The shape of the saving is the same in both cases, and so is the shape of the cost: a
+store proportional to the number of cached tokens times the number of layers, read on every single step.</p>
+</div>
+<p class="dim">Used later: §17 (the router that provides condition 3), §20 (the three forward passes, where
+the store is written and read), §21 (the modulation splice that condition 2 forces), §22 (the exactness
+proof, the memory arithmetic and the four measured speedups).</p>
+</section>

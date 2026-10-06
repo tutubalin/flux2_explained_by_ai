@@ -6,8 +6,9 @@ Everything needed to rebuild `../index.html` and to re-derive every number quote
 |------|------|
 | `build.py` | concatenates `parts/[0-9][0-9]_*.html` in order, expands the `<!--CODE …-->` / `<!--TRACE …-->` / `<!--RAW …-->` directives via `codex.py`, fixes an SVG/CSS fill-specificity gotcha, prints a sanity report, refuses to write a page containing an unterminated `<!--T …` directive (which would otherwise be swallowed silently and hide part of the page in the browser), writes `../index.html`, then runs the content checks below and fails if any of them reports a problem |
 | `codex.py` | byte-exact, syntax-highlighted extraction of line ranges from `ref/model.py`; also renders the line-by-line trace rows. The *code* beside an annotation can therefore never drift from the source — the *prose* is what `qa_trace.py` polices |
-| `gen_mask_fig.py` | regenerates `parts/09_mask_fig.html` — the attention-isolation figure, drawn from the same rule the code implements |
-| `parts/` | the article, authored as ordered HTML chunks, one file per band of sections (`00_head` … `12_loop_design_refs`); the build is a pure concatenation + directive expansion, so the file names decide the reading order |
+| `gen_mask_fig.py` | regenerates `parts/52_mask_fig.html` — the attention-isolation figure, drawn from the same rule the code implements |
+| `parts/` | the article, one file per chapter or band of chapters (`00_head` … `64_refs`). The file names decide the reading order, and the numbering follows from it — see `renumber.py` |
+| `renumber.py` | derives every section, subsection and figure number from the order of `parts/*.html`, and rewrites all references to match, in a single pass so nothing cascades. Adding or moving a chapter is: put the file where it belongs, run this, run the build |
 | `ref/model.py` | verbatim copy of `src/flux2/model.py` (git blob `9b1f5b50f8a966d6f4b9ed33b6f125695dc707f0`) — the line-number ground truth for every listing |
 | `ref/qa_layout.py` | dependency-free SVG text-fit / overflow / collision checker; the build is not done until it reports `0 layout problem(s)` |
 | `ref/qa_trace.py` | annotation alignment: fails on an annotation whose quoted lines carry no code, or that names an identifier which occurs nowhere in `model.py`; lists legitimate cross-references with `-v` |

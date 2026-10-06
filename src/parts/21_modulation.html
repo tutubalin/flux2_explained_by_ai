@@ -4,7 +4,7 @@
 §9 ended with a vector: <code>vec</code>, 6 144 numbers that encode "how noisy is this input, and how hard
 should I push towards the prompt". This chapter is about what a vector like that can actually <em>do</em>
 to a network — the mechanism, the three dials, where they attach, and what the whole arrangement costs.
-There is no code here; the thirteen lines that implement it are §15.9.
+There is no code here; the thirteen lines that implement it are §16.9.
 </p>
 
 <h3>11.1 · The idea, and the word for it</h3>
@@ -52,14 +52,14 @@ else.</p>
 <text x="40" y="150" class="ax">only way the timestep reaches the computation. That is what "modulation" means.</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 18</span><b>A block is a machine with three knobs on it.</b> Its 490
+<figcaption><span class="figno">FIG 19</span><b>A block is a machine with three knobs on it.</b> Its 490
 million weights are fixed for the whole run; what changes at every step is the position of three dials,
 delivered over a bus that every block in the network shares. The word "modulation" means exactly this:
 carrier unchanged, settings varied.</figcaption>
 </figure>
 <p>The name to know is <strong>adaptive layer normalisation</strong>, adaLN: FiLM applied at the
 normalisation inside each transformer sub-layer, with the condition vector as the source of the numbers.
-DiT (Peebles &amp; Xie, 2022 — §25) made it the standard for diffusion transformers, and FLUX.2 uses it in
+DiT (Peebles &amp; Xie, 2022 — §26) made it the standard for diffusion transformers, and FLUX.2 uses it in
 every one of its 56 blocks plus the exit door.</p>
 
 <h3>11.2 · LayerNorm from zero — and why it is the place to inject</h3>
@@ -90,7 +90,7 @@ giving 50 different layers out of one.</li>
 <p>That is the entire trick, and the file is built around it. PyTorch's
 <code>nn.LayerNorm(D, elementwise_affine=False)</code> <em>deletes</em> γ and β, leaving a module that only
 normalises. FLUX.2 uses exactly that setting in <strong>all 81</strong> of its layer norms — the census in
-§13.1 — and supplies γ and β from the timestep instead. In the code they are spelled</p>
+§14.1 — and supplies γ and β from the timestep instead. In the code they are spelled</p>
 <div class="note math">
 <div class="nh">Σ How the knobs are written in this file</div>
 <p><span class="mathblk">x_mod = (1 + scale) ⊙ norm(x) + shift</span></p>
@@ -155,7 +155,7 @@ shared by 56 blocks without every block being forced into the same extreme behav
 <text x="786" y="316" class="eq">elementwise_affine=False: no parameters of its own — all 81 norms work this way.</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 19</span><b>Two knobs, and a choice about who owns them.</b> After a
+<figcaption><span class="figno">FIG 20</span><b>Two knobs, and a choice about who owns them.</b> After a
 token is normalised its scale and offset are the only freedom left in the operation. Give them to the
 weight matrix and you have an ordinary layer norm — fixed for the whole run. Wire them to the condition
 vector instead and the same layer behaves differently at every step while its weights stay frozen. The
@@ -164,7 +164,7 @@ parameters of their own, both knobs supplied from outside.</figcaption>
 </figure>
 
 <h3>11.3 · Shift, scale, gate: three dials per sub-layer</h3>
-<p>Shift and scale re-tune what a block <em>sees</em>. DiT (Peebles &amp; Xie, 2022 — see §25) added a
+<p>Shift and scale re-tune what a block <em>sees</em>. DiT (Peebles &amp; Xie, 2022 — see §26) added a
 third dial, and FLUX.2 keeps it: a <strong>gate</strong> that multiplies the sub-layer's <em>output</em>
 before it is added back into the residual stream.</p>
 <div class="note beginner">
@@ -175,7 +175,7 @@ vector is the "residual stream" — the token's current understanding of itself,
 patch (§4) and ends as a velocity (§1). Two things follow, and both matter below. A block cannot destroy
 what earlier blocks decided, only amend it — which is what makes 56 layers trainable at all. And a block
 that contributes <em>nothing</em> is a perfectly valid state: set its output to zero and the stream passes
-through unchanged. That is why a gate is worth having — next — and why the merged stream in §19.2 can be
+through unchanged. That is why a gate is worth having — next — and why the merged stream in §20.2 can be
 handed to 48 further blocks without any rewiring.</p>
 </div>
 <div class="note math">
@@ -189,14 +189,14 @@ the block's full output lands in the stream. In between, the block contributes p
 cannot do that: they change the input, so the block always <em>runs</em>, and its output always arrives.
 The gate is what lets the same 56 blocks do coarse global work at t = 0.98 and delicate local work at
 t = 0.05 — different layers can be turned up or down per step.</p>
-<p>The two kinds of block are built in §17 and §18; this table is only the preview of what they will
+<p>The two kinds of block are built in §18 and §19; this table is only the preview of what they will
 receive, so that the code has somewhere to land when it arrives.</p>
 <div class="tbl-wrap">
 <table class="data">
 <thead><tr><th style="width:230px">block</th><th style="width:120px">norms it owns</th><th style="width:150px">dials it receives</th><th>where each dial acts</th></tr></thead>
 <tbody>
-<tr><td><code>SingleStreamBlock</code> (§17)<br><span class="dim">48 of them</span></td><td>1 (<code>pre_norm</code>)</td><td>one triple<br>(3 vectors)</td><td>shift + scale on the input to the fused attention+MLP projection (L470); gate on the fused output before the residual add (L484)</td></tr>
-<tr><td><code>DoubleStreamBlock</code> (§18)<br><span class="dim">8 of them</span></td><td>4 (<code>img_norm1</code>, <code>img_norm2</code>, <code>txt_norm1</code>, <code>txt_norm2</code>)</td><td>two triples per stream<br>(6 vectors)</td><td>one triple for attention (shift+scale at L580/L588, gate on the projected attention output at L626/L631), one for the MLP (shift+scale at L628/L633, gate at L627/L632)</td></tr>
+<tr><td><code>SingleStreamBlock</code> (§18)<br><span class="dim">48 of them</span></td><td>1 (<code>pre_norm</code>)</td><td>one triple<br>(3 vectors)</td><td>shift + scale on the input to the fused attention+MLP projection (L470); gate on the fused output before the residual add (L484)</td></tr>
+<tr><td><code>DoubleStreamBlock</code> (§19)<br><span class="dim">8 of them</span></td><td>4 (<code>img_norm1</code>, <code>img_norm2</code>, <code>txt_norm1</code>, <code>txt_norm2</code>)</td><td>two triples per stream<br>(6 vectors)</td><td>one triple for attention (shift+scale at L580/L588, gate on the projected attention output at L626/L631), one for the MLP (shift+scale at L628/L633, gate at L627/L632)</td></tr>
 </tbody>
 </table>
 </div>
@@ -260,7 +260,7 @@ file.</p>
 <text x="740" y="106" class="eq" fill="#5fe08a">gate</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 20</span><b>adaLN in one picture.</b> The green dials are generated, not learned
+<figcaption><span class="figno">FIG 21</span><b>adaLN in one picture.</b> The green dials are generated, not learned
 per-layer: the same <code>vec</code> that encodes "we are 62 % noisy" decides how strongly every
 sub-layer of every block is allowed to speak. The gate is also what makes DiT's
 "adaLN-Zero" trick possible: a block whose gate is zero starts life as the identity function, which is
@@ -315,7 +315,7 @@ tells you how the gates start out.</figcaption>
 <text x="40" y="386" class="ax">The openings drawn here are illustrative — the real values are learned, differ per block, and change every step. What is not illustrative is the mechanism.</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 21</span><b>Why a third dial.</b> Shift and scale change what a block
+<figcaption><span class="figno">FIG 22</span><b>Why a third dial.</b> Shift and scale change what a block
 <em>sees</em>, so the block always runs and its output always arrives. The gate changes how much of that
 output is allowed into the residual stream: zero and the block is a no-op however excited its internals
 got, one and it lands in full. That is the only dial that can switch a layer <em>off</em>, and it is what
@@ -340,7 +340,7 @@ still does. PixArt-α (2023) noticed the price and introduced <strong>adaLN-sing
 global vector, refined per block by adding a small learnable bias. FLUX.2 drops the refinement as well.
 The three modules of L98–108 are the whole mechanism; a block's private reaction to <code>t</code> has to
 come out of its own weights.</p>
-<p>That is the single largest saving in the file, and §13.1 counts it as ~8.5 billion parameters — about
+<p>That is the single largest saving in the file, and §14.1 counts it as ~8.5 billion parameters — about
 17 GB that a 32-billion-parameter model does not have to carry next to its activations. Which side
 of that trade the authors were optimising is not recorded anywhere in the source.
 <span class="spec">inference</span> What <em>is</em> in the source is the price paid: with shared
@@ -349,13 +349,13 @@ to the timestep. It can only react differently because its <em>weights</em> diff
 fifty-six different responses to <code>t</code> out of one broadcast triple each.</p>
 <p>The second consequence is the one that generates real code. A broadcast dial cannot distinguish one
 token from another — it is (B, 1, 6144), the same for every position. But reference tokens have to be
-conditioned at <code>t = 0</code> while the canvas sits at <code>t = 0.62</code> (§21.1 explains why). One
+conditioned at <code>t = 0</code> while the canvas sits at <code>t = 0.62</code> (§22.1 explains why). One
 shared triple cannot say that. So <code>forward_kv_extract</code> runs the modulation <em>twice</em>: once
 with the real timestep, and once with a timestep pinned to 0.0 for the references (L198, L206–211).</p>
 <p>Two runs produce two sets of dials, but every block receives one. So the two sets are spliced into a
 per-token tensor whose first rows come from the reference run and whose remaining rows come from the real
 one — and that splice is the entire reason <code>_blend_mod_triple</code>, <code>_blend_double_mods</code>
-and <code>_blend_single_mods</code> (§20) exist. Shared modulation is cheap; this is the bill.</p>
+and <code>_blend_single_mods</code> (§21) exist. Shared modulation is cheap; this is the bill.</p>
 
 <figure>
 <div class="fig">
@@ -553,14 +553,14 @@ and <code>_blend_single_mods</code> (§20) exist. Shared modulation is cheap; th
 <text x="40" y="420" class="ax">FLUX.2 drops even that — the three matrices at L98–108 are the whole mechanism.</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 22</span><b>The largest saving in the file.</b> Same 56 blocks, two
+<figcaption><span class="figno">FIG 23</span><b>The largest saving in the file.</b> Same 56 blocks, two
 arrangements of the modulation. Giving each block its own matrices is what DiT and FLUX.1 do, and it costs
 9 059 696 640 parameters — over a quarter of the dev model. Sharing three matrices costs 566 231 040. The
 8.5-billion-parameter difference is about 17 GB of weights, and the price is that no block can have a
 private reaction to the timestep.</figcaption>
 </figure>
-<p class="dim">Used later: §9.4 (where <code>vec</code> comes from), §15.9 (<code>Modulation</code>, the
-thirteen lines), §15.10 (<code>LastLayer</code>, the exit door's own private pair of dials), §17–§18 (the
-dials being consumed inside both block types), §20 (the splice that gives reference tokens different
-dials), §23 (the design-trade row).</p>
+<p class="dim">Used later: §9.4 (where <code>vec</code> comes from), §16.9 (<code>Modulation</code>, the
+thirteen lines), §16.10 (<code>LastLayer</code>, the exit door's own private pair of dials), §18–§19 (the
+dials being consumed inside both block types), §21 (the splice that gives reference tokens different
+dials), §24 (the design-trade row).</p>
 </section>

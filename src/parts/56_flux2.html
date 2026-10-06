@@ -1,5 +1,5 @@
 <section id="flux2">
-<h2><span class="secno">§19</span><span class="sig">Flux2</span> — three ways to run the network · L52</h2>
+<h2><span class="secno">§20</span><span class="sig">Flux2</span> — three ways to run the network · L52</h2>
 <p class="section-intro">
 The <code>Flux2</code> class is mostly bookkeeping: it owns the embedders, the modulation MLPs, the two
 block stacks and the output head, and then offers three forward passes that differ only in <em>which
@@ -18,35 +18,35 @@ understanding the whole inference design.
 </table>
 </div>
 
-<h3>19.1 · <code>__init__</code> — where every submodule in the network is created</h3>
+<h3>20.1 · <code>__init__</code> — where every submodule in the network is created</h3>
 <p>Before the three forwards, one listing that the rest of the article has been referring to all along.
 <code>__init__</code> itself is L53–113; the listing starts one line earlier, at the
 <code>class Flux2</code> statement, so you can see what it belongs to. Every submodule in the network —
 every single one — is instantiated inside these lines; nothing else in the file constructs a module.
-Read it as the parts list of §15–§18 being assembled:</p>
+Read it as the parts list of §16–§19 being assembled:</p>
 
 <!--CODE 52-113 title="model.py · Flux2.__init__" hl="56,57,58,62,65,66,67,68,69,70,72,73,74,76,82,87,93,98,103,108,110"-->
 
 <!--TRACE-->
-<!--T 53-54|One argument: a params dataclass (§14). Every number that follows comes out of it, which is why the three configurations differ only in which dataclass they hand over.-->
+<!--T 53-54|One argument: a params dataclass (§15). Every number that follows comes out of it, which is why the three configurations differ only in which dataclass they hand over.-->
 <!--T 56-57|128 channels in, 128 channels out — and note where the second number comes from: <code>out_channels = params.in_channels</code>. The model predicts a velocity in the same latent space it reads, so there is only ever one such number to keep.-->
-<!--T 58-64|The two guards of §14.1, verbatim: <code>hidden_size % num_heads</code> and <code>sum(axes_dim) == hidden_size // num_heads</code>, each raising <code>ValueError</code> with a message that names the offending numbers.-->
+<!--T 58-64|The two guards of §15.1, verbatim: <code>hidden_size % num_heads</code> and <code>sum(axes_dim) == hidden_size // num_heads</code>, each raising <code>ValueError</code> with a message that names the offending numbers.-->
 <!--T 65-66|Store the width (6144) and the head count (48). Their quotient — 128 — is the <code>head_dim</code> that every later layer is sized by.-->
-<!--T 67|The position machine of §15.5, built from the head width <code>pe_dim</code> computed at L62, the base <code>theta</code> (2000) and the four-axis split <code>axes_dim</code> ([32, 32, 32, 32]). Zero parameters.-->
+<!--T 67|The position machine of §16.5, built from the head width <code>pe_dim</code> computed at L62, the base <code>theta</code> (2000) and the four-axis split <code>axes_dim</code> ([32, 32, 32, 32]). Zero parameters.-->
 <!--T 68|The entrance for image tokens: 128 latent numbers per patch up to the network width. At 786 432 parameters this is the smallest matrix in the model.-->
-<!--T 69|The §15.3 embedder that turns the 256-dim sinusoidal noise code of §15.1 into the condition vector <code>vec</code>.-->
+<!--T 69|The §16.3 embedder that turns the 256-dim sinusoidal noise code of §16.1 into the condition vector <code>vec</code>.-->
 <!--T 70|The entrance for text: the three-layer 15360-wide feature sandwich of §3.2 down to network width.-->
-<!--T 72-74|Guidance is optional and config-driven (§14): only the guidance-distilled dev model sets <code>use_guidance_embed</code>, and only then is a second <code>MLPEmbedder</code> built for the guidance scalar. Its output is <em>added</em> to <code>vec</code>, so the two signals share every downstream weight.-->
-<!--T 76-85|<code>depth</code> (8) copies of <code>DoubleStreamBlock</code> (§18) in an <code>nn.ModuleList</code> — a list that registers its contents as submodules, so their parameters show up in <code>state_dict()</code> under <code>double_blocks.0…7</code>.-->
-<!--T 87-96|<code>depth_single_blocks</code> (48) copies of <code>SingleStreamBlock</code> (§17), keys <code>single_blocks.0…47</code>. Together with the eight above, the 56 blocks that hold 97.5 % of the parameters (§13.1).-->
-<!--T 98-108|The whole network's adaLN (§15.9), in three modules — and the names say which stream each one serves. <code>double_stream_modulation_img</code> and <code>double_stream_modulation_txt</code> are both <code>double=True</code>, so each emits <em>six</em> vectors = two (shift, scale, gate) triples for <em>its own</em> stream: one triple for that stream's attention, one for its MLP. <code>single_stream_modulation</code> is <code>double=False</code> and emits three, because after the merge there is only one stream. This is the sharing that saves ~8.5 billion parameters (§13.1).-->
-<!--T 110-113|The exit door of §15.10, sized 6144 → <code>out_channels</code> = 128.-->
+<!--T 72-74|Guidance is optional and config-driven (§15): only the guidance-distilled dev model sets <code>use_guidance_embed</code>, and only then is a second <code>MLPEmbedder</code> built for the guidance scalar. Its output is <em>added</em> to <code>vec</code>, so the two signals share every downstream weight.-->
+<!--T 76-85|<code>depth</code> (8) copies of <code>DoubleStreamBlock</code> (§19) in an <code>nn.ModuleList</code> — a list that registers its contents as submodules, so their parameters show up in <code>state_dict()</code> under <code>double_blocks.0…7</code>.-->
+<!--T 87-96|<code>depth_single_blocks</code> (48) copies of <code>SingleStreamBlock</code> (§18), keys <code>single_blocks.0…47</code>. Together with the eight above, the 56 blocks that hold 97.5 % of the parameters (§14.1).-->
+<!--T 98-108|The whole network's adaLN (§16.9), in three modules — and the names say which stream each one serves. <code>double_stream_modulation_img</code> and <code>double_stream_modulation_txt</code> are both <code>double=True</code>, so each emits <em>six</em> vectors = two (shift, scale, gate) triples for <em>its own</em> stream: one triple for that stream's attention, one for its MLP. <code>single_stream_modulation</code> is <code>double=False</code> and emits three, because after the merge there is only one stream. This is the sharing that saves ~8.5 billion parameters (§14.1).-->
+<!--T 110-113|The exit door of §16.10, sized 6144 → <code>out_channels</code> = 128.-->
 <!--/TRACE-->
 
-<p class="dim">Everything above is a part you have already met: §15.1–§15.10 supply the small modules,
-§17–§18 the blocks. From here on the class only <em>runs</em> them.</p>
+<p class="dim">Everything above is a part you have already met: §16.1–§16.10 supply the small modules,
+§18–§19 the blocks. From here on the class only <em>runs</em> them.</p>
 
-<h3>19.2 · <code>forward</code> — the simple path</h3>
+<h3>20.2 · <code>forward</code> — the simple path</h3>
 <!--CODE 115-168 title="model.py" hl="124,126,127,128,129,130,132,133,134,136,137,139,140,142,143,150,153,154,156,162,165,167"-->
 
 <!--TRACE-->
@@ -60,10 +60,10 @@ Read it as the parts list of §15–§18 being assembled:</p>
 <!--T 153-154|<strong>The streams merge.</strong> Text tokens are placed <em>first</em>, image tokens second, and the position matrices are concatenated in the same order (<code>dim=2</code>, because <code>pe</code> has shape (B, 1, L, 64, 2, 2) — the token axis is 2, not 1).-->
 <!--T 156-163|Run the 48 single blocks over the unified sequence, passing <code>num_txt_tokens</code> so each block knows where text ends.-->
 <!--T 165|Discard the text half of the output. Text was context, not content: the model only ever predicts velocity for image tokens.-->
-<!--T 167|The final AdaLN + linear turns the 6144-dim features back into 128 channels of latent velocity. Note what it does <em>not</em> do: there is no cast to fp32 here, and no gate (§15.10) — the prediction leaves the network in whatever precision the model is running in.-->
+<!--T 167|The final AdaLN + linear turns the 6144-dim features back into 128 channels of latent velocity. Note what it does <em>not</em> do: there is no cast to fp32 here, and no gate (§16.10) — the prediction leaves the network in whatever precision the model is running in.-->
 <!--/TRACE-->
 
-<h3>19.3 · <code>forward_kv_extract</code> — step 0, with references</h3>
+<h3>20.3 · <code>forward_kv_extract</code> — step 0, with references</h3>
 <!--CODE 170-265 title="model.py" hl="189,190,192,193,196,197,198,200,201,202,203,206,207,208,210,211,213,214,216,217,220,221,223,224,225,232,234,236,237,240,241,242,245,246,247,254,257,258,260,261,262,263,265"-->
 
 <!--TRACE-->
@@ -73,7 +73,7 @@ Read it as the parts list of §15–§18 being assembled:</p>
 <!--T 200-203|Guidance is added to <em>both</em> vectors, so the reference path is conditioned on the same guidance strength as the image path.-->
 <!--T 206-211|Five modulation computations: the three real ones, plus a reference-specific double-image modulation and single modulation. There is deliberately <em>no</em> reference-specific text modulation — text is text, whatever the timestep.-->
 <!--T 213-217|Project the concatenated <code>[ref, img]</code> latents and the text, and build both position tensor sets.-->
-<!--T 220-221|The double blocks see the image stream as <code>[ref, img]</code>, so their modulation must be per-token: reference tokens get <code>ref_double_mod</code>, canvas tokens get the real one. <code>_blend_double_mods</code> (§20) does the splicing.-->
+<!--T 220-221|The double blocks see the image stream as <code>[ref, img]</code>, so their modulation must be per-token: reference tokens get <code>ref_double_mod</code>, canvas tokens get the real one. <code>_blend_double_mods</code> (§21) does the splicing.-->
 <!--T 223-234|Run the eight double blocks, this time <em>keeping</em> each block's cache in a list, and passing the real <code>num_ref_tokens</code> so the router actually isolates the references.-->
 <!--T 236-237|Merge the streams exactly as in <code>forward</code>. Because the image stream is already <code>[ref, img]</code>, the merged sequence is <code>[txt, ref, img]</code> — the layout <code>causal_attn_fn</code> expects.-->
 <!--T 240-243|Blend the single-block modulation into three pieces this time: text gets the real modulation, references get theirs, canvas gets the real one.-->
@@ -82,7 +82,7 @@ Read it as the parts list of §15–§18 being assembled:</p>
 <!--T 260-265|Bundle the two cache lists and the reference count into a dict. Storing <code>num_ref_tokens</code> inside the cache is what lets <code>forward_kv_cached</code> be called without that argument.-->
 <!--/TRACE-->
 
-<h3>19.4 · <code>forward_kv_cached</code> — steps 1…N−1</h3>
+<h3>20.4 · <code>forward_kv_cached</code> — steps 1…N−1</h3>
 <p>The third forward is a mirror of the second with three differences: no <code>x_seq_concat</code>
 argument, no reference modulation, and the cache supplied instead of built.</p>
 
@@ -96,7 +96,7 @@ argument, no reference modulation, and the cache supplied instead of built.</p>
 <!--T 294-295|The image input is just the noisy canvas — no concatenation with references, because the references are not in this sequence at all. Text is projected as always.-->
 <!--T 297-298|Position matrices for canvas and text, built exactly as in the other two forwards.-->
 <!--T 300-309|The eight double blocks, each receiving <em>its own</em> cached entry (<code>kv_cache["double_blocks"][i]</code>, paired by <code>enumerate</code>) and returning the new image and text states. No cache comes back.-->
-<!--T 311-312|Merge streams as before; the result is <code>[txt, img]</code>, which is precisely the layout the cached branch of §16.1 expects.-->
+<!--T 311-312|Merge streams as before; the result is <code>[txt, img]</code>, which is precisely the layout the cached branch of §17.1 expects.-->
 <!--T 314-321|The 48 single blocks, each with its own cache entry — and again no blending, because one uniform modulation is correct for the whole unified sequence.-->
 <!--T 323-326|Strip the text tokens, apply the final layer, return the prediction. No cache is returned: nothing new was learned about the references.-->
 <!--/TRACE-->
@@ -108,7 +108,7 @@ computation. <code>denoise</code> concatenates the references onto the canvas an
 <code>forward()</code>, which hard-codes <code>num_ref_tokens=0</code> (L150, L162): nothing is isolated,
 the references attend to the noisy canvas, they are conditioned at the <em>current</em> timestep, and they
 are recomputed on every step. <code>denoise_cached</code> calls <code>forward_kv_extract</code> once and
-<code>forward_kv_cached</code> thereafter, where the references are sealed off (§16.2) and conditioned at
+<code>forward_kv_cached</code> thereafter, where the references are sealed off (§17.2) and conditioned at
 <code>t = 0.0</code>. Different mathematics ⇒ different images, which is why the cached variant ships as
 its own checkpoint (<code>flux.2-klein-9b-kv</code>) rather than as a flag on the normal one.</p>
 <p>Token <em>order</em> is not what distinguishes them. Positions travel with their tokens through RoPE,

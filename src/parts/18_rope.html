@@ -424,7 +424,7 @@ matrix, no matrix product, just four multiplications and two additions per pair.
 dimensions; it pairs them up — (x₀,x₁), (x₂,x₃), …, (x₁₂₆,x₁₂₇) — and rotates each pair in its own plane
 by an angle proportional to the token's position on the axis that owns it. Thirty-two numbers per axis
 means sixteen planes per axis, and sixteen planes times four axes is exactly the head width, which is what
-the <code>sum(axes_dim) == hidden_size // num_heads</code> guard in §14.1 is protecting.</figcaption>
+the <code>sum(axes_dim) == hidden_size // num_heads</code> guard in §15.1 is protecting.</figcaption>
 </figure>
 <p><strong>Step four, FLUX.2's part: decide which axis owns which planes.</strong> A language model has one
 position, so all 64 planes would use it. FLUX.2 has four coordinates per token, and it splits the head
@@ -448,7 +448,7 @@ arithmetic, which is what FIG 12 showed and what §8.1 promised.</p>
 <p class="dim">The shapes, if you want them before Part 3: <code>rope()</code> takes one axis's positions
 (B, L) and its 32 dimensions and returns (B, L, 16, 2, 2) — sixteen 2 × 2 blocks, in float32;
 <code>EmbedND</code> concatenates the four axes into (B, 1, L, 64, 2, 2); <code>apply_rope</code> reshapes
-a head to (B, heads, L, 64, 1, 2) and multiplies. All three are walked through line by line in §15.4–§15.6.</p>
+a head to (B, heads, L, 64, 1, 2) and multiplies. All three are walked through line by line in §16.4–§16.6.</p>
 
 <h3>8.3 · FLUX.2's twist: four positions per token</h3>
 <p>A language model needs one position number per token. FLUX.2 needs <em>four</em>, because its tokens
@@ -472,19 +472,6 @@ therefore arrives with a coordinate vector <code>ids</code> of shape
 gets 32 of the 128 head dimensions</strong>, i.e. 16 rotation planes each, 64 planes in total. It is also
 why <code>Flux2.__init__</code> refuses to start unless <code>sum(axes_dim) == hidden_size //
 num_heads</code> — the planes have to tile the head exactly.</p>
-
-<!--RAW title="sampling.py · how the coordinate vectors are built (three excerpts, condensed)"-->
-    # image tokens: sweep (t, h, w) over the grid, l stays 0
-    x_coords = {"t": torch.arange(1), "h": torch.arange(h), "w": torch.arange(w), "l": torch.arange(1)}
-    x_ids = torch.cartesian_prod(x_coords["t"], x_coords["h"], x_coords["w"], x_coords["l"])
-
-    # text tokens: t, h, w are dummies; l sweeps the sentence
-    coords = {"t": torch.arange(1), "h": torch.arange(1), "w": torch.arange(1), "l": torch.arange(_l)}
-    x_ids = torch.cartesian_prod(coords["t"], coords["h"], coords["w"], coords["l"])
-
-    # reference images: each one gets its own slot on the t axis, ten apart
-    t_off = [scale + scale * t for t in torch.arange(0, len(encoded_refs))]     # scale = 10
-<!--/RAW-->
 
 <div class="note idea">
 <div class="nh">💡 Why references sit at t = 10, 20, 30 …</div>

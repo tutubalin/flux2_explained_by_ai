@@ -5,7 +5,7 @@
 file is wired around both. This section does the same for the third thing every block needs and the
 file never stops to define: <em>how the network is told what to draw, and how noisy its input is</em>.
 Nothing here is in <code>model.py</code> as a single named object — it is a mechanism spread over one
-function, one small class and one three-line class (§15.1, §15.3, §15.9) and consumed in all 56 blocks.
+function, one small class and one three-line class (§16.1, §16.3, §16.9) and consumed in all 56 blocks.
 Understand it once here and those three classes become trivial.
 </p>
 
@@ -45,10 +45,10 @@ told several different things, and FLUX.2 tells them through <em>different chann
 <table class="data">
 <thead><tr><th style="width:180px">what must be injected</th><th style="width:120px">its size</th><th style="width:200px">channel used</th><th>where you have already met it</th></tr></thead>
 <tbody>
-<tr><td>the prompt</td><td>512 tokens × 15 360 numbers</td><td><strong>tokens in the sequence</strong>, attending jointly with the image</td><td><code>txt_in</code> at L70; the joint attention of §6 and §18; the merge at L153–154 (§19.2)</td></tr>
-<tr><td>reference images</td><td>up to 16 384 tokens × 128</td><td><strong>tokens too</strong> — but sealed off from the canvas</td><td>§4.4, and the router that isolates them (§16)</td></tr>
-<tr><td>the timestep <code>t</code></td><td>one float</td><td><strong>modulation</strong>: shift, scale and gate on every norm</td><td>this section; code at §15.1, §15.3, §15.9</td></tr>
-<tr><td>the guidance strength <code>g</code> (§9.3)</td><td>one float (dev only)</td><td><strong>the same modulation channel</strong>, added to <code>t</code>'s vector</td><td>L74, L200–203; §14 (<code>use_guidance_embed</code>)</td></tr>
+<tr><td>the prompt</td><td>512 tokens × 15 360 numbers</td><td><strong>tokens in the sequence</strong>, attending jointly with the image</td><td><code>txt_in</code> at L70; the joint attention of §6 and §19; the merge at L153–154 (§20.2)</td></tr>
+<tr><td>reference images</td><td>up to 16 384 tokens × 128</td><td><strong>tokens too</strong> — but sealed off from the canvas</td><td>§4.4, and the router that isolates them (§17)</td></tr>
+<tr><td>the timestep <code>t</code></td><td>one float</td><td><strong>modulation</strong>: shift, scale and gate on every norm</td><td>this section; code at §16.1, §16.3, §16.9</td></tr>
+<tr><td>the guidance strength <code>g</code> (§9.3)</td><td>one float (dev only)</td><td><strong>the same modulation channel</strong>, added to <code>t</code>'s vector</td><td>L74, L200–203; §15 (<code>use_guidance_embed</code>)</td></tr>
 </tbody>
 </table>
 </div>
@@ -62,14 +62,134 @@ normalisation reaches all 16 896 tokens in one multiplication. The guidance valu
 same reason — it says "push harder towards the prompt", not "look at this".</p>
 </div>
 
+<figure>
+<div class="fig">
+<svg viewBox="0 0 1560 480" role="img" aria-label="Two lanes entering the transformer. The upper lane is content: the prompt, the reference images and the canvas, which become rows of one sequence that attention routes between. The lower lane is settings: the timestep and the guidance value, which become one condition vector and travel along a bus that touches every block.">
+<defs><marker id="twA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7d8da1"/></marker>
+<marker id="twC" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#35d6f0"/></marker>
+<marker id="twV" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5fe08a"/></marker></defs>
+<text x="40" y="34" class="ttl">Two lanes into the same network: what it looks at, and what it obeys</text>
+
+<text x="60" y="80" class="axb" fill="#35d6f0">CONTENT — becomes rows of the sequence</text>
+<rect x="60" y="92" width="330" height="52" rx="9" fill="#121a26" stroke="#35d6f0" stroke-opacity=".55"/>
+<text x="225" y="114" class="eq" text-anchor="middle" fill="#35d6f0">the prompt · 512 rows</text>
+<text x="225" y="132" class="eq" text-anchor="middle" fill="#a9b8c9">what to draw</text>
+<rect x="60" y="152" width="330" height="52" rx="9" fill="#121a26" stroke="#b18cff" stroke-opacity=".55"/>
+<text x="225" y="174" class="eq" text-anchor="middle" fill="#b18cff">reference images · up to 16 384 rows</text>
+<text x="225" y="192" class="eq" text-anchor="middle" fill="#a9b8c9">what it should look like</text>
+<rect x="60" y="212" width="330" height="52" rx="9" fill="#121a26" stroke="#f6a93b" stroke-opacity=".55"/>
+<text x="225" y="234" class="eq" text-anchor="middle" fill="#f6a93b">the canvas · 4 096 rows</text>
+<text x="225" y="252" class="eq" text-anchor="middle" fill="#a9b8c9">what is being drawn</text>
+
+<rect x="620" y="92" width="560" height="200" rx="15" fill="#0e1622" stroke="#f6a93b" stroke-opacity=".55"/>
+<text x="900" y="112" class="axb" text-anchor="middle" fill="#f6a93b">the transformer · one sequence, 56 blocks</text>
+<rect x="640" y="118" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="678" y="118" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="716" y="118" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="754" y="118" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="792" y="118" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="830" y="118" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="868" y="118" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="906" y="118" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="944" y="118" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="982" y="118" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1020" y="118" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1058" y="118" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1096" y="118" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1134" y="118" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="640" y="158" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="678" y="158" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="716" y="158" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="754" y="158" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="792" y="158" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="830" y="158" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="868" y="158" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="906" y="158" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="944" y="158" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="982" y="158" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1020" y="158" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1058" y="158" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1096" y="158" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1134" y="158" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="640" y="198" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="678" y="198" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="716" y="198" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="754" y="198" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="792" y="198" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="830" y="198" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="868" y="198" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="906" y="198" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="944" y="198" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="982" y="198" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1020" y="198" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1058" y="198" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1096" y="198" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1134" y="198" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="640" y="238" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="678" y="238" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="716" y="238" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="754" y="238" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="792" y="238" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="830" y="238" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="868" y="238" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="906" y="238" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="944" y="238" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="982" y="238" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1020" y="238" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1058" y="238" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1096" y="238" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1134" y="238" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+
+<path d="M392,118 L500,150 L618,168" stroke="#35d6f0" stroke-width="1.9" fill="none" marker-end="url(#twC)"/>
+<path d="M392,178 L618,190" stroke="#b18cff" stroke-width="1.9" fill="none" marker-end="url(#twA)"/>
+<path d="M392,238 L500,222 L618,212" stroke="#f6a93b" stroke-width="1.9" fill="none" marker-end="url(#twA)"/>
+<text x="500" y="132" class="eq" text-anchor="middle" fill="#a9b8c9">attention routes</text>
+<text x="500" y="252" class="eq" text-anchor="middle" fill="#a9b8c9">each row to each other row</text>
+
+<text x="60" y="336" class="axb" fill="#5fe08a">SETTINGS — become dials on every block</text>
+<rect x="60" y="348" width="160" height="52" rx="9" fill="#121a26" stroke="#5fe08a" stroke-opacity=".55"/>
+<text x="140" y="370" class="eq" text-anchor="middle" fill="#5fe08a">t</text>
+<text x="140" y="388" class="eq" text-anchor="middle" fill="#a9b8c9">one float</text>
+<rect x="60" y="408" width="160" height="52" rx="9" fill="#121a26" stroke="#5fe08a" stroke-opacity=".35" stroke-dasharray="5 4"/>
+<text x="140" y="430" class="eq" text-anchor="middle" fill="#5fe08a">g</text>
+<text x="140" y="448" class="eq" text-anchor="middle" fill="#a9b8c9">one float, dev only</text>
+<rect x="270" y="376" width="230" height="56" rx="10" fill="#121a26" stroke="#5fe08a" stroke-opacity=".6"/>
+<text x="385" y="400" class="eq" text-anchor="middle" fill="#5fe08a">§7 fingerprint + §9 MLP</text>
+<text x="385" y="418" class="eq" text-anchor="middle">→ vec, 6 144 numbers</text>
+<path d="M222,374 L268,392" stroke="#5fe08a" stroke-width="1.8" fill="none" marker-end="url(#twV)"/>
+<path d="M222,434 L268,416" stroke="#5fe08a" stroke-width="1.8" fill="none" marker-end="url(#twV)"/>
+<rect x="620" y="376" width="560" height="56" rx="12" fill="rgba(95,224,138,.1)" stroke="#5fe08a" stroke-opacity=".55"/>
+<text x="900" y="400" class="axb" text-anchor="middle" fill="#5fe08a">the modulation bus (§11)</text>
+<text x="900" y="418" class="eq" text-anchor="middle">shift, scale and gate for all 56 blocks at once</text>
+<path d="M502,404 L618,404" stroke="#5fe08a" stroke-width="2" fill="none" marker-end="url(#twV)"/>
+<path d="M700,374 L700,296" stroke="#5fe08a" stroke-width="1.6" fill="none" stroke-dasharray="5 4" marker-end="url(#twV)"/>
+<path d="M900,374 L900,296" stroke="#5fe08a" stroke-width="1.6" fill="none" stroke-dasharray="5 4" marker-end="url(#twV)"/>
+<path d="M1100,374 L1100,296" stroke="#5fe08a" stroke-width="1.6" fill="none" stroke-dasharray="5 4" marker-end="url(#twV)"/>
+
+<path d="M1182,192 L1268,192" stroke="#7d8da1" stroke-width="2.2" fill="none" marker-end="url(#twA)"/>
+<rect x="1272" y="150" width="250" height="84" rx="12" fill="#121a26" stroke="#2e4054"/>
+<text x="1397" y="180" class="axb" text-anchor="middle">velocity</text>
+<text x="1397" y="202" class="eq" text-anchor="middle">for the canvas rows only</text>
+<text x="1397" y="220" class="eq" text-anchor="middle" fill="#a9b8c9">→ one step of §1</text>
+<text x="1272" y="300" class="eq" fill="#a9b8c9">content is looked at;</text>
+<text x="1272" y="320" class="eq" fill="#a9b8c9">settings are obeyed.</text>
+</svg>
+</div>
+<figcaption><span class="figno">FIG 16</span><b>The two channels.</b> Content arrives as rows and is
+handled by attention, which is the only mechanism in the network that can treat one token differently from
+another. Settings arrive as one vector and are handled by modulation, which is the only mechanism that can
+reach every block at once. Neither could do the other's job: a timestep cannot be "looked at" usefully by
+16 896 rows, and a prompt cannot be broadcast uniformly without losing the point of having one.</figcaption>
+</figure>
+
 <h3>9.3 · The other setting: what "guidance" actually is</h3>
 <p>The loop above passes the model four things — noisy latents, their position ids, the timestep, the
 text — and for some checkpoints a fifth: <code>guidance</code>. It is one number, and the file never
 explains it, so here it is. It matters twice: it is the second "setting" that §9 routes into the network,
-and it is a config field in §14 (<code>use_guidance_embed</code>).</p>
+and it is a config field in §15 (<code>use_guidance_embed</code>).</p>
 <p><strong>The problem.</strong> A model trained to follow a prompt follows it politely. It produces
 something consistent with the words but hedged — washed out, under-committed, averaging over everything
-the prompt could have meant. <em>Classifier-free guidance</em> (Ho &amp; Salimans, 2022 — §25) is the
+the prompt could have meant. <em>Classifier-free guidance</em> (Ho &amp; Salimans, 2022 — §26) is the
 classic fix: run the network <strong>twice</strong> per step, once with the prompt and once with an empty
 one, and extrapolate past the conditional prediction.</p>
 <div class="note math">
@@ -109,15 +229,15 @@ something a 6144-wide matrix can actually work with.</p>
 <p><strong>Stage 2 — a fixed code becomes a learned meaning.</strong> The fingerprint is a deterministic
 function of <code>t</code>: no parameters, nothing learned. What it <em>means</em> to be at t = 0.62 is
 something the model has to discover, so the fingerprint goes through the smallest possible learned
-transform — two linear layers with a nonlinearity between them, 256 → 6144 → 6144 (§15.3). The
+transform — two linear layers with a nonlinearity between them, 256 → 6144 → 6144 (§16.3). The
 nonlinearity is <strong>SiLU</strong>, <span class="shape">silu(x) = x · σ(x)</span> — a smooth, self-gated
-ramp that is near zero for very negative inputs and near <code>x</code> for positive ones. §15.2 turns that
+ramp that is near zero for very negative inputs and near <code>x</code> for positive ones. §16.2 turns that
 same function into a <em>gate</em> for the MLPs; here it is just the kink that lets two linear layers
 express more than one. Its output is the
 <strong>condition vector</strong>, <code>vec</code>, and it is the only form in which the timestep ever
 reaches the blocks.</p>
 <p><strong>Stage 3 — the guidance value takes the same road and is added.</strong> If the configuration has
-<code>use_guidance_embed</code> (§14, true for dev only — and §9.3 explains what the value <em>means</em>),
+<code>use_guidance_embed</code> (§15, true for dev only — and §9.3 explains what the value <em>means</em>),
 the guidance scalar is fingerprinted and MLP'd through its <em>own</em> copy of the same class, and the two
 vectors are summed (L200–203):</p>
 <div class="note math">
@@ -129,7 +249,7 @@ vectors are summed (L200–203):</p>
 condition channel and the network learns to disentangle them. It also means guidance cannot be routed
 somewhere the timestep does not go — the two dials are fused from this point on.</p>
 <p><strong>Stage 4 — three matrices turn one vector into everybody's dials.</strong> <code>vec</code> is
-fed to <em>three</em> <code>Modulation</code> modules (§15.9). Each one applies SiLU and then a single
+fed to <em>three</em> <code>Modulation</code> modules (§16.9). Each one applies SiLU and then a single
 bias-free linear layer, and splits the result into vectors of 6144:</p>
 <div class="tbl-wrap">
 <table class="data">
@@ -161,12 +281,12 @@ Six vectors, one stream.</p>
 <rect x="40" y="200" width="150" height="86" rx="10" fill="#121a26" stroke="#5fe08a" stroke-opacity=".35" stroke-dasharray="5 4"/>
 <text x="115" y="224" class="axb" text-anchor="middle" fill="#5fe08a">guidance g</text>
 <text x="115" y="244" class="eq" text-anchor="middle">(B,)</text>
-<text x="115" y="266" class="eq" text-anchor="middle">dev only (§14)</text>
+<text x="115" y="266" class="eq" text-anchor="middle">dev only (§15)</text>
 
 <!-- stage 2: fingerprints -->
 <rect x="240" y="80" width="230" height="86" rx="10" fill="#121a26" stroke="#2e4054"/>
 <text x="355" y="104" class="axb" text-anchor="middle">timestep_embedding</text>
-<text x="355" y="124" class="eq" text-anchor="middle">128 cos + 128 sin (§15.1)</text>
+<text x="355" y="124" class="eq" text-anchor="middle">128 cos + 128 sin (§16.1)</text>
 <text x="355" y="146" class="eq" text-anchor="middle">→ (B, 256), no parameters</text>
 <rect x="240" y="200" width="230" height="86" rx="10" fill="#121a26" stroke="#2e4054"/>
 <text x="355" y="224" class="axb" text-anchor="middle">timestep_embedding</text>
@@ -178,7 +298,7 @@ Six vectors, one stream.</p>
 <!-- stage 3: MLPEmbedders -->
 <rect x="520" y="80" width="230" height="86" rx="10" fill="#121a26" stroke="#2e4054"/>
 <text x="635" y="104" class="axb" text-anchor="middle">time_in: MLPEmbedder</text>
-<text x="635" y="124" class="eq" text-anchor="middle">256 → 6144 → 6144 (§15.3)</text>
+<text x="635" y="124" class="eq" text-anchor="middle">256 → 6144 → 6144 (§16.3)</text>
 <text x="635" y="146" class="eq" text-anchor="middle">→ (B, 6144) learned</text>
 <rect x="520" y="200" width="230" height="86" rx="10" fill="#121a26" stroke="#2e4054"/>
 <text x="635" y="224" class="axb" text-anchor="middle">guidance_in: same class</text>
@@ -246,10 +366,10 @@ Six vectors, one stream.</p>
 <text x="66" y="504" class="eq">x     = x + gate ⊙ sublayer(x_mod)            gate decides how much of the output survives</text>
 <text x="66" y="534" class="eq">x is (B, L, 6144) — every dial is (B, 1, 6144), so one value per channel reaches all L tokens</text>
 <text x="66" y="562" class="eq">that broadcast is the whole economy: 3 matrix products per step steer 16 896 tokens × 56 blocks</text>
-<text x="66" y="586" class="eq" fill="#b18cff">exception: reference tokens need t = 0 while the canvas is at t — see the splice in §20</text>
+<text x="66" y="586" class="eq" fill="#b18cff">exception: reference tokens need t = 0 while the canvas is at t — see the splice in §21</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 16</span><b>The conditioning channel.</b> Two scalars enter at the left,
+<figcaption><span class="figno">FIG 17</span><b>The conditioning channel.</b> Two scalars enter at the left,
 become 256-number fingerprints, become learned 6144-vectors, are summed into <code>vec</code>, and are
 then turned by three bias-free matrices into 15 dial vectors — six for the double blocks' image stream,
 six for their text stream, three for the single blocks. Every block in the network is steered by those
@@ -271,8 +391,8 @@ cross-attention model inserts the condition as extra keys and values (which is w
 then <em>do</em> to 56 blocks — why they attach at the layer norms, what the third dial is for, and what
 sharing them costs — is §11, which picks up exactly here.</p>
 
-<p class="dim">Used later: §15.1 <code>timestep_embedding</code> is stage 1, §15.3 <code>MLPEmbedder</code> is
-stage 2, §15.9 <code>Modulation</code> is stage 4 — all three are short once this is understood. §17 and §18
-show the dials being consumed, line by line. §19.1 lists the three modules as they are built. §20 is the
-splice. §23 has the design-trade row.</p>
+<p class="dim">Used later: §16.1 <code>timestep_embedding</code> is stage 1, §16.3 <code>MLPEmbedder</code> is
+stage 2, §16.9 <code>Modulation</code> is stage 4 — all three are short once this is understood. §18 and §19
+show the dials being consumed, line by line. §20.1 lists the three modules as they are built. §21 is the
+splice. §24 has the design-trade row.</p>
 </section>
