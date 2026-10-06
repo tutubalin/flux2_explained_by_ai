@@ -108,7 +108,7 @@ all three checkpoints).</li>
 <text x="40" y="544" class="ax">denoised — so the network can be handed their contribution pre-computed, and cannot tell the difference.</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 24</span><b>Two phases, one sequence contract.</b> Step 0 pays full
+<figcaption><span class="figno">FIG 25</span><b>Two phases, one sequence contract.</b> Step 0 pays full
 price and writes 56 pairs of reference keys and values into a store. Every later step drops the reference
 rows from the sequence entirely, and splices the stored keys and values back in at attention time — so the
 canvas queries still see exactly what they saw before, and the only thing that changed is that nobody
@@ -154,7 +154,7 @@ used at all. Three conditions have to hold simultaneously.</p>
 <text x="1112" y="312" class="eq">pass exactly (§22.1).</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 25</span><b>Exactness is a property of the design, not a lucky
+<figcaption><span class="figno">FIG 26</span><b>Exactness is a property of the design, not a lucky
 accident.</b> Each of the three conditions is doing specific work, and removing any one of them turns the
 cache into an approximation. The third is the interesting one: isolation is normally presented as a way to
 stop references from being corrupted by the noise — which it is — but it is equally what makes them

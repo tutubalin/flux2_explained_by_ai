@@ -175,7 +175,7 @@ same reason — it says "push harder towards the prompt", not "look at this".</p
 <text x="1272" y="320" class="eq" fill="#a9b8c9">settings are obeyed.</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 16</span><b>The two channels.</b> Content arrives as rows and is
+<figcaption><span class="figno">FIG 17</span><b>The two channels.</b> Content arrives as rows and is
 handled by attention, which is the only mechanism in the network that can treat one token differently from
 another. Settings arrive as one vector and are handled by modulation, which is the only mechanism that can
 reach every block at once. Neither could do the other's job: a timestep cannot be "looked at" usefully by
@@ -369,7 +369,7 @@ Six vectors, one stream.</p>
 <text x="66" y="586" class="eq" fill="#b18cff">exception: reference tokens need t = 0 while the canvas is at t — see the splice in §21</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 17</span><b>The conditioning channel.</b> Two scalars enter at the left,
+<figcaption><span class="figno">FIG 18</span><b>The conditioning channel.</b> Two scalars enter at the left,
 become 256-number fingerprints, become learned 6144-vectors, are summed into <code>vec</code>, and are
 then turned by three bias-free matrices into 15 dial vectors — six for the double blocks' image stream,
 six for their text stream, three for the single blocks. Every block in the network is steered by those

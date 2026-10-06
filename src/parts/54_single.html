@@ -89,7 +89,7 @@ fused MLP over it.
 <text x="430" y="450" class="ax" text-anchor="middle">residual skip — added after the gate, unchanged</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 29</span><b>The single-stream block.</b> The design trick is the fusion:
+<figcaption><span class="figno">FIG 30</span><b>The single-stream block.</b> The design trick is the fusion:
 <code>linear1</code> computes the queries, keys, values <em>and</em> the MLP's input in one matrix
 multiply, and <code>linear2</code> consumes the attention output and the gated MLP output together.
 Two big matmuls per block instead of five smaller ones — much better GPU utilisation, identical

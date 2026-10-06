@@ -52,7 +52,7 @@ else.</p>
 <text x="40" y="150" class="ax">only way the timestep reaches the computation. That is what "modulation" means.</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 19</span><b>A block is a machine with three knobs on it.</b> Its 490
+<figcaption><span class="figno">FIG 20</span><b>A block is a machine with three knobs on it.</b> Its 490
 million weights are fixed for the whole run; what changes at every step is the position of three dials,
 delivered over a bus that every block in the network shares. The word "modulation" means exactly this:
 carrier unchanged, settings varied.</figcaption>
@@ -155,7 +155,7 @@ shared by 56 blocks without every block being forced into the same extreme behav
 <text x="786" y="316" class="eq">elementwise_affine=False: no parameters of its own — all 81 norms work this way.</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 20</span><b>Two knobs, and a choice about who owns them.</b> After a
+<figcaption><span class="figno">FIG 21</span><b>Two knobs, and a choice about who owns them.</b> After a
 token is normalised its scale and offset are the only freedom left in the operation. Give them to the
 weight matrix and you have an ordinary layer norm — fixed for the whole run. Wire them to the condition
 vector instead and the same layer behaves differently at every step while its weights stay frozen. The
@@ -260,7 +260,7 @@ file.</p>
 <text x="740" y="106" class="eq" fill="#5fe08a">gate</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 21</span><b>adaLN in one picture.</b> The green dials are generated, not learned
+<figcaption><span class="figno">FIG 22</span><b>adaLN in one picture.</b> The green dials are generated, not learned
 per-layer: the same <code>vec</code> that encodes "we are 62 % noisy" decides how strongly every
 sub-layer of every block is allowed to speak. The gate is also what makes DiT's
 "adaLN-Zero" trick possible: a block whose gate is zero starts life as the identity function, which is
@@ -315,7 +315,7 @@ tells you how the gates start out.</figcaption>
 <text x="40" y="386" class="ax">The openings drawn here are illustrative — the real values are learned, differ per block, and change every step. What is not illustrative is the mechanism.</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 22</span><b>Why a third dial.</b> Shift and scale change what a block
+<figcaption><span class="figno">FIG 23</span><b>Why a third dial.</b> Shift and scale change what a block
 <em>sees</em>, so the block always runs and its output always arrives. The gate changes how much of that
 output is allowed into the residual stream: zero and the block is a no-op however excited its internals
 got, one and it lands in full. That is the only dial that can switch a layer <em>off</em>, and it is what
@@ -553,7 +553,7 @@ and <code>_blend_single_mods</code> (§21) exist. Shared modulation is cheap; th
 <text x="40" y="420" class="ax">FLUX.2 drops even that — the three matrices at L98–108 are the whole mechanism.</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 23</span><b>The largest saving in the file.</b> Same 56 blocks, two
+<figcaption><span class="figno">FIG 24</span><b>The largest saving in the file.</b> Same 56 blocks, two
 arrangements of the modulation. Giving each block its own matrices is what DiT and FLUX.1 do, and it costs
 9 059 696 640 parameters — over a quarter of the dev model. Sharing three matrices costs 566 231 040. The
 8.5-billion-parameter difference is about 17 GB of weights, and the price is that no block can have a

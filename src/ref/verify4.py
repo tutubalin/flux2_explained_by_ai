@@ -298,6 +298,14 @@ check("per-block modulation as a share of dev (%)", round(100 * per_block / P, 1
 check("what sharing saves, as a share of dev (%)", round(100 * (per_block - shared) / P, 1), 26.4, 0.05)
 check("what sharing saves, in bf16 GB", round((per_block - shared) * 2 / 1e9), 17)
 
+# ------------------------------------------- D2. where the compression happens
+hdr("D2 · pixels vs latents vs tokens (values, not pictures)")
+check("pixel values at 1024²", 1024 * 1024 * 3, 3_145_728)
+check("latent values", 128 * 128 * 32, 524_288)
+check("token values (4096 rows × 128)", 4096 * 128, 524_288)
+check("the VAE's compression factor", round(1024 * 1024 * 3 / (128 * 128 * 32)), 6)
+check("patchify's compression factor", 524_288 // 524_288, 1)
+
 # ---------------------------------------------------------------- G. memory
 hdr("G · memory")
 P_DEV, P_9B, P_4B = params(DEV)[0], params(K9B)[0], params(K4B)[0]

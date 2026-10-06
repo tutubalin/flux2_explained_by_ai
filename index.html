@@ -1547,6 +1547,55 @@ It is the only place in the whole system where a pixel is ever produced. The tra
 parameters of it, all 833 lines of this article — lives entirely inside the compressed space, and never
 knows what a colour is.</p>
 
+<figure>
+<div class="fig">
+<svg viewBox="0 0 1560 380" role="img" aria-label="Three boxes with the number of values each holds: pixels 1024 by 1024 by 3 equals 3 145 728 values; latents 128 by 128 by 32 equals 524 288 values; tokens 64 by 64 by 128 equals 524 288 values. The first arrow, the VAE, divides by six. The second arrow, patchify, does not change the count at all - it only repacks.">
+<defs><marker id="cpA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7d8da1"/></marker></defs>
+<text x="40" y="34" class="ttl">Where the compression actually happens — count the values, not the picture</text>
+
+<rect x="40" y="70" width="400" height="180" rx="14" fill="#0e1622" stroke="#f6a93b" stroke-opacity=".55"/>
+<text x="240" y="104" class="axb" text-anchor="middle" style="fill:#f6a93b">pixels</text>
+<text x="240" y="134" class="eq" text-anchor="middle">1024 × 1024 × 3</text>
+<text x="240" y="164" class="eq" text-anchor="middle" style="fill:#ffd479">3 145 728 values</text>
+<text x="240" y="196" class="eq" text-anchor="middle" style="fill:#a9b8c9">what a camera gives you,</text>
+<text x="240" y="214" class="eq" text-anchor="middle" style="fill:#a9b8c9">and what the VAE decoder returns</text>
+
+<rect x="580" y="70" width="400" height="180" rx="14" fill="#0e1622" stroke="#b18cff" stroke-opacity=".55"/>
+<text x="780" y="104" class="axb" text-anchor="middle" style="fill:#b18cff">latents</text>
+<text x="780" y="134" class="eq" text-anchor="middle">128 × 128 × 32</text>
+<text x="780" y="164" class="eq" text-anchor="middle" style="fill:#ffd479">524 288 values</text>
+<text x="780" y="196" class="eq" text-anchor="middle" style="fill:#a9b8c9">the same picture with the</text>
+<text x="780" y="214" class="eq" text-anchor="middle" style="fill:#a9b8c9">redundancy squeezed out</text>
+
+<rect x="1120" y="70" width="400" height="180" rx="14" fill="#0e1622" stroke="#5fe08a" stroke-opacity=".55"/>
+<text x="1320" y="104" class="axb" text-anchor="middle" style="fill:#5fe08a">tokens</text>
+<text x="1320" y="134" class="eq" text-anchor="middle">4096 rows × 128</text>
+<text x="1320" y="164" class="eq" text-anchor="middle" style="fill:#ffd479">524 288 values</text>
+<text x="1320" y="196" class="eq" text-anchor="middle" style="fill:#a9b8c9">the same numbers again,</text>
+<text x="1320" y="214" class="eq" text-anchor="middle" style="fill:#a9b8c9">only repacked into rows</text>
+
+<path d="M442,160 L578,160" stroke="#7d8da1" stroke-width="2.4" fill="none" marker-end="url(#cpA)"/>
+<text x="510" y="140" class="axb" text-anchor="middle" style="fill:#b18cff">VAE encoder</text>
+<text x="510" y="192" class="eq" text-anchor="middle">÷ 6 — real compression,</text>
+<text x="510" y="210" class="eq" text-anchor="middle">a trained network doing it</text>
+
+<path d="M982,160 L1118,160" stroke="#7d8da1" stroke-width="2.4" fill="none" marker-end="url(#cpA)"/>
+<text x="1050" y="140" class="axb" text-anchor="middle" style="fill:#5fe08a">patchify</text>
+<text x="1050" y="192" class="eq" text-anchor="middle">÷ 1 — no compression at all,</text>
+<text x="1050" y="210" class="eq" text-anchor="middle">a reshape and nothing more</text>
+
+<text x="40" y="300" class="ax">Six times fewer values, all of it from the VAE. The patchify step changes the shape of the container — 128 × 128 cells of 32 become</text>
+<text x="40" y="322" class="ax">4096 rows of 128 — and not one number is lost or gained, which is why it can be undone for free.</text>
+<text x="40" y="360" class="ax" style="fill:#a9b8c9">That is also why the transformer's job is not smaller than it looks: 524 288 values still have to be reasoned about, only in 4096 rows instead of a million.</text>
+</svg>
+</div>
+<figcaption><span class="figno">FIG 8</span><b>Only one of the two stages compresses.</b> The VAE takes
+3 145 728 pixel values down to 524 288 latent values — a factor of six — and that is a trained network
+deciding what the picture needs to keep. The patchify step that follows is a pure rearrangement: the same
+524 288 values, regrouped from a 128 × 128 grid of 32-channel cells into 4 096 rows of 128. Counting values
+rather than pixels is the quickest way to see which part of §4.1 is doing the work.</figcaption>
+</figure>
+
 <h3>4.3 · How many tokens is that, really?</h3>
 <div class="tbl-wrap">
 <table class="data">
@@ -1721,7 +1770,7 @@ layer, no normalisation. One matrix multiply per token, and that is the whole do
 <text x="40" y="524" class="ax">door at the end of §5.4 turns them back into 128 latent channels for the VAE decoder.</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 8</span><b>The corridor.</b> Two matrices, and every token in the
+<figcaption><span class="figno">FIG 9</span><b>The corridor.</b> Two matrices, and every token in the
 network passes through one of them. The image door is tiny — 128 inputs, so 786 432 weights, the smallest
 matrix in a 32-billion-parameter file. The text door is 120 times larger, because the language model's
 representation is 2.5× wider than the transformer's and something has to choose what to keep. Reference
@@ -1943,7 +1992,7 @@ gets its own section, §17.)</p>
 <text x="520" y="356" class="eq" text-anchor="middle">mostly v₁, a little of the rest</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 9</span><b>Attention as a soft lookup.</b> One querying token compares its
+<figcaption><span class="figno">FIG 10</span><b>Attention as a soft lookup.</b> One querying token compares its
 query against four keys (dot products, scaled by √d), softmax turns the four scores into weights that
 sum to 100 %, and the answer is the values mixed in exactly those proportions — arrow thickness is the
 weight. In the real model the "four keys" are all 4 608 tokens of the sequence, and <em>every</em> token
@@ -2325,7 +2374,7 @@ coordinates oscillate smoothly between −1 and 1, a quarter turn out of phase w
 <text x="40" y="536" class="ax">Read at t = 0.62 the fastest lane has gone round 99 times and is mid-cycle; the slowest has not moved at all. Both are part of the answer.</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 10</span><b>One number, 128 speeds.</b> Each lane plots
+<figcaption><span class="figno">FIG 11</span><b>One number, 128 speeds.</b> Each lane plots
 <code>cos(t′ · ωᵢ)</code> against t, with <code>t′ = 1000·t</code>. The gold line is one moment of one
 run; the dots are the five readings at that moment. Consecutive lanes differ by a factor of ten in rate, so
 the wall contains a hand for every scale of change — and the real encoding stacks 128 of them, then adds
@@ -2409,7 +2458,7 @@ cycle, and a pair is not.</p>
 <text x="846" y="330" class="eq">(cos θ, sin θ) is a point on the circle — the two times land in different places.</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 11</span><b>The reason for 256 instead of 128.</b> On the left, two
+<figcaption><span class="figno">FIG 12</span><b>The reason for 256 instead of 128.</b> On the left, two
 moments of the run produce the same cosine value — a network reading only that channel cannot know which
 one it is being asked about, or which way time is moving. On the right, the same two moments as points on
 the circle that the (cos, sin) pair traces: distinct positions, and the direction of travel is visible too.
@@ -2527,7 +2576,7 @@ tokens are</b>. Zero learned parameters, no maximum sequence length, nothing to 
 <text x="40" y="306" class="ax">both vectors spun by the same extra 7·ω — the angle between them, and therefore the attention score, is untouched</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 12</span><b>The relative-angle trick.</b> Left: a query at position 3 and a key at
+<figcaption><span class="figno">FIG 13</span><b>The relative-angle trick.</b> Left: a query at position 3 and a key at
 position 11, each rotated by its own position times ω. Right: the same pair moved seven positions along —
 both vectors spin by the same extra angle, so the angle <em>between</em> them never changes, and neither
 does the attention score. Absolute position cancels out of the equation; distance stays in it.</figcaption>
@@ -2575,7 +2624,7 @@ apart. Summed together, the ladder gives every gap its own fingerprint.</p>
 <text x="80" y="302" class="ax">slow plane 7 barely moves: unambiguous but coarse. Attention sums all 64 planes — and only the sum is unique per gap</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 13</span><b>Why one plane is not enough.</b> Every plane contributes
+<figcaption><span class="figno">FIG 14</span><b>Why one plane is not enough.</b> Every plane contributes
 cos(gap·ωᵢ) to the attention score. The fast plane oscillates and aliases — every peak looks like every
 other. The slow plane never repeats but cannot resolve neighbours. The geometric ladder of 64 speeds
 between those extremes gives each gap a distinct summed fingerprint: no learned parameters, no length
@@ -2870,7 +2919,7 @@ matrix, no matrix product, just four multiplications and two additions per pair.
 <text x="40" y="486" class="ax">16 planes × 4 axes = 64 planes = 128 numbers. This is why __init__ refuses to build a model whose axes_dim does not sum to head_dim.</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 14</span><b>Where the 128 numbers go.</b> RoPE does not mix a head's
+<figcaption><span class="figno">FIG 15</span><b>Where the 128 numbers go.</b> RoPE does not mix a head's
 dimensions; it pairs them up — (x₀,x₁), (x₂,x₃), …, (x₁₂₆,x₁₂₇) — and rotates each pair in its own plane
 by an angle proportional to the token's position on the axis that owns it. Thirty-two numbers per axis
 means sixteen planes per axis, and sixteen planes times four axes is exactly the head width, which is what
@@ -2893,7 +2942,7 @@ and its direction, so what the network knows about the token and where it sits g
 attention score between two tokens depends on both positions separately, not on the distance between them.
 A rotation leaves the length untouched and has the property that matters: rotating a query by θ₁ and a key
 by θ₂ makes their dot product depend on <strong>θ₁ − θ₂</strong> alone. Distance falls out of the
-arithmetic, which is what FIG 12 showed and what §8.1 promised.</p>
+arithmetic, which is what FIG 13 showed and what §8.1 promised.</p>
 </div>
 <p class="dim">The shapes, if you want them before Part 3: <code>rope()</code> takes one axis's positions
 (B, L) and its 32 dimensions and returns (B, L, 16, 2, 2) — sixteen 2 × 2 blocks, in float32;
@@ -2977,7 +3026,7 @@ would do in older architectures.</p>
 <text x="520" y="360" class="ax">slow planes resolve coarse layout (far-apart regions).</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 15</span><b>How 128 dimensions become a 4-D coordinate system.</b> The mixed ladder of
+<figcaption><span class="figno">FIG 16</span><b>How 128 dimensions become a 4-D coordinate system.</b> The mixed ladder of
 fast and slow frequencies is the same idea as the wheels on an odometer: the fast wheel tells you the
 last digit, the slow wheel tells you how far you have really travelled. Stacking four such odometers —
 one per axis — gives every token an unambiguous address in (image, row, column, text-slot) space.</figcaption>
@@ -3190,7 +3239,7 @@ same reason — it says "push harder towards the prompt", not "look at this".</p
 <text x="1272" y="320" class="eq" style="fill:#a9b8c9">settings are obeyed.</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 16</span><b>The two channels.</b> Content arrives as rows and is
+<figcaption><span class="figno">FIG 17</span><b>The two channels.</b> Content arrives as rows and is
 handled by attention, which is the only mechanism in the network that can treat one token differently from
 another. Settings arrive as one vector and are handled by modulation, which is the only mechanism that can
 reach every block at once. Neither could do the other's job: a timestep cannot be "looked at" usefully by
@@ -3384,7 +3433,7 @@ Six vectors, one stream.</p>
 <text x="66" y="586" class="eq" style="fill:#b18cff">exception: reference tokens need t = 0 while the canvas is at t — see the splice in §21</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 17</span><b>The conditioning channel.</b> Two scalars enter at the left,
+<figcaption><span class="figno">FIG 18</span><b>The conditioning channel.</b> Two scalars enter at the left,
 become 256-number fingerprints, become learned 6144-vectors, are summed into <code>vec</code>, and are
 then turned by three bias-free matrices into 15 dial vectors — six for the double blocks' image stream,
 six for their text stream, three for the single blocks. Every block in the network is steered by those
@@ -3500,7 +3549,7 @@ response, something ReLU cannot do at all.</p>
 <text x="40" y="446" class="ax">Left: no hard corner anywhere, and no region that is permanently dead — only softened.</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 18</span><b>The curve and its two jobs.</b> On the left, the function:
+<figcaption><span class="figno">FIG 19</span><b>The curve and its two jobs.</b> On the left, the function:
 flat and near zero for very negative inputs, a small dip to −0.28 around x = −1.28, then indistinguishable
 from the identity for positive ones. The faint blue curve is σ(x) — the switch that x multiplies itself by.
 On the right, the two roles it plays in FLUX.2: an ordinary activation between linear layers, and a
@@ -3596,7 +3645,7 @@ else.</p>
 <text x="40" y="150" class="ax">only way the timestep reaches the computation. That is what "modulation" means.</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 19</span><b>A block is a machine with three knobs on it.</b> Its 490
+<figcaption><span class="figno">FIG 20</span><b>A block is a machine with three knobs on it.</b> Its 490
 million weights are fixed for the whole run; what changes at every step is the position of three dials,
 delivered over a bus that every block in the network shares. The word "modulation" means exactly this:
 carrier unchanged, settings varied.</figcaption>
@@ -3699,7 +3748,7 @@ shared by 56 blocks without every block being forced into the same extreme behav
 <text x="786" y="316" class="eq">elementwise_affine=False: no parameters of its own — all 81 norms work this way.</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 20</span><b>Two knobs, and a choice about who owns them.</b> After a
+<figcaption><span class="figno">FIG 21</span><b>Two knobs, and a choice about who owns them.</b> After a
 token is normalised its scale and offset are the only freedom left in the operation. Give them to the
 weight matrix and you have an ordinary layer norm — fixed for the whole run. Wire them to the condition
 vector instead and the same layer behaves differently at every step while its weights stay frozen. The
@@ -3804,7 +3853,7 @@ file.</p>
 <text x="740" y="106" class="eq" style="fill:#5fe08a">gate</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 21</span><b>adaLN in one picture.</b> The green dials are generated, not learned
+<figcaption><span class="figno">FIG 22</span><b>adaLN in one picture.</b> The green dials are generated, not learned
 per-layer: the same <code>vec</code> that encodes "we are 62 % noisy" decides how strongly every
 sub-layer of every block is allowed to speak. The gate is also what makes DiT's
 "adaLN-Zero" trick possible: a block whose gate is zero starts life as the identity function, which is
@@ -3859,7 +3908,7 @@ tells you how the gates start out.</figcaption>
 <text x="40" y="386" class="ax">The openings drawn here are illustrative — the real values are learned, differ per block, and change every step. What is not illustrative is the mechanism.</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 22</span><b>Why a third dial.</b> Shift and scale change what a block
+<figcaption><span class="figno">FIG 23</span><b>Why a third dial.</b> Shift and scale change what a block
 <em>sees</em>, so the block always runs and its output always arrives. The gate changes how much of that
 output is allowed into the residual stream: zero and the block is a no-op however excited its internals
 got, one and it lands in full. That is the only dial that can switch a layer <em>off</em>, and it is what
@@ -4097,7 +4146,7 @@ and <code>_blend_single_mods</code> (§21) exist. Shared modulation is cheap; th
 <text x="40" y="420" class="ax">FLUX.2 drops even that — the three matrices at L98–108 are the whole mechanism.</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 23</span><b>The largest saving in the file.</b> Same 56 blocks, two
+<figcaption><span class="figno">FIG 24</span><b>The largest saving in the file.</b> Same 56 blocks, two
 arrangements of the modulation. Giving each block its own matrices is what DiT and FLUX.1 do, and it costs
 9 059 696 640 parameters — over a quarter of the dev model. Sharing three matrices costs 566 231 040. The
 8.5-billion-parameter difference is about 17 GB of weights, and the price is that no block can have a
@@ -4219,7 +4268,7 @@ all three checkpoints).</li>
 <text x="40" y="544" class="ax">denoised — so the network can be handed their contribution pre-computed, and cannot tell the difference.</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 24</span><b>Two phases, one sequence contract.</b> Step 0 pays full
+<figcaption><span class="figno">FIG 25</span><b>Two phases, one sequence contract.</b> Step 0 pays full
 price and writes 56 pairs of reference keys and values into a store. Every later step drops the reference
 rows from the sequence entirely, and splices the stored keys and values back in at attention time — so the
 canvas queries still see exactly what they saw before, and the only thing that changed is that nobody
@@ -4265,7 +4314,7 @@ used at all. Three conditions have to hold simultaneously.</p>
 <text x="1112" y="312" class="eq">pass exactly (§22.1).</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 25</span><b>Exactness is a property of the design, not a lucky
+<figcaption><span class="figno">FIG 26</span><b>Exactness is a property of the design, not a lucky
 accident.</b> Each of the three conditions is doing specific work, and removing any one of them turns the
 cache into an approximation. The third is the interesting one: isolation is normally presented as a way to
 stop references from being corrupted by the noise — which it is — but it is equally what makes them
@@ -4567,7 +4616,7 @@ how much?"</em></li>
   <span class="li"><span class="sw" style="background:#5fe08a"></span>time &amp; guidance signal</span>
   <span class="li"><span class="sw" style="background:#ff7ab8"></span>the sampling loop</span>
 </div>
-<figcaption><span class="figno">FIG 26</span><b>The complete FLUX.2 pipeline.</b> Note that the transformer is called
+<figcaption><span class="figno">FIG 27</span><b>The complete FLUX.2 pipeline.</b> Note that the transformer is called
 over and over — 50 times for FLUX.2 [dev], just 4 times for the distilled klein models. Each call moves
 the image a little closer to finished. The three coloured paths at the top are the three kinds of
 "token" the transformer consumes; the green path at the bottom is the tiny signal that tells it
@@ -4696,7 +4745,7 @@ and round and look identical again. Language models use θ = 10 000 or more beca
 into the hundreds of thousands: they need a wheel slow enough not to wrap inside the context.</p>
 <p>FLUX.2's coordinates are tiny by comparison — grid indices under ~200, text indices under 512, and a
 <em>t</em> axis that only ever reaches about 100 — so its slowest plane (period 2π·2000 ≈ 12 566
-positions, FIG 15) is already far slower than the longest distance it will ever be asked about.
+positions, FIG 16) is already far slower than the longest distance it will ever be asked about.
 <span class="spec">inference</span> A smaller base than 10 000 therefore costs nothing here and keeps the
 rest of the ladder in the range of distances the model actually needs to resolve; <code>model.py</code>
 simply states <code>theta: int = 2000</code> (L19) without saying why.</p>
@@ -4804,7 +4853,7 @@ rotation matrix per rotation plane per token.</p>
 
 <div class="codeblock"><div class="cb-head"><span class="dot"></span><span class="fname">src/flux2/model.py · rope()</span><span class="ln">lines 818–825 · 8 lines</span></div><pre><table class="lineno"><tbody><tr><td class="ln-col">818</td><td class="code-col"><span class="k">def</span> <span class="f">rope</span><span class="p">(</span>pos<span class="o">:</span> <span class="t">Tensor</span><span class="p">,</span> dim<span class="o">:</span> <span class="t">int</span><span class="p">,</span> theta<span class="o">:</span> <span class="t">int</span><span class="p">)</span> <span class="p">-&gt;</span> <span class="t">Tensor</span><span class="o">:</span></td></tr><tr class="hl"><td class="ln-col">819</td><td class="code-col">    <span class="k">assert</span> dim <span class="o">%</span> <span class="n">2</span> <span class="p">==</span> <span class="n">0</span></td></tr><tr class="hl"><td class="ln-col">820</td><td class="code-col">    scale <span class="o">=</span> <span class="t">torch</span><span class="p">.</span><span class="f">arange</span><span class="p">(</span><span class="n">0</span><span class="p">,</span> dim<span class="p">,</span> <span class="n">2</span><span class="p">,</span> dtype<span class="o">=</span>pos<span class="p">.</span>dtype<span class="p">,</span> device<span class="o">=</span>pos<span class="p">.</span>device<span class="p">)</span> <span class="o">/</span> dim</td></tr><tr class="hl"><td class="ln-col">821</td><td class="code-col">    omega <span class="o">=</span> <span class="n">1.0</span> <span class="o">/</span> <span class="p">(</span>theta<span class="p">**</span>scale<span class="p">)</span></td></tr><tr class="hl"><td class="ln-col">822</td><td class="code-col">    out <span class="o">=</span> <span class="t">torch</span><span class="p">.</span><span class="f">einsum</span><span class="p">(</span><span class="s">&quot;...n,d-&gt;...nd&quot;</span><span class="p">,</span> pos<span class="p">,</span> omega<span class="p">)</span></td></tr><tr class="hl"><td class="ln-col">823</td><td class="code-col">    out <span class="o">=</span> <span class="t">torch</span><span class="p">.</span><span class="f">stack</span><span class="p">(</span><span class="p">[</span><span class="t">torch</span><span class="p">.</span><span class="f">cos</span><span class="p">(</span>out<span class="p">)</span><span class="p">,</span> <span class="o">-</span><span class="t">torch</span><span class="p">.</span><span class="f">sin</span><span class="p">(</span>out<span class="p">)</span><span class="p">,</span> <span class="t">torch</span><span class="p">.</span><span class="f">sin</span><span class="p">(</span>out<span class="p">)</span><span class="p">,</span> <span class="t">torch</span><span class="p">.</span><span class="f">cos</span><span class="p">(</span>out<span class="p">)</span><span class="p">]</span><span class="p">,</span> dim<span class="o">=</span><span class="o">-</span><span class="n">1</span><span class="p">)</span></td></tr><tr class="hl"><td class="ln-col">824</td><td class="code-col">    out <span class="o">=</span> <span class="f">rearrange</span><span class="p">(</span>out<span class="p">,</span> <span class="s">&quot;b n d (i j) -&gt; b n d i j&quot;</span><span class="p">,</span> i<span class="o">=</span><span class="n">2</span><span class="p">,</span> j<span class="o">=</span><span class="n">2</span><span class="p">)</span></td></tr><tr class="hl"><td class="ln-col">825</td><td class="code-col">    <span class="k">return</span> out<span class="p">.</span><span class="f">float</span><span class="p">(</span><span class="p">)</span></td></tr></tbody></table></pre></div>
 
-<div class="trace"><div class="tr-row"><div class="tr-ln"><span>L819</span></div><div class="tr-body"><div class="tr-code">    <span class="k">assert</span> dim <span class="o">%</span> <span class="n">2</span> <span class="p">==</span> <span class="n">0</span></div><div class="tr-note">Refuse odd dimension budgets: rotations consume dimensions in pairs, so an axis with an odd number of dimensions would leave one dimension un-rotated and therefore position-blind.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L820</span></div><div class="tr-body"><div class="tr-code">    scale <span class="o">=</span> <span class="t">torch</span><span class="p">.</span><span class="f">arange</span><span class="p">(</span><span class="n">0</span><span class="p">,</span> dim<span class="p">,</span> <span class="n">2</span><span class="p">,</span> dtype<span class="o">=</span>pos<span class="p">.</span>dtype<span class="p">,</span> device<span class="o">=</span>pos<span class="p">.</span>device<span class="p">)</span> <span class="o">/</span> dim</div><div class="tr-note">Build the exponent ladder for this axis: <code>arange(0, dim, 2)</code> steps by two — one entry per rotation <em>plane</em>, i.e. 0, 2, 4, …, 30 for dim = 32 — then divides by <code>dim</code> to get fractions 0, 1/16, 2/16, …, 15/16. (Dividing by <code>dim</code> rather than by the plane count is just the standard RoPE formula written with the full dimension.)</div></div></div><div class="tr-row"><div class="tr-ln"><span>L821</span></div><div class="tr-body"><div class="tr-code">    omega <span class="o">=</span> <span class="n">1.0</span> <span class="o">/</span> <span class="p">(</span>theta<span class="p">**</span>scale<span class="p">)</span></div><div class="tr-note"><code>omega = 1 / θ^scale</code>: the angular speed of each plane. With θ = 2000 and dim = 32 the 16 speeds run from 1.0 down to 0.000804 — the odometer wheels of §8.2, drawn in FIG 15.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L822</span></div><div class="tr-body"><div class="tr-code">    out <span class="o">=</span> <span class="t">torch</span><span class="p">.</span><span class="f">einsum</span><span class="p">(</span><span class="s">&quot;...n,d-&gt;...nd&quot;</span><span class="p">,</span> pos<span class="p">,</span> omega<span class="p">)</span></div><div class="tr-note"><code>einsum("...n,d-&gt;...nd", pos, omega)</code> multiplies every position (the "n" axis) by every frequency (the "d" axis): the angle of plane <em>d</em> at position <em>p</em> is <code>p·ω_d</code>. Shape goes from (B, L) to (B, L, 16). The <code>...</code> keeps it general over any leading batch axes.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L823</span></div><div class="tr-body"><div class="tr-code">    out <span class="o">=</span> <span class="t">torch</span><span class="p">.</span><span class="f">stack</span><span class="p">(</span><span class="p">[</span><span class="t">torch</span><span class="p">.</span><span class="f">cos</span><span class="p">(</span>out<span class="p">)</span><span class="p">,</span> <span class="o">-</span><span class="t">torch</span><span class="p">.</span><span class="f">sin</span><span class="p">(</span>out<span class="p">)</span><span class="p">,</span> <span class="t">torch</span><span class="p">.</span><span class="f">sin</span><span class="p">(</span>out<span class="p">)</span><span class="p">,</span> <span class="t">torch</span><span class="p">.</span><span class="f">cos</span><span class="p">(</span>out<span class="p">)</span><span class="p">]</span><span class="p">,</span> dim<span class="o">=</span><span class="o">-</span><span class="n">1</span><span class="p">)</span></div><div class="tr-note">Here is the clever bit. For each angle φ we need the rotation matrix [[cos φ, −sin φ], [sin φ, cos φ]]. Read row-major, that matrix's four entries are exactly <code>[cos, −sin, sin, cos]</code> — so stacking those four tensors along a new last axis yields, in one shot, every rotation matrix. Shape: (B, L, 16, 4).</div></div></div><div class="tr-row"><div class="tr-ln"><span>L824</span></div><div class="tr-body"><div class="tr-code">    out <span class="o">=</span> <span class="f">rearrange</span><span class="p">(</span>out<span class="p">,</span> <span class="s">&quot;b n d (i j) -&gt; b n d i j&quot;</span><span class="p">,</span> i<span class="o">=</span><span class="n">2</span><span class="p">,</span> j<span class="o">=</span><span class="n">2</span><span class="p">)</span></div><div class="tr-note">Reshape the flat 4 into a genuine 2×2: <code>(i j)</code> with i = j = 2 splits the last axis into two. Now the tensor is (B, L, 16, 2, 2) — a real matrix per plane, per token.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L825</span></div><div class="tr-body"><div class="tr-code">    <span class="k">return</span> out<span class="p">.</span><span class="f">float</span><span class="p">(</span><span class="p">)</span></div><div class="tr-note">Cast to float32 and return. Rotations are computed and stored in full precision; the function that applies them (§16.6) works in float32 and casts back only at the very end. This is a deliberate accuracy choice <span class="spec">inference</span> — the file gives no comment, but the rotation is the one place where a tiny angular error would be applied to <em>every</em> query and key in all 56 blocks, and cos/sin of a bfloat16 angle loses most of its significant digits.</div></div></div></div>
+<div class="trace"><div class="tr-row"><div class="tr-ln"><span>L819</span></div><div class="tr-body"><div class="tr-code">    <span class="k">assert</span> dim <span class="o">%</span> <span class="n">2</span> <span class="p">==</span> <span class="n">0</span></div><div class="tr-note">Refuse odd dimension budgets: rotations consume dimensions in pairs, so an axis with an odd number of dimensions would leave one dimension un-rotated and therefore position-blind.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L820</span></div><div class="tr-body"><div class="tr-code">    scale <span class="o">=</span> <span class="t">torch</span><span class="p">.</span><span class="f">arange</span><span class="p">(</span><span class="n">0</span><span class="p">,</span> dim<span class="p">,</span> <span class="n">2</span><span class="p">,</span> dtype<span class="o">=</span>pos<span class="p">.</span>dtype<span class="p">,</span> device<span class="o">=</span>pos<span class="p">.</span>device<span class="p">)</span> <span class="o">/</span> dim</div><div class="tr-note">Build the exponent ladder for this axis: <code>arange(0, dim, 2)</code> steps by two — one entry per rotation <em>plane</em>, i.e. 0, 2, 4, …, 30 for dim = 32 — then divides by <code>dim</code> to get fractions 0, 1/16, 2/16, …, 15/16. (Dividing by <code>dim</code> rather than by the plane count is just the standard RoPE formula written with the full dimension.)</div></div></div><div class="tr-row"><div class="tr-ln"><span>L821</span></div><div class="tr-body"><div class="tr-code">    omega <span class="o">=</span> <span class="n">1.0</span> <span class="o">/</span> <span class="p">(</span>theta<span class="p">**</span>scale<span class="p">)</span></div><div class="tr-note"><code>omega = 1 / θ^scale</code>: the angular speed of each plane. With θ = 2000 and dim = 32 the 16 speeds run from 1.0 down to 0.000804 — the odometer wheels of §8.2, drawn in FIG 16.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L822</span></div><div class="tr-body"><div class="tr-code">    out <span class="o">=</span> <span class="t">torch</span><span class="p">.</span><span class="f">einsum</span><span class="p">(</span><span class="s">&quot;...n,d-&gt;...nd&quot;</span><span class="p">,</span> pos<span class="p">,</span> omega<span class="p">)</span></div><div class="tr-note"><code>einsum("...n,d-&gt;...nd", pos, omega)</code> multiplies every position (the "n" axis) by every frequency (the "d" axis): the angle of plane <em>d</em> at position <em>p</em> is <code>p·ω_d</code>. Shape goes from (B, L) to (B, L, 16). The <code>...</code> keeps it general over any leading batch axes.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L823</span></div><div class="tr-body"><div class="tr-code">    out <span class="o">=</span> <span class="t">torch</span><span class="p">.</span><span class="f">stack</span><span class="p">(</span><span class="p">[</span><span class="t">torch</span><span class="p">.</span><span class="f">cos</span><span class="p">(</span>out<span class="p">)</span><span class="p">,</span> <span class="o">-</span><span class="t">torch</span><span class="p">.</span><span class="f">sin</span><span class="p">(</span>out<span class="p">)</span><span class="p">,</span> <span class="t">torch</span><span class="p">.</span><span class="f">sin</span><span class="p">(</span>out<span class="p">)</span><span class="p">,</span> <span class="t">torch</span><span class="p">.</span><span class="f">cos</span><span class="p">(</span>out<span class="p">)</span><span class="p">]</span><span class="p">,</span> dim<span class="o">=</span><span class="o">-</span><span class="n">1</span><span class="p">)</span></div><div class="tr-note">Here is the clever bit. For each angle φ we need the rotation matrix [[cos φ, −sin φ], [sin φ, cos φ]]. Read row-major, that matrix's four entries are exactly <code>[cos, −sin, sin, cos]</code> — so stacking those four tensors along a new last axis yields, in one shot, every rotation matrix. Shape: (B, L, 16, 4).</div></div></div><div class="tr-row"><div class="tr-ln"><span>L824</span></div><div class="tr-body"><div class="tr-code">    out <span class="o">=</span> <span class="f">rearrange</span><span class="p">(</span>out<span class="p">,</span> <span class="s">&quot;b n d (i j) -&gt; b n d i j&quot;</span><span class="p">,</span> i<span class="o">=</span><span class="n">2</span><span class="p">,</span> j<span class="o">=</span><span class="n">2</span><span class="p">)</span></div><div class="tr-note">Reshape the flat 4 into a genuine 2×2: <code>(i j)</code> with i = j = 2 splits the last axis into two. Now the tensor is (B, L, 16, 2, 2) — a real matrix per plane, per token.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L825</span></div><div class="tr-body"><div class="tr-code">    <span class="k">return</span> out<span class="p">.</span><span class="f">float</span><span class="p">(</span><span class="p">)</span></div><div class="tr-note">Cast to float32 and return. Rotations are computed and stored in full precision; the function that applies them (§16.6) works in float32 and casts back only at the very end. This is a deliberate accuracy choice <span class="spec">inference</span> — the file gives no comment, but the rotation is the one place where a tiny angular error would be applied to <em>every</em> query and key in all 56 blocks, and cos/sin of a bfloat16 angle loses most of its significant digits.</div></div></div></div>
 
 <p class="dim">Used later: EmbedND (§16.5) calls it once per position axis.</p>
 
@@ -4849,7 +4898,7 @@ right: −1 is the matrix column, −2 the matrix row, −3 the plane. Concatena
 2×2 matrix untouched and simply lines the planes up in axis order — t's 16 planes first, then h's,
 then w's, then l's. That order is a contract: plane <em>j</em> of this output is exactly the rotation
 that <code>apply_rope</code> will apply to dimensions <em>(2j, 2j+1)</em> of q and k, which is
-precisely the dim-split drawn in <a href="#rope">FIG 15</a>.</p>
+precisely the dim-split drawn in <a href="#rope">FIG 16</a>.</p>
 <p><b>Step 4 — make room for heads.</b> <code>unsqueeze(1)</code> inserts a size-1 axis at position
 1: <span class="shape">(B, 1, L, 64, 2, 2)</span>. All 48 heads of a layer share the same rotations,
 so a size-1 axis lets one computed copy broadcast across every head for free during
@@ -4942,10 +4991,10 @@ so a size-1 axis lets one computed copy broadcast across every head for free dur
 <text x="840" y="474" class="eq" text-anchor="middle">→ (B, 1, L, 64, 2, 2) — 1 broadcasts to 48 heads</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 27</span><b>Inside EmbedND.</b> The four coordinate columns are sliced apart,
+<figcaption><span class="figno">FIG 28</span><b>Inside EmbedND.</b> The four coordinate columns are sliced apart,
 each runs through <code>rope</code> on its own dimension budget, and the four bundles of 16 rotation
 planes are glued end-to-end along the plane axis. The colour order — t, h, w, l — is not cosmetic: it
-is the same dim-split as FIG 15, and it is what lets <code>apply_rope</code> pair plane <em>j</em> with
+is the same dim-split as FIG 16, and it is what lets <code>apply_rope</code> pair plane <em>j</em> with
 head dimensions <em>(2j, 2j+1)</em> without any bookkeeping.</figcaption>
 </figure>
 
@@ -5170,7 +5219,7 @@ of §22 mathematically exact. Read the name as "references are sealed", not as "
 <text x="660" y="414" class="ax">coloured cells = attended</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 28</span><b>The isolation rule, measured.</b> I fed one-hot values
+<figcaption><span class="figno">FIG 29</span><b>The isolation rule, measured.</b> I fed one-hot values
 through <code>causal_attn_fn</code> and read back which key each query actually mixed: on the left is what
 came out. (No mask tensor exists anywhere in the code — this pattern is what the <em>slicing</em> of §17.2
 produces, and it is drawn as a grid only because a grid is the easiest way to see it.) Text and image rows are completely dense — every token sees every token, in both directions. The
@@ -5183,7 +5232,7 @@ cached variant: the reference <em>rows</em> are gone (we no longer compute their
 <div class="trace"><div class="tr-row"><div class="tr-ln"><span>L772–774</span></div><div class="tr-body"><div class="tr-code">    <span class="k">if</span> kv_cache <span class="k">is</span> <span class="k">not</span> <span class="k">None</span><span class="o">:</span><br>        k_ref <span class="o">=</span> kv_cache<span class="p">[</span><span class="s">&quot;k_ref&quot;</span><span class="p">]</span><br>        v_ref <span class="o">=</span> kv_cache<span class="p">[</span><span class="s">&quot;v_ref&quot;</span><span class="p">]</span></div><div class="tr-note">The whole function is one <code>if</code>: is a cache present? If so, pull the stored reference keys and values out of it. They were computed once, on step 0, and are reused verbatim on every later step.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L776–781</span></div><div class="tr-body"><div class="tr-code">        q_txt <span class="o">=</span> q<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">,</span> <span class="o">:</span>num_txt_tokens<span class="p">,</span> <span class="o">:</span><span class="p">]</span><br>        q_img <span class="o">=</span> q<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">,</span> num_txt_tokens<span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">]</span><br>        k_txt <span class="o">=</span> k<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">,</span> <span class="o">:</span>num_txt_tokens<span class="p">,</span> <span class="o">:</span><span class="p">]</span><br>        v_txt <span class="o">=</span> v<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">,</span> <span class="o">:</span>num_txt_tokens<span class="p">,</span> <span class="o">:</span><span class="p">]</span><br>        k_img <span class="o">=</span> k<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">,</span> num_txt_tokens<span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">]</span><br>        v_img <span class="o">=</span> v<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">,</span> num_txt_tokens<span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">]</span></div><div class="tr-note">Slice the current step's q/k/v into a text part and an image part. In this branch the incoming sequence is <code>[txt, img]</code> — the references are <em>not</em> present, which is the entire point of the cache.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L783</span></div><div class="tr-body"><div class="tr-code">        q_txt_img <span class="o">=</span> <span class="t">torch</span><span class="p">.</span><span class="f">cat</span><span class="p">(</span><span class="p">[</span>q_txt<span class="p">,</span> q_img<span class="p">]</span><span class="p">,</span> dim<span class="o">=</span><span class="n">2</span><span class="p">)</span></div><div class="tr-note">Re-unite the queries: text and image queries are processed together as <code>[txt, img]</code>.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L784–785</span></div><div class="tr-body"><div class="tr-code">        k_all <span class="o">=</span> <span class="t">torch</span><span class="p">.</span><span class="f">cat</span><span class="p">(</span><span class="p">[</span>k_txt<span class="p">,</span> k_ref<span class="p">,</span> k_img<span class="p">]</span><span class="p">,</span> dim<span class="o">=</span><span class="n">2</span><span class="p">)</span><br>        v_all <span class="o">=</span> <span class="t">torch</span><span class="p">.</span><span class="f">cat</span><span class="p">(</span><span class="p">[</span>v_txt<span class="p">,</span> v_ref<span class="p">,</span> v_img<span class="p">]</span><span class="p">,</span> dim<span class="o">=</span><span class="n">2</span><span class="p">)</span></div><div class="tr-note">But the <em>keys and values</em> are re-assembled as <code>[txt, ref, img]</code>, with the cached reference slice spliced back into the middle. The queries therefore still get to look at the references — without the references ever being recomputed.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L786</span></div><div class="tr-body"><div class="tr-code">        out <span class="o">=</span> <span class="t">F</span><span class="p">.</span><span class="f">scaled_dot_product_attention</span><span class="p">(</span>q_txt_img<span class="p">,</span> k_all<span class="p">,</span> v_all<span class="p">,</span> is_causal<span class="o">=</span><span class="k">False</span><span class="p">)</span></div><div class="tr-note">One dense, unmasked attention call over all of them: softmax over (n_txt + n_ref + n_img) keys for every query.</div></div></div></div>
 
 <h3>17.2 · The uncached branch (L789–815)</h3>
-<div class="trace"><div class="tr-row"><div class="tr-ln"><span>L789–790</span></div><div class="tr-body"><div class="tr-code">        ref_start <span class="o">=</span> num_txt_tokens<br>        ref_end <span class="o">=</span> num_txt_tokens <span class="o">+</span> num_ref_tokens</div><div class="tr-note">Compute the reference slice boundaries: references occupy positions <code>[num_txt, num_txt + num_ref)</code> of the combined sequence. This is the layout contract of the whole file — always <code>[txt, ref, img]</code>.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L792–800</span></div><div class="tr-body"><div class="tr-code">        q_txt <span class="o">=</span> q<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">,</span> <span class="o">:</span>ref_start<span class="p">,</span> <span class="o">:</span><span class="p">]</span><br>        q_ref <span class="o">=</span> q<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">,</span> ref_start<span class="o">:</span>ref_end<span class="p">,</span> <span class="o">:</span><span class="p">]</span><br>        q_img <span class="o">=</span> q<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">,</span> ref_end<span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">]</span><br>        k_txt <span class="o">=</span> k<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">,</span> <span class="o">:</span>ref_start<span class="p">,</span> <span class="o">:</span><span class="p">]</span><br>        v_txt <span class="o">=</span> v<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">,</span> <span class="o">:</span>ref_start<span class="p">,</span> <span class="o">:</span><span class="p">]</span><br>        k_ref <span class="o">=</span> k<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">,</span> ref_start<span class="o">:</span>ref_end<span class="p">,</span> <span class="o">:</span><span class="p">]</span><br>        v_ref <span class="o">=</span> v<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">,</span> ref_start<span class="o">:</span>ref_end<span class="p">,</span> <span class="o">:</span><span class="p">]</span><br>        k_img <span class="o">=</span> k<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">,</span> ref_end<span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">]</span><br>        v_img <span class="o">=</span> v<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">,</span> ref_end<span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">]</span></div><div class="tr-note">Cut q, k and v into three contiguous parts each: text, reference, image. Pure slicing; no arithmetic.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L802–806</span></div><div class="tr-body"><div class="tr-code">        <span class="c"># txt+img attend to all keys</span><br>        q_txt_img <span class="o">=</span> <span class="t">torch</span><span class="p">.</span><span class="f">cat</span><span class="p">(</span><span class="p">[</span>q_txt<span class="p">,</span> q_img<span class="p">]</span><span class="p">,</span> dim<span class="o">=</span><span class="n">2</span><span class="p">)</span><br>        k_all <span class="o">=</span> <span class="t">torch</span><span class="p">.</span><span class="f">cat</span><span class="p">(</span><span class="p">[</span>k_txt<span class="p">,</span> k_ref<span class="p">,</span> k_img<span class="p">]</span><span class="p">,</span> dim<span class="o">=</span><span class="n">2</span><span class="p">)</span><br>        v_all <span class="o">=</span> <span class="t">torch</span><span class="p">.</span><span class="f">cat</span><span class="p">(</span><span class="p">[</span>v_txt<span class="p">,</span> v_ref<span class="p">,</span> v_img<span class="p">]</span><span class="p">,</span> dim<span class="o">=</span><span class="n">2</span><span class="p">)</span><br>        attn_txt_img <span class="o">=</span> <span class="t">F</span><span class="p">.</span><span class="f">scaled_dot_product_attention</span><span class="p">(</span>q_txt_img<span class="p">,</span> k_all<span class="p">,</span> v_all<span class="p">,</span> is_causal<span class="o">=</span><span class="k">False</span><span class="p">)</span></div><div class="tr-note">Text and image queries are concatenated and attend to <em>all</em> keys — text, reference and image alike, in one dense <code>scaled_dot_product_attention</code> call. This is the bidirectional core of the model: every canvas token can read every word of your prompt and every patch of every reference. Note what is <em>not</em> here: no boolean mask tensor is ever built. The allowed/forbidden pattern of FIG 28 is produced by <em>which slices are concatenated</em>, not by a mask argument.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L807–808</span></div><div class="tr-body"><div class="tr-code">        attn_txt <span class="o">=</span> attn_txt_img<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">,</span> <span class="o">:</span>ref_start<span class="p">,</span> <span class="o">:</span><span class="p">]</span><br>        attn_img <span class="o">=</span> attn_txt_img<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">,</span> ref_start<span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">]</span></div><div class="tr-note">Split that result back into a text half and an image half, preserving row order: the first <code>ref_start</code> rows are text, the rest are canvas. The reference queries were deliberately left out of this call.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L810–811</span></div><div class="tr-body"><div class="tr-code">        <span class="c"># ref only attends to itself</span><br>        attn_ref <span class="o">=</span> <span class="t">F</span><span class="p">.</span><span class="f">scaled_dot_product_attention</span><span class="p">(</span>q_ref<span class="p">,</span> k_ref<span class="p">,</span> v_ref<span class="p">,</span> is_causal<span class="o">=</span><span class="k">False</span><span class="p">)</span></div><div class="tr-note">The isolation rule, in one line: reference queries attend <strong>only to reference keys</strong>. Their outputs are updated and handed to the next layer (and eventually discarded), but their hidden states can never be contaminated by the noisy canvas — which is exactly why they are identical at every denoising step, and therefore cacheable.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L813</span></div><div class="tr-body"><div class="tr-code">        out <span class="o">=</span> <span class="t">torch</span><span class="p">.</span><span class="f">cat</span><span class="p">(</span><span class="p">[</span>attn_txt<span class="p">,</span> attn_ref<span class="p">,</span> attn_img<span class="p">]</span><span class="p">,</span> dim<span class="o">=</span><span class="n">2</span><span class="p">)</span></div><div class="tr-note">Stitch <code>[attn_txt, attn_ref, attn_img]</code> back into the original <code>[txt, ref, img]</code> order so the caller's own slicing keeps working.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L815</span></div><div class="tr-body"><div class="tr-code">    <span class="k">return</span> <span class="f">rearrange</span><span class="p">(</span>out<span class="p">,</span> <span class="s">&quot;b h n d -&gt; b n (h d)&quot;</span><span class="p">)</span></div><div class="tr-note">Flatten the head axis back into the feature axis: <code>(B, H, L, D) → (B, L, H·D)</code>. Every consumer of this function expects tokens-as-rows with heads folded in.</div></div></div></div>
+<div class="trace"><div class="tr-row"><div class="tr-ln"><span>L789–790</span></div><div class="tr-body"><div class="tr-code">        ref_start <span class="o">=</span> num_txt_tokens<br>        ref_end <span class="o">=</span> num_txt_tokens <span class="o">+</span> num_ref_tokens</div><div class="tr-note">Compute the reference slice boundaries: references occupy positions <code>[num_txt, num_txt + num_ref)</code> of the combined sequence. This is the layout contract of the whole file — always <code>[txt, ref, img]</code>.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L792–800</span></div><div class="tr-body"><div class="tr-code">        q_txt <span class="o">=</span> q<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">,</span> <span class="o">:</span>ref_start<span class="p">,</span> <span class="o">:</span><span class="p">]</span><br>        q_ref <span class="o">=</span> q<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">,</span> ref_start<span class="o">:</span>ref_end<span class="p">,</span> <span class="o">:</span><span class="p">]</span><br>        q_img <span class="o">=</span> q<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">,</span> ref_end<span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">]</span><br>        k_txt <span class="o">=</span> k<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">,</span> <span class="o">:</span>ref_start<span class="p">,</span> <span class="o">:</span><span class="p">]</span><br>        v_txt <span class="o">=</span> v<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">,</span> <span class="o">:</span>ref_start<span class="p">,</span> <span class="o">:</span><span class="p">]</span><br>        k_ref <span class="o">=</span> k<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">,</span> ref_start<span class="o">:</span>ref_end<span class="p">,</span> <span class="o">:</span><span class="p">]</span><br>        v_ref <span class="o">=</span> v<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">,</span> ref_start<span class="o">:</span>ref_end<span class="p">,</span> <span class="o">:</span><span class="p">]</span><br>        k_img <span class="o">=</span> k<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">,</span> ref_end<span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">]</span><br>        v_img <span class="o">=</span> v<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">,</span> ref_end<span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">]</span></div><div class="tr-note">Cut q, k and v into three contiguous parts each: text, reference, image. Pure slicing; no arithmetic.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L802–806</span></div><div class="tr-body"><div class="tr-code">        <span class="c"># txt+img attend to all keys</span><br>        q_txt_img <span class="o">=</span> <span class="t">torch</span><span class="p">.</span><span class="f">cat</span><span class="p">(</span><span class="p">[</span>q_txt<span class="p">,</span> q_img<span class="p">]</span><span class="p">,</span> dim<span class="o">=</span><span class="n">2</span><span class="p">)</span><br>        k_all <span class="o">=</span> <span class="t">torch</span><span class="p">.</span><span class="f">cat</span><span class="p">(</span><span class="p">[</span>k_txt<span class="p">,</span> k_ref<span class="p">,</span> k_img<span class="p">]</span><span class="p">,</span> dim<span class="o">=</span><span class="n">2</span><span class="p">)</span><br>        v_all <span class="o">=</span> <span class="t">torch</span><span class="p">.</span><span class="f">cat</span><span class="p">(</span><span class="p">[</span>v_txt<span class="p">,</span> v_ref<span class="p">,</span> v_img<span class="p">]</span><span class="p">,</span> dim<span class="o">=</span><span class="n">2</span><span class="p">)</span><br>        attn_txt_img <span class="o">=</span> <span class="t">F</span><span class="p">.</span><span class="f">scaled_dot_product_attention</span><span class="p">(</span>q_txt_img<span class="p">,</span> k_all<span class="p">,</span> v_all<span class="p">,</span> is_causal<span class="o">=</span><span class="k">False</span><span class="p">)</span></div><div class="tr-note">Text and image queries are concatenated and attend to <em>all</em> keys — text, reference and image alike, in one dense <code>scaled_dot_product_attention</code> call. This is the bidirectional core of the model: every canvas token can read every word of your prompt and every patch of every reference. Note what is <em>not</em> here: no boolean mask tensor is ever built. The allowed/forbidden pattern of FIG 29 is produced by <em>which slices are concatenated</em>, not by a mask argument.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L807–808</span></div><div class="tr-body"><div class="tr-code">        attn_txt <span class="o">=</span> attn_txt_img<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">,</span> <span class="o">:</span>ref_start<span class="p">,</span> <span class="o">:</span><span class="p">]</span><br>        attn_img <span class="o">=</span> attn_txt_img<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">,</span> ref_start<span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">]</span></div><div class="tr-note">Split that result back into a text half and an image half, preserving row order: the first <code>ref_start</code> rows are text, the rest are canvas. The reference queries were deliberately left out of this call.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L810–811</span></div><div class="tr-body"><div class="tr-code">        <span class="c"># ref only attends to itself</span><br>        attn_ref <span class="o">=</span> <span class="t">F</span><span class="p">.</span><span class="f">scaled_dot_product_attention</span><span class="p">(</span>q_ref<span class="p">,</span> k_ref<span class="p">,</span> v_ref<span class="p">,</span> is_causal<span class="o">=</span><span class="k">False</span><span class="p">)</span></div><div class="tr-note">The isolation rule, in one line: reference queries attend <strong>only to reference keys</strong>. Their outputs are updated and handed to the next layer (and eventually discarded), but their hidden states can never be contaminated by the noisy canvas — which is exactly why they are identical at every denoising step, and therefore cacheable.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L813</span></div><div class="tr-body"><div class="tr-code">        out <span class="o">=</span> <span class="t">torch</span><span class="p">.</span><span class="f">cat</span><span class="p">(</span><span class="p">[</span>attn_txt<span class="p">,</span> attn_ref<span class="p">,</span> attn_img<span class="p">]</span><span class="p">,</span> dim<span class="o">=</span><span class="n">2</span><span class="p">)</span></div><div class="tr-note">Stitch <code>[attn_txt, attn_ref, attn_img]</code> back into the original <code>[txt, ref, img]</code> order so the caller's own slicing keeps working.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L815</span></div><div class="tr-body"><div class="tr-code">    <span class="k">return</span> <span class="f">rearrange</span><span class="p">(</span>out<span class="p">,</span> <span class="s">&quot;b h n d -&gt; b n (h d)&quot;</span><span class="p">)</span></div><div class="tr-note">Flatten the head axis back into the feature axis: <code>(B, H, L, D) → (B, L, H·D)</code>. Every consumer of this function expects tokens-as-rows with heads folded in.</div></div></div></div>
 
 <div class="note proof">
 <div class="nh">◆ Verified · the two branches agree exactly</div>
@@ -5284,7 +5333,7 @@ fused MLP over it.
 <text x="430" y="450" class="ax" text-anchor="middle">residual skip — added after the gate, unchanged</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 29</span><b>The single-stream block.</b> The design trick is the fusion:
+<figcaption><span class="figno">FIG 30</span><b>The single-stream block.</b> The design trick is the fusion:
 <code>linear1</code> computes the queries, keys, values <em>and</em> the MLP's input in one matrix
 multiply, and <code>linear2</code> consumes the attention output and the gated MLP output together.
 Two big matmuls per block instead of five smaller ones — much better GPU utilisation, identical
@@ -5390,7 +5439,7 @@ other.
 <path d="M992,100 L972,100 M992,326 L972,326 M992,414 L972,414" stroke="#5fe08a" stroke-width="1.3" fill="none" stroke-dasharray="4 4" marker-end="url(#dV)"/>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 30</span><b>The double-stream block.</b> Everything is doubled except the attention.
+<figcaption><span class="figno">FIG 31</span><b>The double-stream block.</b> Everything is doubled except the attention.
 Text tokens are transformed by text weights and image tokens by image weights; only when it is time to
 <em>compare</em> them are their q/k/v concatenated into one sequence. After attention the streams split
 again and each finishes with its own projection and its own MLP. Eight of these teach the two
@@ -5575,7 +5624,7 @@ make sense together.
 <text x="40" y="312" class="ax">cost of an N-step run with reference images: 1 full step + (N−1) discounted ones instead of N full ones</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 31</span><b>Two phases, one sequence contract.</b> Step 0 pays full price and
+<figcaption><span class="figno">FIG 32</span><b>Two phases, one sequence contract.</b> Step 0 pays full price and
 banks the reference keys and values from all 56 blocks. Every later step omits the reference tokens from
 the sequence entirely and splices the stored keys back in at attention time — so the queries still see
 the references, but nothing about them is ever recomputed. The checkpoint this path ships with,
@@ -5818,7 +5867,7 @@ are, collected.
 <tr><td><b>No biases anywhere</b></td><td>all Linears</td><td>171 linear layers, all <code>bias=False</code> — verifiable by grepping the file. <span class="spec">inference</span> The likely reason is that every linear here is followed or preceded by a normalisation whose shift is generated per token, which a constant bias adds nothing to.</td></tr>
 <tr><td><b>fp32 for the delicate arithmetic</b></td><td>L722–726, L741, L825, L829–832</td><td>The network runs in bf16, but three things are computed in float32 and cast back: the sinusoidal frequency ladder, the RMSNorm statistics (<code>x.float()</code> then <code>.to(x_dtype)</code>) and the RoPE rotations (<code>.float()</code> then <code>type_as</code>). Note what is <em>not</em> in this list: <code>LastLayer</code> — the prediction leaves the model in the working dtype.</td></tr>
 <tr><td><b>4-axis RoPE instead of 1-D</b></td><td>L694–707</td><td>Images are 2-D and references are separated in "time". Four rotation planes with equal dimension splits let one mechanism encode <code>(t, h, w, l)</code> without learned position tables.</td></tr>
-<tr><td><b>Isolation by slicing, not by masking</b></td><td>L802–813</td><td>No boolean mask tensor is ever built. The uncached branch makes <em>two</em> dense attention calls — txt+img over all keys, then ref over ref — and the cached branch needs only one, because the reference queries are gone. Same rule (FIG 28), expressed as concatenations.</td></tr>
+<tr><td><b>Isolation by slicing, not by masking</b></td><td>L802–813</td><td>No boolean mask tensor is ever built. The uncached branch makes <em>two</em> dense attention calls — txt+img over all keys, then ref over ref — and the cached branch needs only one, because the reference queries are gone. Same rule (FIG 29), expressed as concatenations.</td></tr>
 <tr><td><b>8 double + 48 single</b></td><td>L16–17, built at L76–96</td><td><code>depth = 8</code> and <code>depth_single_blocks = 48</code> are config fields, consumed by the two <code>ModuleList</code> comprehensions in <code>__init__</code>. A double block costs exactly 2× a single one, so depth on the shared side is twice as cheap. FLUX.1 used 19+38; FLUX.2 moves further along that trade.</td></tr>
 <tr><td><b>Cache as a dict of lists</b></td><td>L260–264</td><td>Plain Python structures, one entry per block in block order. No abstraction layer, no registry — the simplest thing that makes <code>kv_cache["double_blocks"][i]</code> obvious.</td></tr>
 <tr><td><b>Dead code left in place</b></td><td>L446, L449</td><td><code>self.hidden_dim</code> and <code>self.scale</code> are never read again after <code>__init__</code>. They are a plain Python int and float — not parameters, not buffers — so they appear in no <code>state_dict</code> and cost nothing but a line each. <span class="spec">inference</span> They look like leftovers from a hand-written attention that <code>scaled_dot_product_attention</code> replaced.</td></tr>

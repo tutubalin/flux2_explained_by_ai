@@ -228,6 +228,55 @@ It is the only place in the whole system where a pixel is ever produced. The tra
 parameters of it, all 833 lines of this article — lives entirely inside the compressed space, and never
 knows what a colour is.</p>
 
+<figure>
+<div class="fig">
+<svg viewBox="0 0 1560 380" role="img" aria-label="Three boxes with the number of values each holds: pixels 1024 by 1024 by 3 equals 3 145 728 values; latents 128 by 128 by 32 equals 524 288 values; tokens 64 by 64 by 128 equals 524 288 values. The first arrow, the VAE, divides by six. The second arrow, patchify, does not change the count at all - it only repacks.">
+<defs><marker id="cpA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7d8da1"/></marker></defs>
+<text x="40" y="34" class="ttl">Where the compression actually happens — count the values, not the picture</text>
+
+<rect x="40" y="70" width="400" height="180" rx="14" fill="#0e1622" stroke="#f6a93b" stroke-opacity=".55"/>
+<text x="240" y="104" class="axb" text-anchor="middle" fill="#f6a93b">pixels</text>
+<text x="240" y="134" class="eq" text-anchor="middle">1024 × 1024 × 3</text>
+<text x="240" y="164" class="eq" text-anchor="middle" fill="#ffd479">3 145 728 values</text>
+<text x="240" y="196" class="eq" text-anchor="middle" fill="#a9b8c9">what a camera gives you,</text>
+<text x="240" y="214" class="eq" text-anchor="middle" fill="#a9b8c9">and what the VAE decoder returns</text>
+
+<rect x="580" y="70" width="400" height="180" rx="14" fill="#0e1622" stroke="#b18cff" stroke-opacity=".55"/>
+<text x="780" y="104" class="axb" text-anchor="middle" fill="#b18cff">latents</text>
+<text x="780" y="134" class="eq" text-anchor="middle">128 × 128 × 32</text>
+<text x="780" y="164" class="eq" text-anchor="middle" fill="#ffd479">524 288 values</text>
+<text x="780" y="196" class="eq" text-anchor="middle" fill="#a9b8c9">the same picture with the</text>
+<text x="780" y="214" class="eq" text-anchor="middle" fill="#a9b8c9">redundancy squeezed out</text>
+
+<rect x="1120" y="70" width="400" height="180" rx="14" fill="#0e1622" stroke="#5fe08a" stroke-opacity=".55"/>
+<text x="1320" y="104" class="axb" text-anchor="middle" fill="#5fe08a">tokens</text>
+<text x="1320" y="134" class="eq" text-anchor="middle">4096 rows × 128</text>
+<text x="1320" y="164" class="eq" text-anchor="middle" fill="#ffd479">524 288 values</text>
+<text x="1320" y="196" class="eq" text-anchor="middle" fill="#a9b8c9">the same numbers again,</text>
+<text x="1320" y="214" class="eq" text-anchor="middle" fill="#a9b8c9">only repacked into rows</text>
+
+<path d="M442,160 L578,160" stroke="#7d8da1" stroke-width="2.4" fill="none" marker-end="url(#cpA)"/>
+<text x="510" y="140" class="axb" text-anchor="middle" fill="#b18cff">VAE encoder</text>
+<text x="510" y="192" class="eq" text-anchor="middle">÷ 6 — real compression,</text>
+<text x="510" y="210" class="eq" text-anchor="middle">a trained network doing it</text>
+
+<path d="M982,160 L1118,160" stroke="#7d8da1" stroke-width="2.4" fill="none" marker-end="url(#cpA)"/>
+<text x="1050" y="140" class="axb" text-anchor="middle" fill="#5fe08a">patchify</text>
+<text x="1050" y="192" class="eq" text-anchor="middle">÷ 1 — no compression at all,</text>
+<text x="1050" y="210" class="eq" text-anchor="middle">a reshape and nothing more</text>
+
+<text x="40" y="300" class="ax">Six times fewer values, all of it from the VAE. The patchify step changes the shape of the container — 128 × 128 cells of 32 become</text>
+<text x="40" y="322" class="ax">4096 rows of 128 — and not one number is lost or gained, which is why it can be undone for free.</text>
+<text x="40" y="360" class="ax" fill="#a9b8c9">That is also why the transformer's job is not smaller than it looks: 524 288 values still have to be reasoned about, only in 4096 rows instead of a million.</text>
+</svg>
+</div>
+<figcaption><span class="figno">FIG 8</span><b>Only one of the two stages compresses.</b> The VAE takes
+3 145 728 pixel values down to 524 288 latent values — a factor of six — and that is a trained network
+deciding what the picture needs to keep. The patchify step that follows is a pure rearrangement: the same
+524 288 values, regrouped from a 128 × 128 grid of 32-channel cells into 4 096 rows of 128. Counting values
+rather than pixels is the quickest way to see which part of §4.1 is doing the work.</figcaption>
+</figure>
+
 <h3>4.3 · How many tokens is that, really?</h3>
 <div class="tbl-wrap">
 <table class="data">

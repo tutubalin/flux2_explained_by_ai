@@ -77,7 +77,7 @@ tokens are</b>. Zero learned parameters, no maximum sequence length, nothing to 
 <text x="40" y="306" class="ax">both vectors spun by the same extra 7·ω — the angle between them, and therefore the attention score, is untouched</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 12</span><b>The relative-angle trick.</b> Left: a query at position 3 and a key at
+<figcaption><span class="figno">FIG 13</span><b>The relative-angle trick.</b> Left: a query at position 3 and a key at
 position 11, each rotated by its own position times ω. Right: the same pair moved seven positions along —
 both vectors spin by the same extra angle, so the angle <em>between</em> them never changes, and neither
 does the attention score. Absolute position cancels out of the equation; distance stays in it.</figcaption>
@@ -125,7 +125,7 @@ apart. Summed together, the ladder gives every gap its own fingerprint.</p>
 <text x="80" y="302" class="ax">slow plane 7 barely moves: unambiguous but coarse. Attention sums all 64 planes — and only the sum is unique per gap</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 13</span><b>Why one plane is not enough.</b> Every plane contributes
+<figcaption><span class="figno">FIG 14</span><b>Why one plane is not enough.</b> Every plane contributes
 cos(gap·ωᵢ) to the attention score. The fast plane oscillates and aliases — every peak looks like every
 other. The slow plane never repeats but cannot resolve neighbours. The geometric ladder of 64 speeds
 between those extremes gives each gap a distinct summed fingerprint: no learned parameters, no length
@@ -420,7 +420,7 @@ matrix, no matrix product, just four multiplications and two additions per pair.
 <text x="40" y="486" class="ax">16 planes × 4 axes = 64 planes = 128 numbers. This is why __init__ refuses to build a model whose axes_dim does not sum to head_dim.</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 14</span><b>Where the 128 numbers go.</b> RoPE does not mix a head's
+<figcaption><span class="figno">FIG 15</span><b>Where the 128 numbers go.</b> RoPE does not mix a head's
 dimensions; it pairs them up — (x₀,x₁), (x₂,x₃), …, (x₁₂₆,x₁₂₇) — and rotates each pair in its own plane
 by an angle proportional to the token's position on the axis that owns it. Thirty-two numbers per axis
 means sixteen planes per axis, and sixteen planes times four axes is exactly the head width, which is what
@@ -443,7 +443,7 @@ and its direction, so what the network knows about the token and where it sits g
 attention score between two tokens depends on both positions separately, not on the distance between them.
 A rotation leaves the length untouched and has the property that matters: rotating a query by θ₁ and a key
 by θ₂ makes their dot product depend on <strong>θ₁ − θ₂</strong> alone. Distance falls out of the
-arithmetic, which is what FIG 12 showed and what §8.1 promised.</p>
+arithmetic, which is what FIG 13 showed and what §8.1 promised.</p>
 </div>
 <p class="dim">The shapes, if you want them before Part 3: <code>rope()</code> takes one axis's positions
 (B, L) and its 32 dimensions and returns (B, L, 16, 2, 2) — sixteen 2 × 2 blocks, in float32;
@@ -527,7 +527,7 @@ would do in older architectures.</p>
 <text x="520" y="360" class="ax">slow planes resolve coarse layout (far-apart regions).</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 15</span><b>How 128 dimensions become a 4-D coordinate system.</b> The mixed ladder of
+<figcaption><span class="figno">FIG 16</span><b>How 128 dimensions become a 4-D coordinate system.</b> The mixed ladder of
 fast and slow frequencies is the same idea as the wheels on an odometer: the fast wheel tells you the
 last digit, the slow wheel tells you how far you have really travelled. Stacking four such odometers —
 one per axis — gives every token an unambiguous address in (image, row, column, text-slot) space.</figcaption>
