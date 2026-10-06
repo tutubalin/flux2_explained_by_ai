@@ -1,5 +1,5 @@
 <section id="bigpicture">
-<h2><span class="secno">§ 9</span>What FLUX.2 actually is</h2>
+<h2><span class="secno">§ 10</span>What FLUX.2 actually is</h2>
 <p class="section-intro">
 You ask for "a red fox in snow at dusk". FLUX.2 does not draw the fox. It starts from pure static
 and, over 50 small corrections, <em>pushes</em> that static until it becomes a fox.
@@ -186,14 +186,14 @@ how much?"</em></li>
   <span class="li"><span class="sw" style="background:#5fe08a"></span>time &amp; guidance signal</span>
   <span class="li"><span class="sw" style="background:#ff7ab8"></span>the sampling loop</span>
 </div>
-<figcaption><span class="figno">FIG 13</span><b>The complete FLUX.2 pipeline.</b> Note that the transformer is called
+<figcaption><span class="figno">FIG 15</span><b>The complete FLUX.2 pipeline.</b> Note that the transformer is called
 over and over — 50 times for FLUX.2 [dev], just 4 times for the distilled klein models. Each call moves
 the image a little closer to finished. The three coloured paths at the top are the three kinds of
 "token" the transformer consumes; the green path at the bottom is the tiny signal that tells it
 <em>how finished</em> the image currently is.</figcaption>
 </figure>
 
-<h3>9.1 · What "32 billion parameters" is actually spent on</h3>
+<h3>10.1 · What "32 billion parameters" is actually spent on</h3>
 <p>Here is the exact budget. I counted it by building each config on PyTorch's <code>meta</code>
 device — a special device that creates tensors with shapes but no data, so you can inspect a 32B model
 on a laptop — and I also derived each number by hand from the layer dimensions. Both agree exactly.</p>
@@ -256,7 +256,7 @@ computed once per step and handed to all 56 blocks. Had each block kept its own 
 per stream for the 8 double blocks and a 6144 → 18432 matrix for each of the 48 single ones — the
 modulation would have cost <strong>9 059 696 640</strong> parameters instead of the
 <strong>566 231 040</strong> the three shared matrices cost: about <strong>8.5 billion extra</strong>,
-over a quarter of the whole model. §7 explains the mechanism from nothing; §7.7 costs it out.</p>
+over a quarter of the whole model. §8 explains the mechanism from nothing; §8.7 costs it out.</p>
 </div>
 <div class="card">
 <h5><span class="tag" style="background:var(--txt)"></span>There is no dropout anywhere</h5>

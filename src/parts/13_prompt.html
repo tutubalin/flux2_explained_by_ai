@@ -98,14 +98,14 @@ three times as wide.</p>
 <path d="M1190,256 L1238,256" stroke="#7d8da1" stroke-width="1.7" fill="none" marker-end="url(#prA)"/>
 <path d="M1190,336 L1250,290" stroke="#7d8da1" stroke-width="1.7" fill="none" marker-end="url(#prA)"/>
 
-<text x="40" y="436" class="ax">Then one linear layer narrows 15 360 → 6 144 (§11.3) so the text rows can stand in the same sequence as the</text>
-<text x="40" y="458" class="ax">image rows — and from that point on, the transformer cannot tell a word from a patch except by position (§6).</text>
+<text x="40" y="436" class="ax">Then one linear layer narrows 15 360 → 6 144 (§12.3) so the text rows can stand in the same sequence as the</text>
+<text x="40" y="458" class="ax">image rows — and from that point on, the transformer cannot tell a word from a patch except by position (§7).</text>
 </svg>
 </div>
 <figcaption><span class="figno">FIG 6</span><b>Three taps, one wide vector.</b> Nothing is generated: the
 language model reads the prompt once and three of its internal layers are copied out. Each contributes
 512 rows of 5 120 numbers, and the three are laid end to end per token, not stacked per layer — so the
-result is 512 rows of 15 360. That single number, 15 360, is why <code>context_in_dim</code> in §10 looks
+result is 512 rows of 15 360. That single number, 15 360, is why <code>context_in_dim</code> in §11 looks
 so arbitrary.</figcaption>
 </figure>
 <div class="note proof">
@@ -129,8 +129,8 @@ consequences, and both show up later in the arithmetic:</p>
 <ul>
 <li><strong>The text half of the sequence is a constant.</strong> Image tokens grow with resolution —
 1 024 at 512², 4 096 at 1024², 16 384 at 2048² — while text tokens never move from 512. That is why
-quadrupling the canvas does not quite quadruple the work of attention (§18.2), and why reference images
-dominate the sequence so completely at small sizes (§17).</li>
+quadrupling the canvas does not quite quadruple the work of attention (§19.2), and why reference images
+dominate the sequence so completely at small sizes (§18).</li>
 <li><strong>Padding rows are real rows.</strong> They are attended to like any other token; the network
 learns to ignore them. Nothing in <code>model.py</code> masks them out, because nothing needs to.</li>
 </ul>
@@ -139,10 +139,10 @@ learns to ignore them. Nothing in <code>model.py</code> masks them out, because 
 <p>A <em>language-model</em> token is a piece of a word — what the tokeniser counts, 512 of them. An
 <em>image</em> token is a 16 × 16 patch of the picture — what the VAE and the patchifier produce, 4 096 of
 them at 1024². They meet inside the transformer as rows of the same sequence, and from that point on the
-distinction is only in their position ids (§6). When this article says "tokens" without qualifying it, it
+distinction is only in their position ids (§7). When this article says "tokens" without qualifying it, it
 means rows of the transformer's sequence.</p>
 </div>
-<p class="dim">Used later: §4 (the other kind of token, and how a picture becomes 4 096 of them), §10
-(<code>context_in_dim</code>, the field that carries 15 360), §11.3 (<code>MLPEmbedder</code>, which narrows
-it to 6 144), §15.2 (where <code>ctx</code> and <code>ctx_ids</code> arrive).</p>
+<p class="dim">Used later: §4 (the other kind of token, and how a picture becomes 4 096 of them), §11
+(<code>context_in_dim</code>, the field that carries 15 360), §12.3 (<code>MLPEmbedder</code>, which narrows
+it to 6 144), §16.2 (where <code>ctx</code> and <code>ctx_ids</code> arrive).</p>
 </section>

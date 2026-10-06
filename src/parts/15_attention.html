@@ -35,12 +35,12 @@ name badge says, their value is the folder under their arm. How well a question 
 advertisement is measured by the simplest thing available — the <b>dot product</b> <span class="mm">q·k</span>:
 large when the two vectors point the same way, near zero when they are unrelated, negative when they
 oppose. The three projections are learned matrices (in FLUX.2 they are fused into a single matmul —
-the <code>SelfAttention</code> bundle of §11.8); nothing about them is hand-designed.</p>
+the <code>SelfAttention</code> bundle of §12.8); nothing about them is hand-designed.</p>
 
 <h3>5.3 · From scores to weights: divide by √d, then softmax</h3>
 <p>Raw dot products need two adjustments before they can be used as weights.</p>
 <p><b>First, scale.</b> A dot product of two <em>d</em>-dimensional vectors adds <em>d</em> terms, so its
-typical size grows like √d — with d = 128 (the width of one head's q and k in FLUX.2, §10) that is a
+typical size grows like √d — with d = 128 (the width of one head's q and k in FLUX.2, §11) that is a
 factor of ~11 of pure size, carrying no information at all. Dividing every score by √d removes it and
 keeps the next step sane.</p>
 <p><b>Second, softmax.</b> Weights must be positive and sum to one, so that "taking a little of
@@ -58,7 +58,7 @@ positive, and bigger scores are amplified), then divide by the total:</p>
 <p>Because exponentiation is steep, a score that is merely a bit larger than the others can take most
 of the weight — softmax is a <em>soft</em> maximum: usually "mostly one, a little of the rest", never a
 hard cut. (Which entries are allowed to compete at all is a separate question — FLUX.2's mask — and
-gets its own section, §12.)</p>
+gets its own section, §13.)</p>
 
 <figure>
 <div class="fig">
@@ -142,15 +142,15 @@ runs this lookup simultaneously; on a GPU the whole exchange is three matrix mul
 <p>One lookup can encode one kind of relationship at a time — "looks like", "sits next to",
 "contradicts". Real language and real images need dozens of such relationships at once, so the feature
 width is sliced into <em>H</em> independent sub-lookups called <b>heads</b>: FLUX.2 [dev] splits its
-6144 dimensions into 48 heads of 128 dimensions each (§10), and every head runs its own private copy of
+6144 dimensions into 48 heads of 128 dimensions each (§11), and every head runs its own private copy of
 §5.3 on its own slice — its own q, k, v, its own scores, its own weights. The head outputs are
 concatenated back into one vector and mixed by a final projection. Nothing in the code coordinates the
 heads — the 48 slices are just 48 independent lookups that happen to be computed in one batched
 matmul — and what each head ends up specialising in is a property of the trained weights, not of this
 file.</p>
 <p>Remember the number <b>128</b>: it is <code>head_dim</code>, the width of one head's query and key —
-and therefore the size of everything in this section. It appears again in the norms (§11.7), in the
-rotation planes (§6) and in every parameter count in this article.</p>
+and therefore the size of everything in this section. It appears again in the norms (§12.7), in the
+rotation planes (§7) and in every parameter count in this article.</p>
 
 <h3>5.5 · What attention cannot see: order</h3>
 <p>Notice what is missing from all of the above: <em>position</em>. The weights depend only on the

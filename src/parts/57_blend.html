@@ -1,5 +1,5 @@
 <section id="blend">
-<h2><span class="secno">§16</span><span class="sig">_blend_mod_triple · _blend_double_mods · _blend_single_mods</span> · L329–372</h2>
+<h2><span class="secno">§17</span><span class="sig">_blend_mod_triple · _blend_double_mods · _blend_single_mods</span> · L329–372</h2>
 <p class="section-intro">
 Three tiny module-level functions that solve one problem: a modulation vector is normally
 <em>one value per batch element</em>, broadcast across all tokens — but reference tokens need a
@@ -19,7 +19,7 @@ Three tiny module-level functions that solve one problem: a modulation vector is
 <!--CODE 346-353 title="model.py" hl="346,347,348,349,350,351,352,353"-->
 
 <!--TRACE-->
-<!--T 346-347|A double block's <em>image</em> modulation is a <strong>pair of triples</strong>, because <code>Modulation(double=True)</code> uses <code>multiplier=6</code> and returns <code>(out[:3], out[3:])</code> (§11.9): one triple for the attention sub-layer, one for the MLP sub-layer. This helper blends both.-->
+<!--T 346-347|A double block's <em>image</em> modulation is a <strong>pair of triples</strong>, because <code>Modulation(double=True)</code> uses <code>multiplier=6</code> and returns <code>(out[:3], out[3:])</code> (§12.9): one triple for the attention sub-layer, one for the MLP sub-layer. This helper blends both.-->
 <!--T 348-349|Unpack the pair on both sides — the live modulation and the reference one.-->
 <!--T 350-353|Two calls to <code>_blend_mod_triple</code> with the same <code>num_ref</code> and <code>seq_len</code>, returned as a pair of blended triples: exactly the shape <code>DoubleStreamBlock._prepare_qkv</code> unpacks at L570. Worth noticing what is <em>not</em> blended: the text modulation. <code>forward_kv_extract</code> calls this only for <code>double_block_mod_img</code> (L221), because the text stream contains no reference tokens and can stay a single broadcast value.-->
 <!--/TRACE-->

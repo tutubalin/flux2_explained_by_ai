@@ -111,9 +111,9 @@ VAE, run backwards once, turns the finished latents into the picture you downloa
 <tr><td>the canvas</td><td>4 096 rows × 128 numbers</td><td>pure Gaussian noise, reshaped — no model produced it</td></tr>
 <tr><td>the prompt</td><td>512 rows × 15 360 numbers</td><td>the text encoder (§3)</td></tr>
 <tr><td>reference images</td><td>up to 16 384 rows × 128</td><td>the VAE encoder (§4), if this run has any</td></tr>
-<tr><td>positions</td><td>one row of 4 integers per token</td><td>a counter, no model at all (§6)</td></tr>
+<tr><td>positions</td><td>one row of 4 integers per token</td><td>a counter, no model at all (§7)</td></tr>
 <tr><td>the time</td><td>one float</td><td>the schedule (§1)</td></tr>
-<tr><td>the guidance</td><td>one float</td><td>a setting you chose (§7)</td></tr>
+<tr><td>the guidance</td><td>one float</td><td>a setting you chose (§8)</td></tr>
 </tbody>
 </table>
 </div>
@@ -150,7 +150,7 @@ the image itself. §5 is about that model and the strange shape of its output.
 <span class="spec">inference</span> — the sizes and the single call are in the code; the reasoning about
 why that trade is worth making is not written down anywhere.</p>
 </div>
-<p class="dim">Used later: §3 (the text encoder's 15 360), §4 (the VAE's 16× and the 128 channels), §6
-(the four position integers), §11 (the eleven parts that make up the middle box), §15 (where all six inputs
+<p class="dim">Used later: §3 (the text encoder's 15 360), §4 (the VAE's 16× and the 128 channels), §7
+(the four position integers), §12 (the eleven parts that make up the middle box), §16 (where all six inputs
 are received, in <code>Flux2.forward</code>).</p>
 </section>

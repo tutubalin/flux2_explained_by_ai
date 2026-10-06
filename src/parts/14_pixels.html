@@ -145,7 +145,7 @@ before the model is called:</p>
 <path d="M854,464 L920,464" stroke="#7d8da1" stroke-width="1.8" fill="none" marker-end="url(#pxA)"/>
 <rect x="924" y="436" width="200" height="56" rx="10" fill="#182231" stroke="#f6a93b" stroke-opacity=".7"/>
 <text x="1024" y="460" class="axb" text-anchor="middle" fill="#f6a93b">img_in</text>
-<text x="1024" y="480" class="eq" text-anchor="middle">128 → 6144 (§11.1)</text>
+<text x="1024" y="480" class="eq" text-anchor="middle">128 → 6144 (§12.1)</text>
 <path d="M1128,464 L1194,464" stroke="#7d8da1" stroke-width="1.8" fill="none" marker-end="url(#pxA)"/>
 <rect x="1198" y="436" width="322" height="56" rx="10" fill="#121a26" stroke="#2e4054"/>
 <text x="1359" y="460" class="axb" text-anchor="middle">into the transformer</text>
@@ -218,7 +218,7 @@ cells is concatenated into one row of 4 × 32 = 128 numbers. The autoencoder lit
 <div class="nh">💡 Nothing is sampled at inference</div>
 <p>The encoder produces a mean and a spread, and <code>encode()</code> <strong>keeps only the mean</strong>.
 Encoding a reference image is therefore deterministic — the same photo gives the same latents every time —
-which is one of the reasons the KV cache of §17 can be bit-exact rather than approximate. The latents are
+which is one of the reasons the KV cache of §18 can be bit-exact rather than approximate. The latents are
 then passed through a fixed per-channel normalisation with running statistics (128 channels, no learned
 scale of its own), so the transformer always receives them in the same range regardless of what the
 picture depicted.</p>
@@ -245,8 +245,8 @@ knows what a colour is.</p>
 <p>Quadrupling the pixels quadruples the <em>image</em> tokens — 4096 at 1 MP, 16 384 at 4 MP. The 512
 text tokens do not grow, so the joint sequence goes 4608 → 16 896, a factor of 3.7, and attention work,
 which is quadratic in that joint length, by <strong>13.4×</strong>.
-That single fact explains most of FLUX.2's engineering: the KV cache for references (§17), the shared
-modulation (§19), and the choice of 48 cheap single-stream blocks over expensive double-stream ones.</p>
+That single fact explains most of FLUX.2's engineering: the KV cache for references (§18), the shared
+modulation (§20), and the choice of 48 cheap single-stream blocks over expensive double-stream ones.</p>
 
 <h3>4.4 · Reference images are just more tokens</h3>
 <p>For editing and multi-reference generation, reference images go through the same VAE encoder and
@@ -255,5 +255,5 @@ are supported; to keep the cost sane the pipeline caps reference pixels at 1024�
 several, and 2024² when there is only one (<code>sampling.py</code> L56–58 spells it
 <code>2024**2</code>, which is what upstream says — almost certainly a typo for 2048²). The only thing
 that distinguishes a reference token from a canvas token is its <em>position id</em> — which is the
-subject of §6.</p>
+subject of §7.</p>
 </section>

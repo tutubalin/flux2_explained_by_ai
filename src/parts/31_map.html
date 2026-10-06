@@ -1,5 +1,5 @@
 <section id="map">
-<h2><span class="secno">§ 8</span>The file at a glance</h2>
+<h2><span class="secno">§ 9</span>The file at a glance</h2>
 <p class="section-intro">
 Before diving in, here is the entire file on one screen. Fourteen classes and seven module-level
 functions, listed in the order they appear. Click any row to jump to its explanation.
@@ -10,12 +10,12 @@ local modules, no configuration files, nothing hidden:</p>
 
 <!--CODE 1-7 title="model.py · the complete import block" hl="1,2,4,5,6,7"-->
 
-<p><code>math</code> is used exactly once (the <code>log</code> in <code>timestep_embedding</code>, §11.1).
-<code>dataclass</code> and <code>field</code> build the three configuration objects (§10).
+<p><code>math</code> is used exactly once (the <code>log</code> in <code>timestep_embedding</code>, §12.1).
+<code>dataclass</code> and <code>field</code> build the three configuration objects (§11).
 <code>torch</code>, <code>nn</code> and <code>F</code> supply the layers and
-<code>scaled_dot_product_attention</code> (§12). <code>Tensor</code> is imported as a name so the type
+<code>scaled_dot_product_attention</code> (§13). <code>Tensor</code> is imported as a name so the type
 hints read <code>x: Tensor</code>. And <code>rearrange</code>, from einops, does every reshape in the
-file — including the one that splits 6144 features into 48 heads of 128 (§13).</p>
+file — including the one that splits 6144 features into 48 heads of 128 (§14).</p>
 
 <div class="note beginner">
 <div class="nh">◇ Reading order</div>

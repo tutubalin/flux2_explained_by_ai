@@ -1,31 +1,31 @@
 <section id="refs">
-<h2><span class="secno">§21</span>References &amp; further reading</h2>
+<h2><span class="secno">§22</span>References &amp; further reading</h2>
 <ul>
 <li><b>The source.</b> black-forest-labs/flux2, <code>src/flux2/model.py</code> — the file this article walks through, line by line. Also <code>sampling.py</code>, <code>autoencoder.py</code>, <code>text_encoder.py</code> and <code>docs/flux2_klein_kv_cache.md</code> in the same repository.</li>
 <li><b>FLUX.2 technical write-up.</b> Black Forest Labs, "FLUX.2" blog post (bfl.ai/blog/flux-2) and the accompanying representation-comparison note — the closest thing to a paper; there is no arXiv preprint for FLUX.2 itself.</li>
 <li><b>Scaling Rectified Flow Transformers (SD3 / MM-DiT).</b> Esser et al., 2024 — arXiv:2403.03206. Where the double-stream block comes from — two weight sets meeting in one joint attention — together with rectified-flow training, the timestep-shift formula of §1.3 and logit-normal timestep <em>sampling during training</em>. What does <em>not</em> come from SD3: the hybrid double-then-single stack (SD3 is double-stream throughout) and the single shared modulation (SD3 modulates per block, as DiT does).</li>
-<li><b>RoPE.</b> Su et al., "RoFormer: Enhanced Transformer with Rotary Position Embedding", arXiv:2104.09864 — the rotation mechanism generalised to four axes in §6.</li>
-<li><b>SwiGLU.</b> Shazeer, "GLU Variants Improve Transformer", arXiv:2002.05202 — the <code>silu(x₁)·x₂</code> gate of §11.2.</li>
+<li><b>RoPE.</b> Su et al., "RoFormer: Enhanced Transformer with Rotary Position Embedding", arXiv:2104.09864 — the rotation mechanism generalised to four axes in §7.</li>
+<li><b>SwiGLU.</b> Shazeer, "GLU Variants Improve Transformer", arXiv:2002.05202 — the <code>silu(x₁)·x₂</code> gate of §12.2.</li>
 <li><b>Flow matching.</b> Lipman et al., "Flow Matching for Generative Modeling", 2022 —
 arXiv:2210.02747. Train a network to predict a velocity field, then integrate it: §1 in one equation.</li>
 <li><b>Rectified flow.</b> Liu et al., "Flow Straight and Fast: Learning to Generate and Transfer Data
 with Rectified Flow", 2022 — arXiv:2209.03003. Why the paths can be bent straight, and therefore why a few
 steps suffice (FIG 2).</li>
 <li><b>Classifier-free guidance.</b> Ho &amp; Salimans, "Classifier-Free Diffusion Guidance", 2022 —
-arXiv:2207.12598. The two-pass extrapolation of §7.3 that <code>use_guidance_embed</code> lets a distilled
+arXiv:2207.12598. The two-pass extrapolation of §8.3 that <code>use_guidance_embed</code> lets a distilled
 model skip.</li>
 <li><b>adaLN-single.</b> Chen et al., "PixArt-α: Fast Training of Diffusion Transformer for
 Photorealistic Text-to-Image Synthesis", 2023 — arXiv:2310.00426. The observation that per-block
-modulation is a large share of a DiT's parameters, and the shared-vector answer to it; §7.7 compares the
+modulation is a large share of a DiT's parameters, and the shared-vector answer to it; §8.7 compares the
 two against what FLUX.2 does.</li>
 <li><b>FiLM.</b> Perez et al., "FiLM: Visual Reasoning with a General Conditioning Layer", 2018 —
 arXiv:1709.07871. Shift-and-scale conditioning in its general form; adaLN is FiLM applied at a layer
 norm.</li>
 <li><b>Sinusoidal encodings.</b> Vaswani et al., "Attention Is All You Need", 2017 — arXiv:1706.03762.
-Where the 128-frequency fingerprint of §11.1 comes from, originally as a position encoding.</li>
+Where the 128-frequency fingerprint of §12.1 comes from, originally as a position encoding.</li>
 <li><b>adaLN.</b> Peebles &amp; Xie, "Scalable Diffusion Models with Transformers" (DiT), arXiv:2212.09748 — adaptive layer norm with shift/scale/gate from a condition vector.</li>
-<li><b>Demystifying Flux Architecture.</b> arXiv:2507.09595, July 2025 — an independent review of <em>FLUX.1</em>, written before FLUX.2 existed. Read it for FLUX.1's design (and for the hybrid double/single recipe FLUX.2 inherits); it says nothing about this file. The FLUX.1 → FLUX.2 deltas quoted in §9 (19+38 → 8+48 blocks, Mistral-Small-3.2 replacing T5-XXL + CLIP) come from BFL's own release material, not from this paper.</li>
-<li><b>QK-norm.</b> Henry et al., "Query-Key Normalization for Transformers", 2020 — the stability trick behind §11.7.</li>
+<li><b>Demystifying Flux Architecture.</b> arXiv:2507.09595, July 2025 — an independent review of <em>FLUX.1</em>, written before FLUX.2 existed. Read it for FLUX.1's design (and for the hybrid double/single recipe FLUX.2 inherits); it says nothing about this file. The FLUX.1 → FLUX.2 deltas quoted in §10 (19+38 → 8+48 blocks, Mistral-Small-3.2 replacing T5-XXL + CLIP) come from BFL's own release material, not from this paper.</li>
+<li><b>QK-norm.</b> Henry et al., "Query-Key Normalization for Transformers", 2020 — the stability trick behind §12.7.</li>
 </ul>
 <p class="dim" style="margin-top:18px">All numerical claims in this article — parameter counts, token
 counts, FLOPs, cache sizes, mask patterns, rotation orthogonality and the bit-exactness of the KV
