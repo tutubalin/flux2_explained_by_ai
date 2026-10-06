@@ -111,7 +111,7 @@ rotation matrix per rotation plane per token.</p>
 <!--TRACE-->
 <!--T 819|Refuse odd dimension budgets: rotations consume dimensions in pairs, so an axis with an odd number of dimensions would leave one dimension un-rotated and therefore position-blind.-->
 <!--T 820|Build the exponent ladder for this axis: <code>arange(0, dim, 2)</code> steps by two — one entry per rotation <em>plane</em>, i.e. 0, 2, 4, …, 30 for dim = 32 — then divides by <code>dim</code> to get fractions 0, 1/16, 2/16, …, 15/16. (Dividing by <code>dim</code> rather than by the plane count is just the standard RoPE formula written with the full dimension.)-->
-<!--T 821|<code>omega = 1 / θ^scale</code>: the angular speed of each plane. With θ = 2000 and dim = 32 the 16 speeds run from 1.0 down to 0.000804 — the odometer wheels of §7.2, drawn in FIG 13.-->
+<!--T 821|<code>omega = 1 / θ^scale</code>: the angular speed of each plane. With θ = 2000 and dim = 32 the 16 speeds run from 1.0 down to 0.000804 — the odometer wheels of §7.2, drawn in FIG 14.-->
 <!--T 822|<code>einsum("...n,d-&gt;...nd", pos, omega)</code> multiplies every position (the "n" axis) by every frequency (the "d" axis): the angle of plane <em>d</em> at position <em>p</em> is <code>p·ω_d</code>. Shape goes from (B, L) to (B, L, 16). The <code>...</code> keeps it general over any leading batch axes.-->
 <!--T 823|Here is the clever bit. For each angle φ we need the rotation matrix [[cos φ, −sin φ], [sin φ, cos φ]]. Read row-major, that matrix's four entries are exactly <code>[cos, −sin, sin, cos]</code> — so stacking those four tensors along a new last axis yields, in one shot, every rotation matrix. Shape: (B, L, 16, 4).-->
 <!--T 824|Reshape the flat 4 into a genuine 2×2: <code>(i j)</code> with i = j = 2 splits the last axis into two. Now the tensor is (B, L, 16, 2, 2) — a real matrix per plane, per token.-->
@@ -161,7 +161,7 @@ right: −1 is the matrix column, −2 the matrix row, −3 the plane. Concatena
 2×2 matrix untouched and simply lines the planes up in axis order — t's 16 planes first, then h's,
 then w's, then l's. That order is a contract: plane <em>j</em> of this output is exactly the rotation
 that <code>apply_rope</code> will apply to dimensions <em>(2j, 2j+1)</em> of q and k, which is
-precisely the dim-split drawn in <a href="#rope">FIG 13</a>.</p>
+precisely the dim-split drawn in <a href="#rope">FIG 14</a>.</p>
 <p><b>Step 4 — make room for heads.</b> <code>unsqueeze(1)</code> inserts a size-1 axis at position
 1: <span class="shape">(B, 1, L, 64, 2, 2)</span>. All 48 heads of a layer share the same rotations,
 so a size-1 axis lets one computed copy broadcast across every head for free during
@@ -258,10 +258,10 @@ so a size-1 axis lets one computed copy broadcast across every head for free dur
 <text x="840" y="474" class="eq" text-anchor="middle">→ (B, 1, L, 64, 2, 2) — 1 broadcasts to 48 heads</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 16</span><b>Inside EmbedND.</b> The four coordinate columns are sliced apart,
+<figcaption><span class="figno">FIG 17</span><b>Inside EmbedND.</b> The four coordinate columns are sliced apart,
 each runs through <code>rope</code> on its own dimension budget, and the four bundles of 16 rotation
 planes are glued end-to-end along the plane axis. The colour order — t, h, w, l — is not cosmetic: it
-is the same dim-split as FIG 13, and it is what lets <code>apply_rope</code> pair plane <em>j</em> with
+is the same dim-split as FIG 14, and it is what lets <code>apply_rope</code> pair plane <em>j</em> with
 head dimensions <em>(2j, 2j+1)</em> without any bookkeeping.</figcaption>
 </figure>
 
@@ -491,7 +491,7 @@ it — redundant parameters with no extra expressiveness. That is the file-wide 
 <text x="740" y="106" class="eq" fill="#5fe08a">gate</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 17</span><b>adaLN in one picture.</b> The green dials are generated, not learned
+<figcaption><span class="figno">FIG 18</span><b>adaLN in one picture.</b> The green dials are generated, not learned
 per-layer: the same <code>vec</code> that encodes "we are 62 % noisy" decides how strongly every
 sub-layer of every block is allowed to speak. The gate is also what makes DiT's
 "adaLN-Zero" trick possible: a block whose gate is zero starts life as the identity function, which is
