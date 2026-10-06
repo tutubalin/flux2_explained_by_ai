@@ -38,13 +38,17 @@ def main():
     files = sorted(PARTS.glob("[0-9][0-9]_*.html"))
     texts = {f.name: f.read_text() for f in files}
 
-    # ---- pass 1: definitions, in reading order
-    sec_map, sub_map, fig_map = {}, {}, {}
+    # ---- pass 1: definitions, in reading order.
+    # Each occurrence gets its new label from its POSITION, because old labels are not
+    # unique: inserting a subsection numbered like its neighbour (two "4.2"s) would
+    # otherwise make both look up the same map entry and keep the same number.
+    sec_map, sub_map, fig_map = {}, {}, {}     # old label -> new label, for references
+    seq_of = {}                                # file -> list of (kind, new label) in order
     cur_sec_new = 0
     sub_seen = 0
+    n_fig = 0
     for name in sorted(texts):
         t = texts[name]
-        # sections and figures appear in file order; walk the file linearly
         events = []
         for m in SEC_DEF.finditer(t):
             events.append((m.start(), "sec", m.group(2)))
@@ -52,16 +56,22 @@ def main():
             events.append((m.start(), "sub", f"{m.group(2)}.{m.group(3)}"))
         for m in FIG_DEF.finditer(t):
             events.append((m.start(), "fig", m.group(2)))
+        seq_of[name] = []
         for pos, kind, old in sorted(events):
             if kind == "sec":
                 cur_sec_new += 1
                 sub_seen = 0
-                sec_map.setdefault(int(old), cur_sec_new)
+                sec_map.setdefault(int(old), str(cur_sec_new))
+                seq_of[name].append(("sec", str(cur_sec_new)))
             elif kind == "sub":
                 sub_seen += 1
-                sub_map.setdefault(old, f"{cur_sec_new}.{sub_seen}")
+                new = f"{cur_sec_new}.{sub_seen}"
+                sub_map.setdefault(old, new)
+                seq_of[name].append(("sub", new))
             else:
-                fig_map.setdefault(int(old), len(fig_map) + 1)
+                n_fig += 1
+                fig_map.setdefault(int(old), str(n_fig))
+                seq_of[name].append(("fig", str(n_fig)))
 
     if len(sec_map) != cur_sec_new:
         print(f"!! {len(sec_map)} distinct old section numbers but {cur_sec_new} sections found — "
@@ -90,14 +100,21 @@ def main():
     )
 
     def rewrite(name, t):
+        pending = {"sec": [], "sub": [], "fig": []}
+        for kind, new in seq_of.get(name, []):
+            pending[kind].append(new)
+
+        def take(kind):
+            return pending[kind].pop(0) if pending[kind] else None
+
         def sub(m):
             g = m.groupdict()
             if g["sd"] is not None:
-                return f"{g['secdef']}{new_sec(g['sd'])}{g['sd2']}"
+                return f"{g['secdef']}{take('sec') or new_sec(g['sd'])}{g['sd2']}"
             if g["fd"] is not None:
-                return f"{g['figdef']}{fig_map.get(int(g['fd']), int(g['fd']))}{g['fd2']}"
+                return f"{g['figdef']}{take('fig') or fig_map.get(int(g['fd']), g['fd'])}{g['fd2']}"
             if g["h3a"] is not None:
-                return f"{g['h3']}{new_sub(g['h3a'] + '.' + g['h3b'])}{g['h3c']}"
+                return f"{g['h3']}{take('sub') or new_sub(g['h3a'] + '.' + g['h3b'])}{g['h3c']}"
             if g["tn"] is not None:
                 return f"{g['toc']}{new_sec(g['tn'])}{g['tc']}"
             if g["sr"] is not None:
