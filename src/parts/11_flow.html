@@ -1,11 +1,11 @@
 <section id="flow">
-<h2><span class="secno">§ 2</span>Rectified flow in five minutes</h2>
+<h2><span class="secno">§ 1</span>Rectified flow in five minutes</h2>
 <p class="section-intro">
 Everything in <code>model.py</code> follows from one equation. Understand this section and the rest of
 the file is bookkeeping.
 </p>
 
-<h3>2.1 · The single idea</h3>
+<h3>1.1 · The single idea</h3>
 <p>Take a real image and call it <em>x₀</em>. Take pure Gaussian noise and call it <em>x₁</em>.
 Now draw a straight line between them and put a dot somewhere on that line. The dot's position is
 described by one number, <em>t</em>:</p>
@@ -73,13 +73,13 @@ ordinary differential equation along (approximately) straight paths, following
 <text x="550" y="306" class="ax" text-anchor="middle">(t_prev − t) is negative, so we walk against v, toward t = 0</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 2</span><b>The whole generative process in one picture.</b> Training shows the network
+<figcaption><span class="figno">FIG 1</span><b>The whole generative process in one picture.</b> Training shows the network
 points along the line at many values of <em>t</em> and asks it to predict <em>v</em>. Generation starts at
 <em>t = 1</em> and repeatedly asks "which way?" then takes a step. Because the paths are straight, very
 few steps are needed — this is why the distilled klein models manage with only 4.</figcaption>
 </figure>
 
-<h3>2.2 · Reading the sampling step</h3>
+<h3>1.2 · Reading the sampling step</h3>
 <p>With that picture in mind, the denoising loop in <code>sampling.py</code> is three lines:</p>
 
 <!--RAW title="sampling.py · denoise() — the whole Euler loop (condensed)"-->
@@ -94,7 +94,7 @@ few steps are needed — this is why the distilled klein models manage with only
     return img
 <!--/RAW-->
 
-<p>The <code>img = img + …</code> line — <code>sampling.py</code>:305 — is exactly the pink arrow in FIG 2. <code>t_curr</code> is where we are,
+<p>The <code>img = img + …</code> line — <code>sampling.py</code>:305 — is exactly the pink arrow in FIG 1. <code>t_curr</code> is where we are,
 <code>t_prev</code> is where we want to be next (always a smaller number), <code>pred</code> is the
 velocity <em>v</em> that <code>Flux2.forward</code> just returned. Multiplying velocity by the time
 difference gives the displacement. Nothing else happens — no noise is injected, no variance schedule
@@ -109,7 +109,7 @@ is applied. It is a plain, deterministic Euler integration of an ODE.</p>
 where you are standing, then travel; evaluating it at the destination would require already knowing the
 destination. So an 8-step run makes 8 calls, at t = 1.000, 0.985, 0.967, 0.942, 0.906, 0.853, 0.763 and
 0.580. The schedule's ninth entry, 0.0, is only ever a destination and is never fed to the network
-(§15.1 prints both rows).</p>
+(§16.1 prints both rows).</p>
 <p><strong>And how does the model know the step size, t_prev − t_curr?</strong> It does not, and it never
 needs to. Its signature is <code>forward(x, x_ids, timesteps, ctx, ctx_ids, guidance)</code> — no step
 size, no schedule, no <code>num_steps</code>, and none of those three words appears anywhere in the 833
@@ -129,7 +129,7 @@ diffusion tutorials use, where t counts <em>up</em> as noise is added. In this c
 <em>down</em>. Keep that in mind whenever you see a timestep value: big = noisy, small = clean.</p>
 </div>
 
-<h3>2.3 · The timestep schedule is not uniform</h3>
+<h3>1.3 · The timestep schedule is not uniform</h3>
 <p>If you split [1, 0] into 50 equal slices you waste steps in the easy middle of the trajectory and
 starve the hard part. Which part is hard? Empirically, the <em>noisy</em> end: deciding the global
 composition from near-pure noise is where most of the information is created, and it is also where the
@@ -190,7 +190,7 @@ are the <em>actual</em> schedules produced by <code>get_schedule</code>, plotted
 <text x="186" y="164" class="ax">50 steps · 4 MP (μ = 3.23)</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 3</span><b>Curves, not straight lines.</b> Every schedule hugs the top of the plot —
+<figcaption><span class="figno">FIG 2</span><b>Curves, not straight lines.</b> Every schedule hugs the top of the plot —
 the noisy end — and only dives toward 0 at the very last steps. The 4-megapixel curve (green) hugs it
 hardest: at 4 MP, 46 of the 50 steps happen above t = 0.7. That is the model spending its
 budget on global structure. The dashed diagonal is the naive uniform schedule for comparison.</figcaption>
@@ -203,19 +203,19 @@ per call, via the argument named <code>timesteps</code>. So whenever you read
 "timestep" in this file, think: <em>"a single float telling the model how noisy its input currently
 is"</em>. Because of the shift above, that float spends most of the run in a narrow band near 1 —
 39 of the 50 steps at 1 MP sit above <code>t = 0.7</code> — so the model has to resolve very fine
-differences inside it, which is one more reason the scalar is expanded into 128 frequencies (§8.1)
+differences inside it, which is one more reason the scalar is expanded into 128 frequencies (§9.1)
 rather than fed in raw. The <code>× 1000</code> inside <code>timestep_embedding</code> is a separate
 matter: a scale convention, not a consequence of the schedule.</p>
 </div>
 
-<h3>2.4 · One more input: what "guidance" actually is</h3>
+<h3>1.4 · One more input: what "guidance" actually is</h3>
 <p>The loop above passes the model four things — noisy latents, their position ids, the timestep, the
 text — and for some checkpoints a fifth: <code>guidance</code>. It is one number, and the file never
-explains it, so here it is. It matters twice: it is the second "setting" that §7 routes into the network,
-and it is a config field in §6 (<code>use_guidance_embed</code>).</p>
+explains it, so here it is. It matters twice: it is the second "setting" that §5 routes into the network,
+and it is a config field in §8 (<code>use_guidance_embed</code>).</p>
 <p><strong>The problem.</strong> A model trained to follow a prompt follows it politely. It produces
 something consistent with the words but hedged — washed out, under-committed, averaging over everything
-the prompt could have meant. <em>Classifier-free guidance</em> (Ho &amp; Salimans, 2022 — §18) is the
+the prompt could have meant. <em>Classifier-free guidance</em> (Ho &amp; Salimans, 2022 — §19) is the
 classic fix: run the network <strong>twice</strong> per step, once with the prompt and once with an empty
 one, and extrapolate past the conditional prediction.</p>
 <div class="note math">
@@ -227,7 +227,7 @@ one, and extrapolate past the conditional prediction.</p>
 that. It works — and it doubles the cost: 100 network evaluations for a 50-step image.</p>
 <p><strong>What FLUX.2 does instead.</strong> <code>use_guidance_embed</code> says whether the model takes
 <code>w</code> as an <em>input</em>. Where it does, the value is fingerprinted and embedded exactly like
-the timestep and added to the same condition vector (§7.5), so a <em>single</em> pass approximates what the
+the timestep and added to the same condition vector (§5.5), so a <em>single</em> pass approximates what the
 two-pass extrapolation would have produced — the model was trained to reproduce it, which is what
 "guidance distillation" means. The dev configuration sets <code>use_guidance_embed=True</code> and
 <code>util.py</code> drives it with <code>guidance=4.0</code> over 50 steps. Both klein configurations set
@@ -242,156 +242,4 @@ combines the two predictions outside the network. Same idea, no distilled input,
 forward pass. <em>True</em> classifier-free guidance is two forward passes combined afterwards. Nothing in
 <code>model.py</code> ever does the second: the file only sees the scalar.</p>
 </div>
-</section>
-
-<section id="tokens">
-<h2><span class="secno">§ 3</span>From pixels to tokens: what the model actually eats</h2>
-<p class="section-intro">
-<code>model.py</code> has no convolutions and no image logic. It receives images that have already been
-flattened into a list of vectors. To understand its shapes you must know exactly how that flattening
-happens.
-</p>
-
-<h3>3.1 · Three stages of compression</h3>
-<p>Two of the three stages happen inside the VAE, in <code>autoencoder.py</code>'s
-<code>encode()</code>: the convolutional 8× downsample to 32 channels, and the 2×2 patchify that folds
-four latent cells into one 128-number token. The third — flattening that 2-D grid of tokens into a plain
-sequence and attaching the position ids — is <code>sampling.py</code>'s <code>prc_img</code>, run just
-before the model is called:</p>
-
-<figure>
-<div class="fig">
-<svg viewBox="0 0 1040 330" role="img" aria-label="Pixel grid compressed 8x by the VAE to 32 channels, then patchified 2x2 into 128-channel tokens.">
-<defs><marker id="tA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7d8da1"/></marker></defs>
-<text x="40" y="32" class="ttl">A 1024 × 1024 image becomes 4096 tokens of 128 numbers each</text>
-
-<!-- stage 1: pixels -->
-<text x="60" y="76" class="axb">1 · pixels</text>
-<g>
-<rect x="60" y="90" width="180" height="180" rx="6" fill="rgba(246,169,59,.05)" stroke="#f6a93b" stroke-opacity=".5"/>
-<g stroke="#f6a93b" stroke-opacity=".22" stroke-width="1">
-<line x1="60" y1="120" x2="240" y2="120"/><line x1="60" y1="150" x2="240" y2="150"/><line x1="60" y1="180" x2="240" y2="180"/><line x1="60" y1="210" x2="240" y2="210"/><line x1="60" y1="240" x2="240" y2="240"/>
-<line x1="90" y1="90" x2="90" y2="270"/><line x1="120" y1="90" x2="120" y2="270"/><line x1="150" y1="90" x2="150" y2="270"/><line x1="180" y1="90" x2="180" y2="270"/><line x1="210" y1="90" x2="210" y2="270"/>
-</g>
-</g>
-<text x="150" y="296" class="eq" text-anchor="middle">(3, 1024, 1024)</text>
-
-<path d="M252,180 L300,180" stroke="#7d8da1" stroke-width="1.8" marker-end="url(#tA)"/>
-<text x="276" y="166" class="ax" text-anchor="middle">VAE</text>
-<text x="276" y="200" class="ax" text-anchor="middle">8× ↓</text>
-
-<!-- stage 2: latent -->
-<text x="312" y="76" class="axb">2 · latent grid</text>
-<rect x="312" y="135" width="90" height="90" rx="5" fill="rgba(177,140,255,.07)" stroke="#b18cff" stroke-opacity=".55"/>
-<g stroke="#b18cff" stroke-opacity=".3" stroke-width="1">
-<line x1="312" y1="157" x2="402" y2="157"/><line x1="312" y1="180" x2="402" y2="180"/><line x1="312" y1="202" x2="402" y2="202"/>
-<line x1="334" y1="135" x2="334" y2="225"/><line x1="357" y1="135" x2="357" y2="225"/><line x1="379" y1="135" x2="379" y2="225"/>
-</g>
-<text x="357" y="252" class="eq" text-anchor="middle">(32, 128, 128)</text>
-<text x="357" y="272" class="ax" text-anchor="middle">32 channels, 8× smaller</text>
-
-<path d="M414,180 L462,180" stroke="#7d8da1" stroke-width="1.8" marker-end="url(#tA)"/>
-<text x="438" y="166" class="ax" text-anchor="middle">2×2</text>
-<text x="438" y="200" class="ax" text-anchor="middle">patchify</text>
-
-<!-- stage 3: tokens -->
-<text x="474" y="76" class="axb">3 · token grid</text>
-<rect x="474" y="157" width="46" height="46" rx="4" fill="rgba(246,169,59,.1)" stroke="#f6a93b" stroke-opacity=".7"/>
-<line x1="497" y1="157" x2="497" y2="203" stroke="#f6a93b" stroke-opacity=".5"/>
-<line x1="474" y1="180" x2="520" y2="180" stroke="#f6a93b" stroke-opacity=".5"/>
-<text x="497" y="228" class="eq" text-anchor="middle">128 channels</text>
-<text x="497" y="248" class="ax" text-anchor="middle">one token</text>
-
-<path d="M532,180 L580,180" stroke="#7d8da1" stroke-width="1.8" marker-end="url(#tA)"/>
-<text x="556" y="166" class="ax" text-anchor="middle">flatten</text>
-<text x="556" y="200" class="ax" text-anchor="middle">row-major</text>
-
-<rect x="592" y="166" width="230" height="28" rx="14" fill="rgba(246,169,59,.1)" stroke="#f6a93b" stroke-opacity=".5"/>
-<text x="707" y="184" class="eq" text-anchor="middle">x  (B, 4096, 128)</text>
-<text x="707" y="216" class="ax" text-anchor="middle">64 × 64 = 4096 tokens</text>
-
-<path d="M834,180 L870,180" stroke="#7d8da1" stroke-width="1.8" marker-end="url(#tA)"/>
-<rect x="882" y="150" width="120" height="60" rx="10" fill="#182231" stroke="#f6a93b" stroke-opacity=".7"/>
-<text x="942" y="176" class="axb" text-anchor="middle" fill="#f6a93b">img_in</text>
-<text x="942" y="194" class="eq" text-anchor="middle">→ 6144</text>
-</svg>
-</div>
-<figcaption><span class="figno">FIG 4</span><b>Sixteen-fold compression in each spatial direction.</b> The VAE shrinks
-1024² to 128² with 32 channels; then each 2×2 block of latent cells is folded into a single token of
-4 × 32 = 128 numbers (<code>autoencoder.py</code> literally does this with an einops
-<code>rearrange</code> and calls it <code>ps = [2, 2]</code>). The result is a flat list the transformer
-can chew on — and this is exactly why <code>Flux2Params.in_channels</code> is <strong>128</strong>.</figcaption>
-</figure>
-
-<div class="note beginner">
-<div class="nh">◇ Beginner · why bother with latents at all?</div>
-<p>Attention costs grow with the <em>square</em> of the token count. A 1024×1024 image as raw pixels
-would be over a million tokens: 10¹² attention pairs per layer, utterly impossible. As 4096 tokens it
-is 21 million pairs — expensive but feasible on real hardware. The latent space is a compression
-scheme that throws away perceptually irrelevant detail (exact sub-pixel noise) while keeping
-everything a human would notice. One detail worth knowing, because it explains a shape you will see in
-<code>autoencoder.py</code>: the 128-channel latent is normalised by a running-statistics
-<code>BatchNorm2d(128, affine=False, eps=1e-4)</code> inside the autoencoder (<code>autoencoder.py</code> L293–325) — no per-channel
-scale/shift factors for the transformer to carry around.</p>
-</div>
-
-<h3>3.2 · How many tokens is that, really?</h3>
-<div class="tbl-wrap">
-<table class="data">
-<thead><tr><th>Output size</th><th>Megapixels</th><th>Latent grid</th><th style="text-align:right">image tokens</th><th style="text-align:right">+ 512 text</th><th style="text-align:right">attention pairs (L²)</th></tr></thead>
-<tbody>
-<tr><td>512 × 512</td><td class="m">0.26</td><td class="m">32 × 32</td><td class="num">1,024</td><td class="num">1,536</td><td class="num">2.4 M</td></tr>
-<tr><td>768 × 768</td><td class="m">0.59</td><td class="m">48 × 48</td><td class="num">2,304</td><td class="num">2,816</td><td class="num">7.9 M</td></tr>
-<tr><td><strong>1024 × 1024</strong></td><td class="m">1.05</td><td class="m">64 × 64</td><td class="num">4,096</td><td class="num">4,608</td><td class="num">21.2 M</td></tr>
-<tr><td>1360 × 768 <span style="color:var(--muted)">(CLI default)</span></td><td class="m">1.04</td><td class="m">48 × 85</td><td class="num">4,080</td><td class="num">4,592</td><td class="num">21.1 M</td></tr>
-<tr><td>1440 × 1440</td><td class="m">2.07</td><td class="m">90 × 90</td><td class="num">8,100</td><td class="num">8,612</td><td class="num">74.2 M</td></tr>
-<tr><td><strong>2048 × 2048</strong> (4 MP)</td><td class="m">4.19</td><td class="m">128 × 128</td><td class="num">16,384</td><td class="num">16,896</td><td class="num">285.5 M</td></tr>
-</tbody>
-</table>
-</div>
-<p>Quadrupling the pixels quadruples the <em>image</em> tokens — 4096 at 1 MP, 16 384 at 4 MP. The 512
-text tokens do not grow, so the joint sequence goes 4608 → 16 896, a factor of 3.7, and attention work,
-which is quadratic in that joint length, by <strong>13.4×</strong>.
-That single fact explains most of FLUX.2's engineering: the KV cache for references (§14), the shared
-modulation (§16), and the choice of 48 cheap single-stream blocks over expensive double-stream ones.</p>
-
-<h3>3.3 · Text tokens, and the mystery of 15360</h3>
-<p>The text side is simpler but has one surprise. The 24-billion-parameter Mistral VLM is run over your
-prompt, and then <em>three of its internal layers</em> — layers 10, 20 and 30 — are pulled out and
-stacked side by side:</p>
-
-<!--RAW title="text_encoder.py · Mistral3SmallEmbedder.forward — the layer sandwich (condensed)"-->
-    OUTPUT_LAYERS_MISTRAL = [10, 20, 30]      # which VLM layers to read
-
-    out = torch.stack([output.hidden_states[k] for k in OUTPUT_LAYERS_MISTRAL], dim=1)
-    return rearrange(out, "b c l d -> b l (c d)")   # (B, 512, 3*5120) = (B, 512, 15360)
-<!--/RAW-->
-
-<p>Mistral-Small-3.2 has a hidden width of 5120, so each prompt token arrives as
-3 × 5120 = <strong>15360</strong> numbers. That is precisely <code>Flux2Params.context_in_dim</code>.
-And the reason the Klein configs use 12288 and 7680 is exactly the same trick with different teachers:
-Qwen3-8B (4096 × 3) and Qwen3-4B (2560 × 3). Using mid-depth layers rather than only the last one gives
-the flow transformer access to both syntactic and semantic features — a trick also used in
-<a href="#refs">SD3</a>.</p>
-
-<p>Prompts are padded and truncated to <code>MAX_LENGTH = 512</code> tokens, which is where the
-"512 text tokens" column above comes from.</p>
-
-<div class="note proof">
-<div class="nh">◆ Verified · the arithmetic behind every config's context_in_dim</div>
-<p style="font-family:var(--mono);font-size:13.6px">
-FLUX.2 [dev]  : Mistral-Small-3.2-24B, layers [10,20,30], hidden 5120 → 3 × 5120 = <b>15360</b> ✓<br>
-Klein 9B      : Qwen3-8B,           layers [ 9,18,27], hidden 4096 → 3 × 4096 = <b>12288</b> ✓<br>
-Klein 4B      : Qwen3-4B,           layers [ 9,18,27], hidden 2560 → 3 × 2560 = <b>7680</b> ✓
-</p>
-</div>
-
-<h3>3.4 · Reference images are just more tokens</h3>
-<p>For editing and multi-reference generation, reference images go through the same VAE encoder and
-the same patchify, and their tokens are simply <em>appended to the sequence</em>. Up to ten references
-are supported; to keep the cost sane the pipeline caps reference pixels at 1024² each when there are
-several, and 2024² when there is only one (<code>sampling.py</code> L56–58 spells it
-<code>2024**2</code>, which is what upstream says — almost certainly a typo for 2048²). The only thing
-that distinguishes a reference token from a canvas token is its <em>position id</em> — which is the
-subject of §5.</p>
 </section>

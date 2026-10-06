@@ -1,0 +1,45 @@
+<section id="blend">
+<h2><span class="secno">§14</span><span class="sig">_blend_mod_triple · _blend_double_mods · _blend_single_mods</span> · L329–372</h2>
+<p class="section-intro">
+Three tiny module-level functions that solve one problem: a modulation vector is normally
+<em>one value per batch element</em>, broadcast across all tokens — but reference tokens need a
+<em>different</em> value from canvas tokens. So the broadcast has to be materialised and then spliced.
+</p>
+
+<!--CODE 329-343 title="model.py" hl="329,330,331,332,333,334,335,336,337,338,339,340,341,342,343"-->
+
+<!--TRACE-->
+<!--T 329-330|One function, one job: given the image stream's triple and the reference triple, produce a single per-token tensor whose first <code>num_ref</code> rows come from the reference and whose remaining rows come from the image. <code>seq_len</code> is the length of the <em>image</em> stream, references included.-->
+<!--T 331-332|Walk the three vectors — shift, scale, gate — in lockstep with <code>zip</code>, and collect the results in a list. Everything below happens once per vector.-->
+<!--T 333-335|If either modulation is 2-D — shape (B, D), the broadcast form produced by <code>Modulation</code> at L409–410 — insert a token axis to make it (B, 1, D). After this both operands have three dimensions and can be <code>expand</code>ed to a common shape.-->
+<!--T 336-342|One <code>torch.cat</code> of two <code>expand</code>ed pieces, along the token axis (<code>dim=1</code>). <code>expand</code> materialises a broadcast <em>without copying</em> — a view with stride 0 on the token axis. The reference vector is stretched to <code>num_ref</code> rows; the image vector is stretched to the full <code>seq_len</code> and then sliced <em>from</em> <code>num_ref</code> onwards, so its first <code>num_ref</code> rows — the ones that belong to the references — are dropped rather than duplicated. What comes out is <code>num_ref</code> reference rows followed by <code>seq_len − num_ref</code> canvas rows.-->
+<!--T 343|Return the three spliced vectors as a tuple again — the same shape the blocks expect from <code>Modulation</code>, only now per-token instead of broadcast.-->
+<!--/TRACE-->
+
+<!--CODE 346-353 title="model.py" hl="346,347,348,349,350,351,352,353"-->
+
+<!--TRACE-->
+<!--T 346-347|A double block's <em>image</em> modulation is a <strong>pair of triples</strong>, because <code>Modulation(double=True)</code> uses <code>multiplier=6</code> and returns <code>(out[:3], out[3:])</code> (§9.9): one triple for the attention sub-layer, one for the MLP sub-layer. This helper blends both.-->
+<!--T 348-349|Unpack the pair on both sides — the live modulation and the reference one.-->
+<!--T 350-353|Two calls to <code>_blend_mod_triple</code> with the same <code>num_ref</code> and <code>seq_len</code>, returned as a pair of blended triples: exactly the shape <code>DoubleStreamBlock._prepare_qkv</code> unpacks at L570. Worth noticing what is <em>not</em> blended: the text modulation. <code>forward_kv_extract</code> calls this only for <code>double_block_mod_img</code> (L221), because the text stream contains no reference tokens and can stay a single broadcast value.-->
+<!--/TRACE-->
+
+<!--CODE 356-372 title="model.py" hl="356,357,358,359,360,361,362,363,364,365,366,367,368,369,370,371,372"-->
+
+<!--TRACE-->
+<!--T 356-357|The single blocks run <em>after</em> the two streams have merged, so their sequence is <code>[txt, ref, img]</code> — three regions, not two — and the function cannot reuse <code>_blend_mod_triple</code>.-->
+<!--T 358-359|<code>single_mod</code> is one triple: <code>Modulation(double=False)</code> has <code>multiplier=3</code> and its second element is <code>None</code>, already thrown away at the call site (<code>single_block_mod, _ = …</code>, L208). So the <code>zip</code> runs three times, once per shift/scale/gate.-->
+<!--T 360-362|The same 2-D fix-up as before: give a broadcast (B, D) modulation a token axis.-->
+<!--T 363-365|Two expands of one vector each: the image modulation to the full merged length <code>seq_len</code>, the reference modulation to <code>num_ref</code> rows.-->
+<!--T 366-371|Now three pieces in <code>[txt, ref, img]</code> order: the first <code>num_txt</code> rows of the image modulation (text gets the <em>real</em> modulation — there is no reference-specific text conditioning), then the reference rows, then everything from <code>num_txt + num_ref</code> on, which is the canvas.-->
+<!--T 372|Return one blended triple — matching what <code>SingleStreamBlock._qkv</code> unpacks at L469 (<code>mod_shift, mod_scale, mod_gate = mod</code>).-->
+<!--/TRACE-->
+
+<div class="note idea">
+<div class="nh">💡 Why blend instead of two passes?</div>
+<p>You could run the reference tokens through every block separately with their own modulation, then run
+the image tokens — but then the image tokens could not <em>attend</em> to the references, which is the
+entire purpose of having them. Blending the modulation per token lets one pass carry two different
+conditioning regimes through the same attention.</p>
+</div>
+</section>

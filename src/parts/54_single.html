@@ -1,0 +1,149 @@
+<section id="single">
+<h2><span class="secno">§11</span><span class="sig">SingleStreamBlock</span> · L437</h2>
+<p class="section-intro">
+The workhorse. FLUX.2 stacks 48 of these — 73 % of all its parameters. A single-stream block treats
+text tokens and image tokens as one undifferentiated sequence and runs one fused attention plus one
+fused MLP over it.
+</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 1040 460" role="img" aria-label="SingleStreamBlock wiring: one fused linear produces qkv and the MLP input together; attention and gated MLP run in parallel and are recombined by a second linear before a gated residual.">
+<defs><marker id="sA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7d8da1"/></marker>
+<marker id="sV" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5fe08a"/></marker></defs>
+<text x="40" y="28" class="ttl">SingleStreamBlock — one stream, two fused matmuls</text>
+
+<rect x="350" y="6" width="340" height="32" rx="8" fill="rgba(95,224,138,.1)" stroke="#5fe08a" stroke-opacity=".55"/>
+<text x="520" y="27" class="ax" text-anchor="middle" fill="#5fe08a">mod = (shift, scale, gate) · Modulation(vec)</text>
+
+<rect x="60" y="62" width="150" height="48" rx="9" fill="#121a26" stroke="#2e4054"/>
+<text x="135" y="83" class="axb" text-anchor="middle">x</text>
+<text x="135" y="99" class="eq" text-anchor="middle">(B, L, 6144)</text>
+<path d="M210,86 L238,86" stroke="#7d8da1" stroke-width="1.7" marker-end="url(#sA)"/>
+
+<rect x="240" y="62" width="190" height="48" rx="9" fill="#121a26" stroke="#7ea6ff" stroke-opacity=".5"/>
+<text x="335" y="83" class="axb" text-anchor="middle" fill="#7ea6ff">pre_norm · adaLN</text>
+<text x="335" y="99" class="eq" text-anchor="middle">(1+s)·norm(x)+shift</text>
+<path d="M430,86 L458,86" stroke="#7d8da1" stroke-width="1.7" marker-end="url(#sA)"/>
+<path d="M430,38 L335,38 L335,60" stroke="#5fe08a" stroke-width="1.5" fill="none" marker-end="url(#sV)"/>
+
+<rect x="460" y="62" width="250" height="48" rx="9" fill="#182231" stroke="#f6a93b" stroke-opacity=".6"/>
+<text x="585" y="83" class="axb" text-anchor="middle" fill="#f6a93b">linear1</text>
+<text x="585" y="99" class="eq" text-anchor="middle">6144 → 18432 + 36864</text>
+
+<path d="M585,110 L585,132 L355,132 L355,148" stroke="#7d8da1" stroke-width="1.6" fill="none" marker-end="url(#sA)"/>
+<path d="M585,110 L585,132 L695,132 L695,148" stroke="#7d8da1" stroke-width="1.6" fill="none" marker-end="url(#sA)"/>
+<text x="470" y="128" class="ax" text-anchor="middle">qkv half</text>
+<text x="660" y="128" class="ax" text-anchor="middle">mlp half</text>
+
+<!-- attention branch -->
+<rect x="240" y="150" width="230" height="40" rx="8" fill="#121a26" stroke="#2e4054"/>
+<text x="355" y="167" class="axb" text-anchor="middle">rearrange → q, k, v</text>
+<text x="355" y="182" class="eq" text-anchor="middle">(B, 48, L, 128) each</text>
+<path d="M355,190 L355,198" stroke="#7d8da1" stroke-width="1.6" marker-end="url(#sA)"/>
+<rect x="240" y="200" width="230" height="40" rx="8" fill="#121a26" stroke="#7ea6ff" stroke-opacity=".45"/>
+<text x="355" y="225" class="axb" text-anchor="middle" fill="#7ea6ff">QKNorm(q, k)</text>
+<path d="M355,240 L355,248" stroke="#7d8da1" stroke-width="1.6" marker-end="url(#sA)"/>
+<rect x="240" y="250" width="230" height="40" rx="8" fill="#121a26" stroke="#b18cff" stroke-opacity=".5"/>
+<text x="355" y="275" class="axb" text-anchor="middle" fill="#b18cff">apply_rope(q, k, pe)</text>
+<path d="M355,290 L355,298" stroke="#7d8da1" stroke-width="1.6" marker-end="url(#sA)"/>
+<rect x="240" y="300" width="230" height="44" rx="8" fill="#182231" stroke="#ff7ab8" stroke-opacity=".6"/>
+<text x="355" y="318" class="axb" text-anchor="middle" fill="#ff7ab8">causal_attn_fn</text>
+<text x="355" y="334" class="eq" text-anchor="middle">→ attn (B, L, 6144)</text>
+
+<!-- mlp branch -->
+<rect x="560" y="150" width="270" height="40" rx="8" fill="#121a26" stroke="#2e4054"/>
+<text x="695" y="167" class="axb" text-anchor="middle">mlp half</text>
+<text x="695" y="182" class="eq" text-anchor="middle">(B, L, 36864)</text>
+<path d="M695,190 L695,198" stroke="#7d8da1" stroke-width="1.6" marker-end="url(#sA)"/>
+<rect x="560" y="200" width="270" height="40" rx="8" fill="#121a26" stroke="#5fe08a" stroke-opacity=".45"/>
+<text x="695" y="217" class="axb" text-anchor="middle" fill="#5fe08a">SiLUActivation — SwiGLU gate</text>
+<text x="695" y="232" class="eq" text-anchor="middle">→ (B, L, 18432)</text>
+<path d="M695,240 L695,248" stroke="#7d8da1" stroke-width="1.6" marker-end="url(#sA)"/>
+<rect x="560" y="250" width="270" height="40" rx="8" fill="#0d1420" stroke="#22303f" stroke-dasharray="4 3"/>
+<text x="695" y="275" class="ax" text-anchor="middle">waits, untouched, while attention runs</text>
+
+<!-- merge -->
+<path d="M355,344 L355,362" stroke="#7d8da1" stroke-width="1.6" marker-end="url(#sA)"/>
+<path d="M695,290 L695,352 L450,352 L450,362" stroke="#7d8da1" stroke-width="1.6" fill="none" marker-end="url(#sA)"/>
+<rect x="330" y="364" width="240" height="44" rx="9" fill="#182231" stroke="#2e4054"/>
+<text x="450" y="382" class="axb" text-anchor="middle">cat(attn, glu(mlp))</text>
+<text x="450" y="398" class="eq" text-anchor="middle">(B, L, 24576)</text>
+<path d="M570,386 L598,386" stroke="#7d8da1" stroke-width="1.7" marker-end="url(#sA)"/>
+<rect x="600" y="364" width="160" height="44" rx="9" fill="#182231" stroke="#f6a93b" stroke-opacity=".6"/>
+<text x="680" y="382" class="axb" text-anchor="middle" fill="#f6a93b">linear2</text>
+<text x="680" y="398" class="eq" text-anchor="middle">→ (B, L, 6144)</text>
+<path d="M760,386 L792,386" stroke="#7d8da1" stroke-width="1.7" marker-end="url(#sA)"/>
+<circle cx="810" cy="386" r="15" fill="#121a26" stroke="#5fe08a" stroke-width="2"/>
+<text x="810" y="391" class="axb" text-anchor="middle" fill="#5fe08a">⊙</text>
+<path d="M825,386 L862,386" stroke="#7d8da1" stroke-width="1.7" marker-end="url(#sA)"/>
+<circle cx="880" cy="386" r="15" fill="#121a26" stroke="#7d8da1" stroke-width="2"/>
+<text x="880" y="392" class="axb" text-anchor="middle">+</text>
+<path d="M895,386 L918,386" stroke="#7d8da1" stroke-width="1.7" marker-end="url(#sA)"/>
+<rect x="920" y="364" width="100" height="44" rx="9" fill="#121a26" stroke="#2e4054"/>
+<text x="970" y="391" class="axb" text-anchor="middle">out</text>
+
+<path d="M690,22 L960,22 L960,352 L810,352 L810,369" stroke="#5fe08a" stroke-width="1.5" fill="none" marker-end="url(#sV)"/>
+<text x="972" y="200" class="eq" fill="#5fe08a" transform="rotate(90 972 200)">mod_gate</text>
+<path d="M60,86 L36,86 L36,432 L880,432 L880,403" stroke="#7d8da1" stroke-width="1.4" fill="none" stroke-dasharray="5 4" marker-end="url(#sA)"/>
+<text x="430" y="450" class="ax" text-anchor="middle">residual skip — added after the gate, unchanged</text>
+</svg>
+</div>
+<figcaption><span class="figno">FIG 13</span><b>The single-stream block.</b> The design trick is the fusion:
+<code>linear1</code> computes the queries, keys, values <em>and</em> the MLP's input in one matrix
+multiply, and <code>linear2</code> consumes the attention output and the gated MLP output together.
+Two big matmuls per block instead of five smaller ones — much better GPU utilisation, identical
+mathematics. The MLP branch simply waits while attention runs; both halves meet again at
+<code>torch.cat</code>.</figcaption>
+</figure>
+
+<!--CODE 437-466 title="model.py · SingleStreamBlock.__init__" hl="446,449,450,451,453,455,459,461,464,466"-->
+
+<!--TRACE-->
+<!--T 446|<code>self.hidden_dim = hidden_size</code> — a slightly confusing alias: it is the <em>visible</em> width (6144), not an MLP hidden width. Both this and <code>self.hidden_size</code> (line 463) store the same number; only <code>hidden_size</code> is actually used later.-->
+<!--T 448-449|<code>head_dim</code> = 6144 ÷ 48 = 128. Then <code>self.scale = head_dim ** -0.5</code> = 1/√128 ≈ 0.0884 — the classic attention temperature. <strong>This value is never used anywhere.</strong> Dead code kept from an older implementation: the scaling is done inside <code>F.scaled_dot_product_attention</code>, which applies 1/√d itself. Worth knowing so you do not go hunting for it.-->
+<!--T 450-451|MLP width 18432 (= 3 × 6144) and the SwiGLU doubling factor of 2. Together they say: the MLP's <em>gated</em> tensor will be 36864 wide, of which half is the gate.-->
+<!--T 453-457|The fused input projection: 6144 → 3·6144 + 2·18432 = <strong>55 296</strong>. One weight matrix of 340 million parameters — the single largest tensor in a single-stream block. Fusing qkv and the MLP input into one matmul is a deliberate speed choice.-->
+<!--T 459|The fused output projection: 6144 + 18432 = 24576 → 6144, another 151 million parameters.-->
+<!--T 461|QK normalisation, sized per head (128).-->
+<!--T 464|The pre-attention LayerNorm, parameter-free; its shift/scale come from the modulation instead. <code>eps=1e-6</code> is tighter than PyTorch's default 1e-5 — standard in modern transformers.-->
+<!--T 466|The SwiGLU gate that will halve the MLP tensor.-->
+<!--/TRACE-->
+
+<!--CODE 468-484 title="model.py · _qkv and _out" hl="469,470,472,473,474,478,479,480,483,484"-->
+
+<!--TRACE-->
+<!--T 469|Unpack the three modulation vectors. In the plain path these have shape (B, 1, D) and broadcast over all tokens; in the KV-cache path they have been <em>blended</em> per token (§14) and arrive as (B, L, D).-->
+<!--T 470|Adaptive normalisation: standardise, then scale and shift with values generated from the timestep. This is the only place the noise level touches the token stream inside a single-stream block.-->
+<!--T 472-476|Run the fused projection and immediately split its output into the qkv part (first 18432 columns) and the mlp part (last 36864 columns). <code>torch.split</code> returns views — no data is copied.-->
+<!--T 478|The einops pattern <code>"B L (K H D) -&gt; K B H L D"</code> with K=3, H=48 does three jobs at once: it splits qkv into q, k and v (the K axis), splits the feature axis into 48 heads of 128 dims (H and D), and moves heads to their own axis. Result: three tensors of shape (B, 48, L, 128).-->
+<!--T 479|Normalise q and k per head. Note v is passed in only so QKNorm can read its dtype.-->
+<!--T 480|Return everything the rest of the block needs, including the gate, which is carried through untouched so <code>_out</code> can apply it at the very end.-->
+<!--T 483|Gate the MLP half (<code>mlp_act</code> halves it to 18432), concatenate with the attention output along the feature axis, and project back down to 6144 with <code>linear2</code>.-->
+<!--T 484|The gated residual: the block's entire contribution is multiplied by <code>mod_gate</code> before being added to the incoming tokens. A gate near zero means "this block changes almost nothing" — the escape hatch that lets 56 blocks train stably.-->
+<!--/TRACE-->
+
+<!--CODE 486-521 title="model.py · the two forward passes" hl="495,496,498,499,500,501,502,505,506,517,518,519,520,521"-->
+
+<!--TRACE-->
+<!--T 495-496|Build q/k/v and rotate q and k by the position matrices. In a single-stream block this happens over the <em>whole</em> mixed sequence — text, references and canvas together.-->
+<!--T 498-503|Carve out the reference slice of k and v and copy it (<code>.clone()</code>) into this block's cache entry. A slice like this is a <em>view</em> — it shares storage with the full <code>k</code>. Cloning gives the cache its own memory, so the 4608-token tensor it was cut from can be freed as soon as this step ends instead of being kept alive by the cache for the rest of the run.-->
+<!--T 505|Run the attention router of §10.-->
+<!--T 506|Combine and return, together with the cache.-->
+<!--T 517-519|The cached path is identical except that the reference count is not an argument any more — it is recovered from the cached tensor's own shape (<code>shape[2]</code> is the token axis of k). A neat bit of self-describing state.-->
+<!--T 520-521|Attention with the cache spliced in, then the same gated residual.-->
+<!--/TRACE-->
+
+<div class="note idea">
+<div class="nh">💡 Cost accounting for one single-stream block (FLUX.2 sizes)</div>
+<p style="font-family:var(--mono);font-size:13.4px;color:var(--gold)">
+linear1 : 6144 × 55 296 = 339 738 624<br>
+linear2 : 24 576 × 6144 = 150 994 944<br>
+qkv proj: inside linear1 &nbsp;·&nbsp; out proj: inside linear2<br>
+QKNorm  : 2 × 128 &nbsp;=&nbsp; 256<br>
+<strong>total : 490 733 824 parameters</strong>
+</p>
+<p>Multiply by 48 and you have 23.6 billion — nearly three quarters of the model, spent on the cheap,
+shared-weight half of the architecture.</p>
+</div>
+</section>

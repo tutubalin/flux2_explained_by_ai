@@ -8,42 +8,44 @@
     </div>
   </div>
   <nav>
-    <div class="toc-h">Orientation</div>
-    <a href="#map">The file at a glance</a>
-    <a href="#bigpicture">1 · What FLUX.2 actually is</a>
-    <a href="#flow">2 · Rectified flow in 5 minutes</a>
-    <a href="#tokens">3 · From pixels to tokens</a>
-    <a href="#attnbasics">4 · Attention, from zero</a>
-    <a href="#rope">5 · Position: the 4-axis RoPE</a>
-    <a href="#configs">6 · The three configurations</a>
+    <div class="toc-h">Part 1 · Pure theory</div>
+    <a href="#flow">1 · Rectified flow in 5 minutes</a>
+    <a href="#tokens">2 · From pixels to tokens</a>
+    <a href="#attnbasics">3 · Attention, from zero</a>
+    <a href="#rope">4 · Position: the 4-axis RoPE</a>
+    <a href="#conditioning">5 · Time and guidance</a>
 
-    <div class="toc-h">The building blocks</div>
-    <a href="#conditioning">7 · Conditioning, from zero</a>
-    <a href="#primitives">8 · The eleven small parts</a>
-    <a href="#p-timestep">8.1 · timestep_embedding</a>
-    <a href="#p-glu">8.2 · SiLUActivation — the gate</a>
-    <a href="#p-mlp">8.3 · MLPEmbedder</a>
-    <a href="#p-rope">8.4 · rope — building rotations</a>
-    <a href="#p-embednd">8.5 · EmbedND — gluing four axes</a>
-    <a href="#p-applyrope">8.6 · apply_rope — using them</a>
-    <a href="#p-norms">8.7 · RMSNorm &amp; QKNorm</a>
-    <a href="#p-selfattn">8.8 · SelfAttention</a>
-    <a href="#p-mod">8.9 · Modulation</a>
-    <a href="#p-last">8.10 · LastLayer</a>
+    <div class="toc-h">Part 2 · Code overview</div>
+    <a href="#map">6 · The file at a glance</a>
+    <a href="#bigpicture">7 · What FLUX.2 actually is</a>
+    <a href="#configs">8 · The three configurations</a>
 
-    <div class="toc-h">The big pieces</div>
-    <a href="#attention">9 · causal_attn_fn — the router</a>
-    <a href="#single">10 · SingleStreamBlock</a>
-    <a href="#double">11 · DoubleStreamBlock</a>
-    <a href="#flux2">12 · Flux2 — init + three forwards</a>
-    <a href="#blend">13 · Blending modulations</a>
-    <a href="#kvcache">14 · The KV cache paths</a>
+    <div class="toc-h">Part 3 · The small parts</div>
+    <a href="#primitives">9 · The eleven small parts</a>
+    <a class="sub" href="#p-timestep">9.1 · timestep_embedding</a>
+    <a class="sub" href="#p-glu">9.2 · SiLUActivation — the gate</a>
+    <a class="sub" href="#p-mlp">9.3 · MLPEmbedder</a>
+    <a class="sub" href="#p-rope">9.4 · rope — building rotations</a>
+    <a class="sub" href="#p-embednd">9.5 · EmbedND — gluing four axes</a>
+    <a class="sub" href="#p-applyrope">9.6 · apply_rope — using them</a>
+    <a class="sub" href="#p-norms">9.7 · RMSNorm &amp; QKNorm</a>
+    <a class="sub" href="#p-selfattn">9.8 · SelfAttention</a>
+    <a class="sub" href="#p-mod">9.9 · Modulation</a>
+    <a class="sub" href="#p-last">9.10 · LastLayer</a>
 
-    <div class="toc-h">Zooming back out</div>
-    <a href="#loop">15 · The denoising loop</a>
-    <a href="#design">16 · Why it looks like this</a>
-    <a href="#cheatsheet">17 · Complete cheat sheet</a>
-    <a href="#refs">18 · References</a>
+    <div class="toc-h">Part 4 · The big pieces</div>
+    <a href="#attention">10 · causal_attn_fn — the router</a>
+    <a href="#single">11 · SingleStreamBlock</a>
+    <a href="#double">12 · DoubleStreamBlock</a>
+    <a href="#flux2">13 · Flux2 — init + three forwards</a>
+    <a href="#blend">14 · Blending modulations</a>
+    <a href="#kvcache">15 · The KV cache paths</a>
+
+    <div class="toc-h">Part 5 · Zooming back out</div>
+    <a href="#loop">16 · The denoising loop</a>
+    <a href="#design">17 · Why it looks like this</a>
+    <a href="#cheatsheet">18 · Complete cheat sheet</a>
+    <a href="#refs">19 · References</a>
   </nav>
 </aside>
 
@@ -89,7 +91,7 @@
     <code>src/ref/qa_coverage.py</code> verifies that all 692 non-blank lines of the file are shown
     somewhere; <code>src/ref/qa_linerefs.py</code> checks every place where the prose cites a line
     number — "line 455", or a row of the cheat-sheet table — against what really sits on that line;
-    <code>src/ref/qa_xrefs.py</code> resolves every "see §8.9" and "FIG 5" in the page; and
+    <code>src/ref/qa_xrefs.py</code> resolves every "see §9.9" and "FIG 3" in the page; and
     <code>src/ref/verify4.py</code> re-derives every number quoted here from the source and then looks
     for it in the finished page. All five are clean.</p>
     <p>One convention to know: numbers and structure are checked against the code, but the file carries

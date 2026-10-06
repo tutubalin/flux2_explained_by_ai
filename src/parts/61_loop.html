@@ -1,0 +1,134 @@
+<section id="loop">
+<h2><span class="secno">§16</span>The denoising loop — where <code>model.py</code> meets the world</h2>
+<p class="section-intro">
+<code>model.py</code> never loops. It answers one question per call: "given this noisy image at this
+timestep, which way is clean?" The loop lives in <code>sampling.py</code>, and it is short enough to
+fit in your head.
+</p>
+
+<!--RAW title="sampling.py · denoise(), L283–307 — the real Euler loop (condensed, comments added)"-->
+    guidance_vec = torch.full((img.shape[0],), guidance, device=img.device, dtype=img.dtype)
+    for t_curr, t_prev in zip(timesteps[:-1], timesteps[1:]):
+        t_vec = torch.full((img.shape[0],), t_curr, dtype=img.dtype, device=img.device)
+        img_input = img
+        img_input_ids = img_ids
+        if img_cond_seq is not None:                 # reference images, if this run has any
+            img_input = torch.cat((img_input, img_cond_seq), dim=1)
+            img_input_ids = torch.cat((img_input_ids, img_cond_seq_ids), dim=1)
+        pred = model(x=img_input, x_ids=img_input_ids, timesteps=t_vec,
+                     ctx=txt, ctx_ids=txt_ids, guidance=guidance_vec)
+        if img_input_ids is not None:
+            pred = pred[:, : img.shape[1]]           # keep only the canvas rows
+        img = img + (t_prev - t_curr) * pred         # the only line that changes the image
+    return img
+<!--/RAW-->
+
+<p>This is the unabbreviated version of the three lines quoted in §1.2. Two details the abridgement
+hid: <code>zip(timesteps[:-1], timesteps[1:])</code> is how the loop pairs each step with the next one
+(no index arithmetic, and it simply stops after the last pair), and the reference tokens — when there are
+any — are concatenated onto the canvas <em>before</em> the call and sliced back off the prediction
+afterwards. <code>denoise</code> calls <code>model(...)</code>, i.e. <code>Flux2.forward</code>, which
+always passes <code>num_ref_tokens=0</code>: on this path the references are ordinary image tokens
+(§13.4).</p>
+
+<p>Read the update rule slowly, because it is the whole of rectified flow: the model predicts a
+<em>velocity</em> — the direction and speed at which the image should move — and the sampler takes one
+Euler step of size <code>(t_prev − t_curr)</code> along it. At the last step <code>t_prev = 0</code>,
+landing exactly on the clean latent, which the autoencoder then decodes into pixels. There is no noise
+injected anywhere: this is an ordinary differential equation being integrated, not a stochastic
+process.</p>
+
+<h3>16.1 · Which timesteps? A deterministic, shifted ladder</h3>
+<p>The step times are not evenly spaced — but they are not random either.
+<code>get_schedule(num_steps, image_seq_len)</code> (<code>sampling.py</code> L244–248) builds a uniform
+ladder <code>torch.linspace(1, 0, num_steps + 1)</code> and warps every rung through the shift function
+of §1.3, <span class="shape">t′ = e<sup>μ</sup> / (e<sup>μ</sup> + (1/t − 1)<sup>σ</sup>)</span> with
+σ = 1. Same run in, same run out — there is no sampling and no seed.</p>
+<p>μ comes from <code>compute_empirical_mu</code> (<code>sampling.py</code> L251–266) and depends
+on <strong>two</strong> things.
+Above 4300 image tokens it is a straight line in the token count,
+<code>μ = 0.00016927·L + 0.45666666</code>. At or below 4300 tokens it interpolates between two fitted
+lines — one calibrated for a 10-step run, one for a 200-step run — so <em>the step count matters too</em>:
+fewer steps ⇒ larger μ ⇒ the few steps you have are pushed harder into the noisy end. For a 4096-token
+image (1024²) with 8 steps, μ = 2.27 and the times are</p>
+<div class="tbl-wrap">
+<table class="data">
+<thead><tr><th>step</th><th>0</th><th>1</th><th>2</th><th>3</th><th>4</th><th>5</th><th>6</th><th>7</th></tr></thead>
+<tbody>
+<tr><td><b>t fed to the model</b></td><td class="num">1.000</td><td class="num">0.985</td><td class="num">0.967</td><td class="num">0.942</td><td class="num">0.906</td><td class="num">0.853</td><td class="num">0.763</td><td class="num">0.580</td></tr>
+<tr><td><b>step size (t_next − t)</b></td><td class="num">−0.015</td><td class="num">−0.019</td><td class="num">−0.025</td><td class="num">−0.035</td><td class="num">−0.053</td><td class="num">−0.090</td><td class="num">−0.183</td><td class="num">−0.580</td></tr>
+</tbody>
+</table>
+</div>
+<p>Two rows, two owners. The first is what the network is told — eight start times, because nine schedule
+entries make eight steps and the ninth entry (0.0) is only a destination. The second is what the
+<em>sampler</em> keeps to itself: how far each answer is allowed to move the image. The model never sees
+it (§1.2). Half the steps happen above <code>t = 0.9</code>: the model spends its budget on the early,
+global structure decisions, then takes one long stride from 0.58 to 0 — one hop covering 58 % of the whole
+distance from noise to image, and 39 times the size of the first. See <a href="#flow">FIG 2</a> for the
+full curve family.</p>
+
+<div class="note warn">
+<div class="nh">⚠ Gotcha · "logit-normal" is a training word, not an inference word</div>
+<p>The SD3 paper <em>samples</em> its training timesteps from a logit-normal distribution, and that
+phrase is often reused for inference schedules. Nothing here is sampled or normal-distributed: the
+inference schedule is a fixed monotone warp of a uniform ladder, and the warp's μ is fitted empirically
+(per <code>compute_empirical_mu</code>'s own name) rather than drawn. The two ideas are related — the
+shift concentrates steps where training concentrated probability — but they are not the same
+statement.</p>
+</div>
+
+<h3>16.2 · What a step costs</h3>
+<p>Attention is quadratic in sequence length and the block matmuls are linear, so the cost of a step is
+dominated by token count. The counting rule, applied to the dev configuration:</p>
+<div class="note math">
+<div class="nh">Σ How these numbers are computed</div>
+<p><span class="mathblk">FLOPs = 2 × (MACs in the blocks + MACs in the attention)</span></p>
+<p style="margin-top:8px">A token crossing a <em>single</em> block touches <code>linear1</code>
+(6144 × 55 296) and <code>linear2</code> (24 576 × 6144) = 490 733 568 MACs. A token crossing a
+<em>double</em> block touches only <em>one</em> of its two streams — image tokens the image weights, text
+tokens the text weights — and one stream costs exactly the same 490 733 568 MACs
+(qkv + proj + two MLP matrices). So the matmul term is <span class="shape">56 × L × 490 733 568</span>,
+not <span class="shape">56 × L × 981 467 648</span>: multiplying the double block's <em>full</em>
+parameter count by every token would count each token twice.</p>
+<p style="margin-top:8px">Attention adds <span class="shape">56 × 2 × L² × 6144</span> MACs (one
+<code>q·k</code> and one <code>weights·v</code> per block, over the whole joint sequence of
+L = image + 512 text tokens). Elementwise work — norms, SiLU, residuals — is excluded; it is under a
+percent.</p>
+</div>
+<div class="tbl-wrap">
+<table class="data">
+<thead><tr><th>output size</th><th style="width:130px">image tokens</th><th style="width:170px">with 512 text tokens</th><th style="width:180px">TFLOPs per step</th><th style="width:180px">50 steps</th></tr></thead>
+<tbody>
+<tr><td>512 × 512</td><td class="num">1 024</td><td class="num">1 536</td><td class="num">87.7</td><td class="num">4.38 P</td></tr>
+<tr><td>1024 × 1024</td><td class="num">4 096</td><td class="num">4 608</td><td class="num">282.5</td><td class="num">14.12 P</td></tr>
+<tr><td>1360 × 768 <span class="dim">(CLI default)</span></td><td class="num">4 080</td><td class="num">4 592</td><td class="num">281.4</td><td class="num">14.07 P</td></tr>
+<tr><td>2048 × 2048</td><td class="num">16 384</td><td class="num">16 896</td><td class="num">1 321.5</td><td class="num">66.08 P</td></tr>
+</tbody>
+</table>
+</div>
+<p>Quadrupling the pixels multiplies the work by ~4.7× — the attention term growing as the square is
+where the extra 0.7 comes from (at 4 MP it is already 30 % of the step). This table is also the honest
+explanation of the KV cache's value: at 512² four reference images add 16 384 tokens to a 1 024-token
+canvas (§15.2), so removing them from every step but the first is worth the 2.66× measured in §15.</p>
+
+<div class="tbl-wrap">
+<table class="data">
+<thead><tr><th>checkpoint</th><th style="width:150px">parameters</th><th style="width:130px">bf16</th><th style="width:130px">fp8</th><th style="width:130px">int4</th></tr></thead>
+<tbody>
+<tr><td>FLUX.2-dev</td><td class="num">32 223 281 152</td><td class="num">64.4 GB</td><td class="num">32.2 GB</td><td class="num">16.1 GB</td></tr>
+<tr><td>FLUX.2-klein-9B</td><td class="num">9 078 581 248</td><td class="num">18.2 GB</td><td class="num">9.1 GB</td><td class="num">4.5 GB</td></tr>
+<tr><td>FLUX.2-klein-4B</td><td class="num">3 875 544 576</td><td class="num">7.8 GB</td><td class="num">3.9 GB</td><td class="num">1.9 GB</td></tr>
+</tbody>
+</table>
+</div>
+<p class="dim" style="font-size:13.6px"><code>bf16</code> is the 16-bit floating-point format the
+checkpoints ship in — two bytes per number, so a parameter count divided by 5 × 10⁸ is its size in
+gigabytes. The <code>fp8</code> and <code>int4</code> columns are the same weights at one byte and half a
+byte per number after quantisation; <code>model.py</code> itself is precision-agnostic apart from the
+float32 islands of §17.</p>
+<p class="dim" style="font-size:13.6px">Exact parameter counts, obtained by constructing each
+configuration on the meta device and summing <code>numel()</code> over every tensor — including the
+16 384 RMSNorm values and excluding nothing. There are zero bias vectors and zero dropout layers
+anywhere in the file.</p>
+</section>

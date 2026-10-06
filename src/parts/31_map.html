@@ -1,0 +1,55 @@
+<section id="map">
+<h2><span class="secno">§ 6</span>The file at a glance</h2>
+<p class="section-intro">
+Before diving in, here is the entire file on one screen. Fourteen classes and seven module-level
+functions, listed in the order they appear. Click any row to jump to its explanation.
+</p>
+
+<p>The file starts with seven lines of imports, and they are the whole of its dependency list — no
+local modules, no configuration files, nothing hidden:</p>
+
+<!--CODE 1-7 title="model.py · the complete import block" hl="1,2,4,5,6,7"-->
+
+<p><code>math</code> is used exactly once (the <code>log</code> in <code>timestep_embedding</code>, §9.1).
+<code>dataclass</code> and <code>field</code> build the three configuration objects (§8).
+<code>torch</code>, <code>nn</code> and <code>F</code> supply the layers and
+<code>scaled_dot_product_attention</code> (§10). <code>Tensor</code> is imported as a name so the type
+hints read <code>x: Tensor</code>. And <code>rearrange</code>, from einops, does every reshape in the
+file — including the one that splits 6144 features into 48 heads of 128 (§11).</p>
+
+<div class="note beginner">
+<div class="nh">◇ Reading order</div>
+<p>The file is written <em>top-down</em> — the giant <code>Flux2</code> class comes first, at line 52,
+and the tiny helpers it depends on come later, near line 800. That is the opposite of how you should
+<em>read</em> it. This article is deliberately the other way round, in five parts: <strong>Part 1</strong>
+teaches the ideas with no code at all, <strong>Part 2</strong> maps the file (you are here),
+<strong>Part 3</strong> walks the eleven small parts in dependency order, <strong>Part 4</strong> assembles
+them into the blocks and the model, and <strong>Part 5</strong> zooms back out to the loop, the design
+decisions and a cheat sheet. By the time you reach
+<code>Flux2.forward</code> there will be nothing left in it that you have not already met.</p>
+</div>
+
+<div class="filemap">
+  <a class="fm-row" href="#configs"><span class="fm-ln">L11–21</span><span><span class="fm-name">Flux2Params</span><span class="fm-kind kind-cfg">dataclass</span><div class="fm-desc">The 32B flagship configuration — 10 numbers that determine the whole architecture.</div></span></a>
+  <a class="fm-row" href="#configs"><span class="fm-ln">L25–35</span><span><span class="fm-name">Klein9BParams</span><span class="fm-kind kind-cfg">dataclass</span><div class="fm-desc">The 9B "klein" configuration — narrower, fewer single blocks, no guidance embedding.</div></span></a>
+  <a class="fm-row" href="#configs"><span class="fm-ln">L39–49</span><span><span class="fm-name">Klein4BParams</span><span class="fm-kind kind-cfg">dataclass</span><div class="fm-desc">The 4B configuration — 5 double + 20 single blocks.</div></span></a>
+  <a class="fm-row" href="#flux2"><span class="fm-ln">L52–326</span><span><span class="fm-name">Flux2</span><span class="fm-kind kind-cls">nn.Module</span><div class="fm-desc">The model. 275 lines: one <code>__init__</code> that builds everything, and three forward paths.</div></span></a>
+  <a class="fm-row" href="#blend"><span class="fm-ln">L329–343</span><span><span class="fm-name">_blend_mod_triple</span><span class="fm-kind kind-fn">function</span><div class="fm-desc">Gives reference tokens their own shift/scale/gate values inside a mixed sequence.</div></span></a>
+  <a class="fm-row" href="#blend"><span class="fm-ln">L346–353</span><span><span class="fm-name">_blend_double_mods</span><span class="fm-kind kind-fn">function</span><div class="fm-desc">Applies the above to a double-stream block's two modulation pairs.</div></span></a>
+  <a class="fm-row" href="#blend"><span class="fm-ln">L356–372</span><span><span class="fm-name">_blend_single_mods</span><span class="fm-kind kind-fn">function</span><div class="fm-desc">Same, but for the <code>[txt, ref, img]</code> layout used by single-stream blocks.</div></span></a>
+  <a class="fm-row" href="#p-selfattn"><span class="fm-ln">L375–387</span><span><span class="fm-name">SelfAttention</span><span class="fm-kind kind-cls">nn.Module</span><div class="fm-desc">Three linear layers + QK-norm. Notably has <strong>no</strong> <code>forward()</code>.</div></span></a>
+  <a class="fm-row" href="#p-glu"><span class="fm-ln">L390–397</span><span><span class="fm-name">SiLUActivation</span><span class="fm-kind kind-cls">nn.Module</span><div class="fm-desc">A gated activation (SwiGLU): splits its input in half and multiplies.</div></span></a>
+  <a class="fm-row" href="#p-mod"><span class="fm-ln">L400–412</span><span><span class="fm-name">Modulation</span><span class="fm-kind kind-cls">nn.Module</span><div class="fm-desc">Turns the timestep vector into shift/scale/gate — adaptive layer norm.</div></span></a>
+  <a class="fm-row" href="#p-last"><span class="fm-ln">L415–434</span><span><span class="fm-name">LastLayer</span><span class="fm-kind kind-cls">nn.Module</span><div class="fm-desc">The exit door: modulated norm, then one projection back to 128 channels.</div></span></a>
+  <a class="fm-row" href="#single"><span class="fm-ln">L437–521</span><span><span class="fm-name">SingleStreamBlock</span><span class="fm-kind kind-cls">nn.Module</span><div class="fm-desc">48 of these. Attention and MLP fused into one big linear layer each way.</div></span></a>
+  <a class="fm-row" href="#double"><span class="fm-ln">L524–680</span><span><span class="fm-name">DoubleStreamBlock</span><span class="fm-kind kind-cls">nn.Module</span><div class="fm-desc">8 of these. Separate weights for text and image that meet only inside attention.</div></span></a>
+  <a class="fm-row" href="#p-mlp"><span class="fm-ln">L683–691</span><span><span class="fm-name">MLPEmbedder</span><span class="fm-kind kind-cls">nn.Module</span><div class="fm-desc">Linear → SiLU → Linear. Used for the timestep and the guidance value.</div></span></a>
+  <a class="fm-row" href="#p-embednd"><span class="fm-ln">L694–707</span><span><span class="fm-name">EmbedND</span><span class="fm-kind kind-cls">nn.Module</span><div class="fm-desc">Converts 4-axis integer coordinates into rotary position matrices. No parameters.</div></span></a>
+  <a class="fm-row" href="#p-timestep"><span class="fm-ln">L710–731</span><span><span class="fm-name">timestep_embedding</span><span class="fm-kind kind-fn">function</span><div class="fm-desc">Turns one float (the noise level) into a 256-dim sinusoidal fingerprint.</div></span></a>
+  <a class="fm-row" href="#p-norms"><span class="fm-ln">L734–743</span><span><span class="fm-name">RMSNorm</span><span class="fm-kind kind-cls">nn.Module</span><div class="fm-desc">Root-mean-square normalisation, computed in float32.</div></span></a>
+  <a class="fm-row" href="#p-norms"><span class="fm-ln">L746–755</span><span><span class="fm-name">QKNorm</span><span class="fm-kind kind-cls">nn.Module</span><div class="fm-desc">Two RMSNorms, one for queries and one for keys. A training-stability trick.</div></span></a>
+  <a class="fm-row" href="#attention"><span class="fm-ln">L758–815</span><span><span class="fm-name">causal_attn_fn</span><span class="fm-kind kind-fn">function</span><div class="fm-desc">The attention router. Decides who is allowed to look at whom.</div></span></a>
+  <a class="fm-row" href="#p-rope"><span class="fm-ln">L818–825</span><span><span class="fm-name">rope</span><span class="fm-kind kind-fn">function</span><div class="fm-desc">Builds the actual 2×2 rotation matrices from a position index.</div></span></a>
+  <a class="fm-row" href="#p-rope"><span class="fm-ln">L828–833</span><span><span class="fm-name">apply_rope</span><span class="fm-kind kind-fn">function</span><div class="fm-desc">Applies those rotations to queries and keys.</div></span></a>
+</div>
+</section>

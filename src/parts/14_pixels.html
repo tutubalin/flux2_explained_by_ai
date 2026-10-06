@@ -1,0 +1,151 @@
+<section id="tokens">
+<h2><span class="secno">§ 2</span>From pixels to tokens: what the model actually eats</h2>
+<p class="section-intro">
+<code>model.py</code> has no convolutions and no image logic. It receives images that have already been
+flattened into a list of vectors. To understand its shapes you must know exactly how that flattening
+happens.
+</p>
+
+<h3>2.1 · Three stages of compression</h3>
+<p>Two of the three stages happen inside the VAE, in <code>autoencoder.py</code>'s
+<code>encode()</code>: the convolutional 8× downsample to 32 channels, and the 2×2 patchify that folds
+four latent cells into one 128-number token. The third — flattening that 2-D grid of tokens into a plain
+sequence and attaching the position ids — is <code>sampling.py</code>'s <code>prc_img</code>, run just
+before the model is called:</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 1040 330" role="img" aria-label="Pixel grid compressed 8x by the VAE to 32 channels, then patchified 2x2 into 128-channel tokens.">
+<defs><marker id="tA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7d8da1"/></marker></defs>
+<text x="40" y="32" class="ttl">A 1024 × 1024 image becomes 4096 tokens of 128 numbers each</text>
+
+<!-- stage 1: pixels -->
+<text x="60" y="76" class="axb">1 · pixels</text>
+<g>
+<rect x="60" y="90" width="180" height="180" rx="6" fill="rgba(246,169,59,.05)" stroke="#f6a93b" stroke-opacity=".5"/>
+<g stroke="#f6a93b" stroke-opacity=".22" stroke-width="1">
+<line x1="60" y1="120" x2="240" y2="120"/><line x1="60" y1="150" x2="240" y2="150"/><line x1="60" y1="180" x2="240" y2="180"/><line x1="60" y1="210" x2="240" y2="210"/><line x1="60" y1="240" x2="240" y2="240"/>
+<line x1="90" y1="90" x2="90" y2="270"/><line x1="120" y1="90" x2="120" y2="270"/><line x1="150" y1="90" x2="150" y2="270"/><line x1="180" y1="90" x2="180" y2="270"/><line x1="210" y1="90" x2="210" y2="270"/>
+</g>
+</g>
+<text x="150" y="296" class="eq" text-anchor="middle">(3, 1024, 1024)</text>
+
+<path d="M252,180 L300,180" stroke="#7d8da1" stroke-width="1.8" marker-end="url(#tA)"/>
+<text x="276" y="166" class="ax" text-anchor="middle">VAE</text>
+<text x="276" y="200" class="ax" text-anchor="middle">8× ↓</text>
+
+<!-- stage 2: latent -->
+<text x="312" y="76" class="axb">2 · latent grid</text>
+<rect x="312" y="135" width="90" height="90" rx="5" fill="rgba(177,140,255,.07)" stroke="#b18cff" stroke-opacity=".55"/>
+<g stroke="#b18cff" stroke-opacity=".3" stroke-width="1">
+<line x1="312" y1="157" x2="402" y2="157"/><line x1="312" y1="180" x2="402" y2="180"/><line x1="312" y1="202" x2="402" y2="202"/>
+<line x1="334" y1="135" x2="334" y2="225"/><line x1="357" y1="135" x2="357" y2="225"/><line x1="379" y1="135" x2="379" y2="225"/>
+</g>
+<text x="357" y="252" class="eq" text-anchor="middle">(32, 128, 128)</text>
+<text x="357" y="272" class="ax" text-anchor="middle">32 channels, 8× smaller</text>
+
+<path d="M414,180 L462,180" stroke="#7d8da1" stroke-width="1.8" marker-end="url(#tA)"/>
+<text x="438" y="166" class="ax" text-anchor="middle">2×2</text>
+<text x="438" y="200" class="ax" text-anchor="middle">patchify</text>
+
+<!-- stage 3: tokens -->
+<text x="474" y="76" class="axb">3 · token grid</text>
+<rect x="474" y="157" width="46" height="46" rx="4" fill="rgba(246,169,59,.1)" stroke="#f6a93b" stroke-opacity=".7"/>
+<line x1="497" y1="157" x2="497" y2="203" stroke="#f6a93b" stroke-opacity=".5"/>
+<line x1="474" y1="180" x2="520" y2="180" stroke="#f6a93b" stroke-opacity=".5"/>
+<text x="497" y="228" class="eq" text-anchor="middle">128 channels</text>
+<text x="497" y="248" class="ax" text-anchor="middle">one token</text>
+
+<path d="M532,180 L580,180" stroke="#7d8da1" stroke-width="1.8" marker-end="url(#tA)"/>
+<text x="556" y="166" class="ax" text-anchor="middle">flatten</text>
+<text x="556" y="200" class="ax" text-anchor="middle">row-major</text>
+
+<rect x="592" y="166" width="230" height="28" rx="14" fill="rgba(246,169,59,.1)" stroke="#f6a93b" stroke-opacity=".5"/>
+<text x="707" y="184" class="eq" text-anchor="middle">x  (B, 4096, 128)</text>
+<text x="707" y="216" class="ax" text-anchor="middle">64 × 64 = 4096 tokens</text>
+
+<path d="M834,180 L870,180" stroke="#7d8da1" stroke-width="1.8" marker-end="url(#tA)"/>
+<rect x="882" y="150" width="120" height="60" rx="10" fill="#182231" stroke="#f6a93b" stroke-opacity=".7"/>
+<text x="942" y="176" class="axb" text-anchor="middle" fill="#f6a93b">img_in</text>
+<text x="942" y="194" class="eq" text-anchor="middle">→ 6144</text>
+</svg>
+</div>
+<figcaption><span class="figno">FIG 3</span><b>Sixteen-fold compression in each spatial direction.</b> The VAE shrinks
+1024² to 128² with 32 channels; then each 2×2 block of latent cells is folded into a single token of
+4 × 32 = 128 numbers (<code>autoencoder.py</code> literally does this with an einops
+<code>rearrange</code> and calls it <code>ps = [2, 2]</code>). The result is a flat list the transformer
+can chew on — and this is exactly why <code>Flux2Params.in_channels</code> is <strong>128</strong>.</figcaption>
+</figure>
+
+<div class="note beginner">
+<div class="nh">◇ Beginner · why bother with latents at all?</div>
+<p>Attention costs grow with the <em>square</em> of the token count. A 1024×1024 image as raw pixels
+would be over a million tokens: 10¹² attention pairs per layer, utterly impossible. As 4096 tokens it
+is 21 million pairs — expensive but feasible on real hardware. The latent space is a compression
+scheme that throws away perceptually irrelevant detail (exact sub-pixel noise) while keeping
+everything a human would notice. One detail worth knowing, because it explains a shape you will see in
+<code>autoencoder.py</code>: the 128-channel latent is normalised by a running-statistics
+<code>BatchNorm2d(128, affine=False, eps=1e-4)</code> inside the autoencoder (<code>autoencoder.py</code> L293–325) — no per-channel
+scale/shift factors for the transformer to carry around.</p>
+</div>
+
+<h3>2.2 · How many tokens is that, really?</h3>
+<div class="tbl-wrap">
+<table class="data">
+<thead><tr><th>Output size</th><th>Megapixels</th><th>Latent grid</th><th style="text-align:right">image tokens</th><th style="text-align:right">+ 512 text</th><th style="text-align:right">attention pairs (L²)</th></tr></thead>
+<tbody>
+<tr><td>512 × 512</td><td class="m">0.26</td><td class="m">32 × 32</td><td class="num">1,024</td><td class="num">1,536</td><td class="num">2.4 M</td></tr>
+<tr><td>768 × 768</td><td class="m">0.59</td><td class="m">48 × 48</td><td class="num">2,304</td><td class="num">2,816</td><td class="num">7.9 M</td></tr>
+<tr><td><strong>1024 × 1024</strong></td><td class="m">1.05</td><td class="m">64 × 64</td><td class="num">4,096</td><td class="num">4,608</td><td class="num">21.2 M</td></tr>
+<tr><td>1360 × 768 <span style="color:var(--muted)">(CLI default)</span></td><td class="m">1.04</td><td class="m">48 × 85</td><td class="num">4,080</td><td class="num">4,592</td><td class="num">21.1 M</td></tr>
+<tr><td>1440 × 1440</td><td class="m">2.07</td><td class="m">90 × 90</td><td class="num">8,100</td><td class="num">8,612</td><td class="num">74.2 M</td></tr>
+<tr><td><strong>2048 × 2048</strong> (4 MP)</td><td class="m">4.19</td><td class="m">128 × 128</td><td class="num">16,384</td><td class="num">16,896</td><td class="num">285.5 M</td></tr>
+</tbody>
+</table>
+</div>
+<p>Quadrupling the pixels quadruples the <em>image</em> tokens — 4096 at 1 MP, 16 384 at 4 MP. The 512
+text tokens do not grow, so the joint sequence goes 4608 → 16 896, a factor of 3.7, and attention work,
+which is quadratic in that joint length, by <strong>13.4×</strong>.
+That single fact explains most of FLUX.2's engineering: the KV cache for references (§15), the shared
+modulation (§17), and the choice of 48 cheap single-stream blocks over expensive double-stream ones.</p>
+
+<h3>2.3 · Text tokens, and the mystery of 15360</h3>
+<p>The text side is simpler but has one surprise. The 24-billion-parameter Mistral VLM is run over your
+prompt, and then <em>three of its internal layers</em> — layers 10, 20 and 30 — are pulled out and
+stacked side by side:</p>
+
+<!--RAW title="text_encoder.py · Mistral3SmallEmbedder.forward — the layer sandwich (condensed)"-->
+    OUTPUT_LAYERS_MISTRAL = [10, 20, 30]      # which VLM layers to read
+
+    out = torch.stack([output.hidden_states[k] for k in OUTPUT_LAYERS_MISTRAL], dim=1)
+    return rearrange(out, "b c l d -> b l (c d)")   # (B, 512, 3*5120) = (B, 512, 15360)
+<!--/RAW-->
+
+<p>Mistral-Small-3.2 has a hidden width of 5120, so each prompt token arrives as
+3 × 5120 = <strong>15360</strong> numbers. That is precisely <code>Flux2Params.context_in_dim</code>.
+And the reason the Klein configs use 12288 and 7680 is exactly the same trick with different teachers:
+Qwen3-8B (4096 × 3) and Qwen3-4B (2560 × 3). Using mid-depth layers rather than only the last one gives
+the flow transformer access to both syntactic and semantic features — a trick also used in
+<a href="#refs">SD3</a>.</p>
+
+<p>Prompts are padded and truncated to <code>MAX_LENGTH = 512</code> tokens, which is where the
+"512 text tokens" column above comes from.</p>
+
+<div class="note proof">
+<div class="nh">◆ Verified · the arithmetic behind every config's context_in_dim</div>
+<p style="font-family:var(--mono);font-size:13.6px">
+FLUX.2 [dev]  : Mistral-Small-3.2-24B, layers [10,20,30], hidden 5120 → 3 × 5120 = <b>15360</b> ✓<br>
+Klein 9B      : Qwen3-8B,           layers [ 9,18,27], hidden 4096 → 3 × 4096 = <b>12288</b> ✓<br>
+Klein 4B      : Qwen3-4B,           layers [ 9,18,27], hidden 2560 → 3 × 2560 = <b>7680</b> ✓
+</p>
+</div>
+
+<h3>2.4 · Reference images are just more tokens</h3>
+<p>For editing and multi-reference generation, reference images go through the same VAE encoder and
+the same patchify, and their tokens are simply <em>appended to the sequence</em>. Up to ten references
+are supported; to keep the cost sane the pipeline caps reference pixels at 1024² each when there are
+several, and 2024² when there is only one (<code>sampling.py</code> L56–58 spells it
+<code>2024**2</code>, which is what upstream says — almost certainly a typo for 2048²). The only thing
+that distinguishes a reference token from a canvas token is its <em>position id</em> — which is the
+subject of §4.</p>
+</section>

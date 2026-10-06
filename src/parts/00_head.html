@@ -63,6 +63,19 @@ body::after{ /* vignette */
              radial-gradient(90% 60% at 100% 100%, rgba(177,140,255,.06), transparent 60%);
 }
 
+/* ---------- part banners ---------- */
+.part-banner{display:flex;gap:28px;align-items:flex-start;margin:84px 0 38px;padding:30px 34px;
+  border:1px solid var(--line2);border-left:4px solid var(--img);border-radius:var(--r);
+  background:linear-gradient(115deg,rgba(246,169,59,.10),rgba(18,26,38,.35) 58%)}
+.part-banner:first-of-type{margin-top:34px}
+.pb-num{font-family:var(--mono);font-size:12.4px;letter-spacing:.22em;text-transform:uppercase;
+  color:var(--gold);white-space:nowrap;padding-top:9px}
+.pb-title{font-size:clamp(25px,2.7vw,33px);font-weight:800;letter-spacing:-.022em;margin-bottom:9px;
+  color:var(--text)}
+.pb-txt p{margin:0;color:var(--text2);font-size:15.2px;line-height:1.62;max-width:88ch}
+.pb-txt code{font-size:13.4px}
+@media(max-width:760px){.part-banner{flex-direction:column;gap:10px;padding:24px 20px;margin:56px 0 26px}}
+
 /* ---------- progress + topbar ---------- */
 #progress{position:fixed;top:0;left:0;height:3px;width:0;z-index:100;
   background:linear-gradient(90deg,var(--txt),var(--img),var(--ref));

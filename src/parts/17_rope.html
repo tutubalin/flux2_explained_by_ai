@@ -1,14 +1,14 @@
 <section id="rope">
-<h2><span class="secno">§ 5</span>Position: the four-axis rotary embedding</h2>
+<h2><span class="secno">§ 4</span>Position: the four-axis rotary embedding</h2>
 <p class="section-intro">
-§4 ended on attention's blind spot: a dot product cannot see order. Feed the same tokens shuffled and
+§3 ended on attention's blind spot: a dot product cannot see order. Feed the same tokens shuffled and
 the scores shuffle with them — nothing in the mechanism knows which token came first, or which patch
 sits next to which. Everything spatial about an image, and everything sequential about a sentence, must
 be injected deliberately, into q and k, <em>before</em> attention runs. FLUX.2 does it with
 <strong>RoPE</strong>, extended to four axes at once.
 </p>
 
-<h3>5.1 · RoPE in one paragraph — and three pictures</h3>
+<h3>4.1 · RoPE in one paragraph — and three pictures</h3>
 <p>Attention scores are dot products: <code>score = ⟨q, k⟩</code>. And a dot product is blind to order —
 shuffle the tokens and the scores shuffle with them, without ever changing value. Position therefore
 has to be baked into <code>q</code> and <code>k</code> themselves, and there are two classic ways to do
@@ -77,14 +77,14 @@ tokens are</b>. Zero learned parameters, no maximum sequence length, nothing to 
 <text x="40" y="306" class="ax">both vectors spun by the same extra 7·ω — the angle between them, and therefore the attention score, is untouched</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 6</span><b>The relative-angle trick.</b> Left: a query at position 3 and a key at
+<figcaption><span class="figno">FIG 5</span><b>The relative-angle trick.</b> Left: a query at position 3 and a key at
 position 11, each rotated by its own position times ω. Right: the same pair moved seven positions along —
 both vectors spin by the same extra angle, so the angle <em>between</em> them never changes, and neither
 does the attention score. Absolute position cancels out of the equation; distance stays in it.</figcaption>
 </figure>
 
 <p>One plane, though, would not be enough. A head pairs its 128 dimensions into 64 rotation planes.
-In FLUX.2 those planes come in four groups of 16 — one group per position axis (§5.2) — and within a
+In FLUX.2 those planes come in four groups of 16 — one group per position axis (§4.2) — and within a
 group the planes run at speeds <span class="mm">ωⱼ = θ^(−2j/32)</span>, j = 0…15: a geometric ladder
 from <span class="mm">ω₀ = 1</span> (a full turn every 6.28 positions on that axis) down to
 <span class="mm">ω₁₅ = 1/θ^(30/32) ≈ 0.0008</span> (barely moving at all). The score is the sum of 64
@@ -125,7 +125,7 @@ apart. Summed together, the ladder gives every gap its own fingerprint.</p>
 <text x="80" y="302" class="ax">slow plane 7 barely moves: unambiguous but coarse. Attention sums all 64 planes — and only the sum is unique per gap</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 7</span><b>Why one plane is not enough.</b> Every plane contributes
+<figcaption><span class="figno">FIG 6</span><b>Why one plane is not enough.</b> Every plane contributes
 cos(gap·ωᵢ) to the attention score. The fast plane oscillates and aliases — every peak looks like every
 other. The slow plane never repeats but cannot resolve neighbours. The geometric ladder of 64 speeds
 between those extremes gives each gap a distinct summed fingerprint: no learned parameters, no length
@@ -149,7 +149,7 @@ gap = 3 : (p=0, p=3) → 6.703997 &nbsp; (p=5, p=8) → 6.703996
 <code>det R = +1.000000</code>, and that <code>apply_rope</code> leaves every vector's norm unchanged.</p>
 </div>
 
-<h3>5.2 · FLUX.2's twist: four positions per token</h3>
+<h3>4.2 · FLUX.2's twist: four positions per token</h3>
 <p>A language model needs one position number per token. FLUX.2 needs <em>four</em>, because its tokens
 live in a 3-D volume of images stacked over a "time" axis, plus a separate index for text. Every token
 therefore arrives with a coordinate vector <code>ids</code> of shape
@@ -239,7 +239,7 @@ would do in older architectures.</p>
 <text x="520" y="360" class="ax">slow planes resolve coarse layout (far-apart regions).</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 8</span><b>How 128 dimensions become a 4-D coordinate system.</b> The mixed ladder of
+<figcaption><span class="figno">FIG 7</span><b>How 128 dimensions become a 4-D coordinate system.</b> The mixed ladder of
 fast and slow frequencies is the same idea as the wheels on an odometer: the fast wheel tells you the
 last digit, the slow wheel tells you how far you have really travelled. Stacking four such odometers —
 one per axis — gives every token an unambiguous address in (image, row, column, text-slot) space.</figcaption>
@@ -272,63 +272,5 @@ one per axis — gives every token an unambiguous address in (image, row, column
     <text x="330" y="174" class="ax" id="rwTip">Plane 0 turns fully every ~6 positions.</text>
     <text x="330" y="206" class="ax" id="rwTip2">Plane 15 barely moves across the image.</text>
   </svg>
-</div>
-</section>
-
-<section id="configs">
-<h2><span class="secno">§ 6</span>The three configurations</h2>
-<p class="section-intro">
-The first 49 lines of the file are not code at all — they are three dataclasses, each a list of ten
-numbers. Those numbers <em>are</em> the architecture: everything else in the file is a pure function of
-them.
-</p>
-
-<!--CODE 10-49 title="model.py — the three config dataclasses" hl="16,17"-->
-
-<div class="tbl-wrap">
-<table class="data">
-<thead><tr><th>field</th><th style="text-align:right">FLUX.2 [dev]</th><th style="text-align:right">Klein 9B</th><th style="text-align:right">Klein 4B</th><th>what it controls</th></tr></thead>
-<tbody>
-<tr><td><code>in_channels</code></td><td class="num">128</td><td class="num">128</td><td class="num">128</td><td>width of one latent token — fixed by the shared VAE</td></tr>
-<tr><td><code>context_in_dim</code></td><td class="num">15360</td><td class="num">12288</td><td class="num">7680</td><td>width of one text token — 3 × the teacher VLM's hidden size</td></tr>
-<tr><td><code>hidden_size</code></td><td class="num">6144</td><td class="num">4096</td><td class="num">3072</td><td>the model's internal working width</td></tr>
-<tr><td><code>num_heads</code></td><td class="num">48</td><td class="num">32</td><td class="num">24</td><td>attention heads; head_dim = hidden/heads = <strong>128 for all three</strong></td></tr>
-<tr><td><code>depth</code></td><td class="num">8</td><td class="num">8</td><td class="num">5</td><td>number of double-stream blocks</td></tr>
-<tr><td><code>depth_single_blocks</code></td><td class="num">48</td><td class="num">24</td><td class="num">20</td><td>number of single-stream blocks</td></tr>
-<tr><td><code>axes_dim</code></td><td class="num">[32,32,32,32]</td><td class="num">[32,32,32,32]</td><td class="num">[32,32,32,32]</td><td>RoPE dimensions per axis; must sum to head_dim</td></tr>
-<tr><td><code>theta</code></td><td class="num">2000</td><td class="num">2000</td><td class="num">2000</td><td>RoPE base frequency — low, because coordinates are small integers</td></tr>
-<tr><td><code>mlp_ratio</code></td><td class="num">3.0</td><td class="num">3.0</td><td class="num">3.0</td><td>MLP hidden width = 3 × hidden_size (not the usual 4×)</td></tr>
-<tr><td><code>use_guidance_embed</code></td><td class="num">True</td><td class="num">False</td><td class="num">False</td><td>whether a distilled guidance value is fed into the model</td></tr>
-<tr class="grp"><td>derived</td><td class="num"></td><td class="num"></td><td class="num"></td><td></td></tr>
-<tr><td>head_dim</td><td class="num">128</td><td class="num">128</td><td class="num">128</td><td>also the number of RoPE planes × 2</td></tr>
-<tr><td>MLP hidden width</td><td class="num">18432</td><td class="num">12288</td><td class="num">9216</td><td>int(hidden_size × mlp_ratio)</td></tr>
-<tr><td>total blocks</td><td class="num">56</td><td class="num">32</td><td class="num">25</td><td></td></tr>
-<tr><td><strong>parameters</strong></td><td class="num"><strong>32.22 B</strong></td><td class="num"><strong>9.08 B</strong></td><td class="num"><strong>3.88 B</strong></td><td>counted exactly on meta device</td></tr>
-</tbody>
-</table>
-</div>
-
-<h3>6.1 · The two guards in <code>__init__</code></h3>
-<p>The constructor refuses to build a model whose numbers do not add up. Both checks are worth
-understanding rather than skimming:</p>
-
-<!--TRACE-->
-<!--T 58-61|If <code>hidden_size</code> is not divisible by <code>num_heads</code>, the head width would be fractional and the <code>rearrange(... K H D)</code> calls later on would fail with a confusing einops error deep inside the forward pass. Failing here, at construction time, turns that into a one-line message.-->
-<!--T 62-64|<code>pe_dim</code> is the head width. The RoPE machinery builds one rotation matrix per head dimension, split among the four axes by <code>axes_dim</code>. If the split does not exactly cover the head, some dimensions would get no position information at all — silently. So the sum is checked up front. For all three configs: 32+32+32+32 = 128 = hidden_size ÷ num_heads. ✓-->
-<!--/TRACE-->
-
-<div class="note beginner">
-<div class="nh">◇ Beginner · why is theta only 2000?</div>
-<p>Think of the 16 planes of one axis as the wheels of an odometer (§5.2). The fastest wheel turns once
-every 2π positions — it is what tells position 41 from position 42. The slowest wheel turns once every
-2π·θ positions — it is what tells position 4 from position 4000, because the fast wheels have gone round
-and round and look identical again. Language models use θ = 10 000 or more because their positions run
-into the hundreds of thousands: they need a wheel slow enough not to wrap inside the context.</p>
-<p>FLUX.2's coordinates are tiny by comparison — grid indices under ~200, text indices under 512, and a
-<em>t</em> axis that only ever reaches about 100 — so its slowest plane (period 2π·2000 ≈ 12 566
-positions, FIG 8) is already far slower than the longest distance it will ever be asked about.
-<span class="spec">inference</span> A smaller base than 10 000 therefore costs nothing here and keeps the
-rest of the ladder in the range of distances the model actually needs to resolve; <code>model.py</code>
-simply states <code>theta: int = 2000</code> (L19) without saying why.</p>
 </div>
 </section>

@@ -93,11 +93,13 @@ SKIP = {"self", "None", "True", "False"}
 # layout shorthand (<code>[txt, ref, img]</code>) and as module qualifiers.
 GENERIC = {"txt", "img", "ref", "vec", "pe", "cache", "torch", "nn", "split", "cat", "F"}
 # (part file, first quoted line) -> why the identifier check does not apply
+# Keyed by the first line number quoted, not by file name: the part files get renamed
+# whenever the article is restructured, and these rows are about model.py, not about them.
 ALLOWED = {
-    ("02_map_bigpicture.html", 375): "the row's whole point is that SelfAttention has NO forward()",
-    ("12_loop_design_refs.html", 722): "the row's point is that LastLayer is NOT in the fp32 list",
-    ("12_loop_design_refs.html", 446): "the row's point is that scaled_dot_product_attention "
-                                       "replaced the code these two lines no longer use",
+    375: "the row's whole point is that SelfAttention has NO forward()",
+    722: "the row's point is that LastLayer is NOT in the fp32 list",
+    446: "the row's point is that scaled_dot_product_attention replaced the code "
+         "these two lines no longer use",
 }
 
 
@@ -186,7 +188,7 @@ def main():
                 return sorted(w for w in out if w in NAMES)
 
             def accuse(rng, lo, missing):
-                if (part.name, lo) in ALLOWED:
+                if lo in ALLOWED:
                     return
                 fatal.append(f"{part.name}:{lineno}: {rng} quoted near {missing}, but those names "
                              f"occur neither on the quoted lines nor in their enclosing scope\n"

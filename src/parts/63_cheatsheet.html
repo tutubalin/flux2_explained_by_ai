@@ -1,0 +1,70 @@
+<section id="cheatsheet">
+<h2><span class="secno">§18</span>The complete cheat sheet</h2>
+<p class="section-intro">
+Every symbol defined in <code>model.py</code>, in file order, with the line where it begins. If you
+ever get lost, this is the map back.
+</p>
+
+<div class="tbl-wrap">
+<table class="data">
+<thead><tr><th style="width:80px">lines</th><th style="width:250px">symbol</th><th>one-line description</th></tr></thead>
+<tbody>
+<tr class="grp"><td colspan="3">top level</td></tr>
+<tr><td class="m">11</td><td><code>Flux2Params</code></td><td>Dataclass of the ten hyper-parameters of the 32B flagship (dev) configuration.</td></tr>
+<tr><td class="m">25</td><td><code>Klein9BParams</code></td><td>Same ten fields, klein-9B values: hidden 4096, 24 single blocks, no guidance.</td></tr>
+<tr><td class="m">39</td><td><code>Klein4BParams</code></td><td>The 4B preset: hidden 3072, 5 double + 20 single blocks.</td></tr>
+<tr class="grp"><td colspan="3">the model</td></tr>
+<tr><td class="m">52</td><td><code>Flux2</code></td><td>The transformer: embedders, modulation MLPs, 8 double + N single blocks, final layer.</td></tr>
+<tr><td class="m">53</td><td><code>Flux2.__init__</code></td><td>Two guards, then builds every submodule — traced in §13.1.</td></tr>
+<tr><td class="m">115</td><td><code>Flux2.forward</code></td><td>Plain text→image pass, sequence <code>[txt, img]</code>.</td></tr>
+<tr><td class="m">170</td><td><code>Flux2.forward_kv_extract</code></td><td>Step 0 with references; returns prediction + KV cache.</td></tr>
+<tr><td class="m">267</td><td><code>Flux2.forward_kv_cached</code></td><td>Steps 1…N−1; references come from the cache.</td></tr>
+<tr class="grp"><td colspan="3">module-level helpers</td></tr>
+<tr><td class="m">329</td><td><code>_blend_mod_triple</code></td><td>Splice one (shift, scale, gate) triple into a per-token tensor: first <code>num_ref</code> rows from the reference version, the rest from the image version.</td></tr>
+<tr><td class="m">346</td><td><code>_blend_double_mods</code></td><td>Applies that to <em>both</em> triples a double block's image modulation carries (attention and MLP); the text modulation is never blended.</td></tr>
+<tr><td class="m">356</td><td><code>_blend_single_mods</code></td><td>Same for the single blocks' three-region layout <code>[txt, ref, img]</code>.</td></tr>
+<tr><td class="m">710</td><td><code>timestep_embedding</code></td><td>Scalar → sinusoidal vector of dimension <code>dim</code>.</td></tr>
+<tr><td class="m">758</td><td><code>causal_attn_fn</code></td><td>Attention router: references sealed off by slicing — two dense calls uncached, one cached. No mask tensor.</td></tr>
+<tr><td class="m">818</td><td><code>rope</code></td><td>Positions → per-token rotation matrices (…, n, dim/2, 2, 2).</td></tr>
+<tr><td class="m">828</td><td><code>apply_rope</code></td><td>Apply those rotations to q and k in fp32.</td></tr>
+<tr class="grp"><td colspan="3">small modules</td></tr>
+<tr><td class="m">375</td><td><code>SelfAttention</code></td><td>Container for one attention's qkv + proj weights (no forward!).</td></tr>
+<tr><td class="m">390</td><td><code>SiLUActivation</code></td><td>SwiGLU gate: <code>silu(x₁)·x₂</code> after <code>chunk(2, -1)</code>.</td></tr>
+<tr><td class="m">400</td><td><code>Modulation</code></td><td>condition vector → (shift, scale, gate) [×2], with the <code>[:, None, :]</code> fix-up.</td></tr>
+<tr><td class="m">415</td><td><code>LastLayer</code></td><td>Final adaLN (shift and scale, no gate) + the one linear back to 128 latent channels.</td></tr>
+<tr><td class="m">683</td><td><code>MLPEmbedder</code></td><td>linear → SiLU → linear; lifts the timestep embedding to hidden size.</td></tr>
+<tr><td class="m">694</td><td><code>EmbedND</code></td><td>Per-axis RoPE frequencies → concatenated rotation matrices.</td></tr>
+<tr><td class="m">734</td><td><code>RMSNorm</code></td><td>Root-mean-square normalisation with a learned gain.</td></tr>
+<tr><td class="m">746</td><td><code>QKNorm</code></td><td>Two RMSNorms for q and k; reads v only for its dtype.</td></tr>
+<tr class="grp"><td colspan="3">the blocks</td></tr>
+<tr><td class="m">437</td><td><code>SingleStreamBlock</code></td><td>Shared-weight block: fused attention + SwiGLU MLP, gated residuals.</td></tr>
+<tr><td class="m">468</td><td><code>· _qkv</code></td><td>adaLN → fused projection → heads → QKNorm.</td></tr>
+<tr><td class="m">482</td><td><code>· _out</code></td><td>cat(attn, gated MLP) → linear2 → gated residual.</td></tr>
+<tr><td class="m">486</td><td><code>· forward_kv_extract</code></td><td>Full pass + bank this block's reference k/v.</td></tr>
+<tr><td class="m">508</td><td><code>· forward_kv_cached</code></td><td>Pass with reference k/v taken from the cache.</td></tr>
+<tr><td class="m">524</td><td><code>DoubleStreamBlock</code></td><td>Two weight sets, one shared joint attention.</td></tr>
+<tr><td class="m">569</td><td><code>· _prepare_qkv</code></td><td>Modulate both streams, concatenate q/k/v, build pe_full.</td></tr>
+<tr><td class="m">614</td><td><code>· _apply_residuals</code></td><td>Four gated residuals: attention and MLP, per stream.</td></tr>
+<tr><td class="m">637</td><td><code>· forward_kv_extract</code></td><td>As above, banking the reference slice.</td></tr>
+<tr><td class="m">663</td><td><code>· forward_kv_cached</code></td><td>As above, consuming the cache.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>18.1 · Constants worth memorising</h3>
+<div class="tbl-wrap">
+<table class="data">
+<thead><tr><th style="width:280px">constant</th><th style="width:150px">value</th><th>meaning</th></tr></thead>
+<tbody>
+<tr><td><code>in_channels</code></td><td class="num">128</td><td>Latent channels per patch after the VAE's 16× compression.</td></tr>
+<tr><td><code>axes_dim</code></td><td class="num">[32, 32, 32, 32]</td><td>Rotation planes per position axis (t, h, w, l).</td></tr>
+<tr><td><code>theta</code></td><td class="num">2000</td><td>RoPE base frequency — five times smaller than the 10 000 common in LLMs (§8.1).</td></tr>
+<tr><td><code>mlp_ratio</code></td><td class="num">3.0</td><td>MLP width multiplier (before the SwiGLU doubling).</td></tr>
+<tr><td><code>head_dim</code></td><td class="num">128</td><td>hidden ÷ heads, identical in every configuration.</td></tr>
+<tr><td><code>ref timestep</code></td><td class="num">0.0</td><td>References are always "clean"; makes the cache exact.</td></tr>
+<tr><td><code>ref t-offsets</code></td><td class="num">10, 20, 30…</td><td>Reference images separated along the t axis (scale = 10).</td></tr>
+<tr><td><code>eps (norms)</code></td><td class="num">1e-6</td><td>LayerNorm epsilon throughout; RMSNorm uses 1e-6 too.</td></tr>
+</tbody>
+</table>
+</div>
+</section>

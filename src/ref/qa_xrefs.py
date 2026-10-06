@@ -143,7 +143,7 @@ def main():
             elif id2sec[anchor] != num:
                 fatal.append(f"{name}: contents entry says §{num} but #{anchor} is §{id2sec[anchor]}")
 
-    print(f"qa_xrefs: {len(secs)} sections (0–{max(secs) if secs else '?'}), "
+    print(f"qa_xrefs: {len(secs)} sections (§{min(secs) if secs else 0}–§{max(secs) if secs else 0}), "
           f"{len(subs)} subsections, {len(figs)} figures, "
           f"{n_refs} §-references, {n_toc} contents entries | {len(fatal)} broken")
     for f in fatal:
