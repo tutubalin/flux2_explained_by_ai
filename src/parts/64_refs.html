@@ -6,6 +6,11 @@
 <li><b>Scaling Rectified Flow Transformers (SD3 / MM-DiT).</b> Esser et al., 2024 — arXiv:2403.03206. Where the double-stream block comes from — two weight sets meeting in one joint attention — together with rectified-flow training, the timestep-shift formula of §1.3 and logit-normal timestep <em>sampling during training</em>. What does <em>not</em> come from SD3: the hybrid double-then-single stack (SD3 is double-stream throughout) and the single shared modulation (SD3 modulates per block, as DiT does).</li>
 <li><b>RoPE.</b> Su et al., "RoFormer: Enhanced Transformer with Rotary Position Embedding", arXiv:2104.09864 — the rotation mechanism generalised to four axes in §4.</li>
 <li><b>SwiGLU.</b> Shazeer, "GLU Variants Improve Transformer", arXiv:2002.05202 — the <code>silu(x₁)·x₂</code> gate of §9.2.</li>
+<li><b>Flow matching.</b> Lipman et al., "Flow Matching for Generative Modeling", 2022 —
+arXiv:2210.02747. Train a network to predict a velocity field, then integrate it: §1 in one equation.</li>
+<li><b>Rectified flow.</b> Liu et al., "Flow Straight and Fast: Learning to Generate and Transfer Data
+with Rectified Flow", 2022 — arXiv:2209.03003. Why the paths can be bent straight, and therefore why a few
+steps suffice (FIG 2).</li>
 <li><b>Classifier-free guidance.</b> Ho &amp; Salimans, "Classifier-Free Diffusion Guidance", 2022 —
 arXiv:2207.12598. The two-pass extrapolation of §5.3 that <code>use_guidance_embed</code> lets a distilled
 model skip.</li>

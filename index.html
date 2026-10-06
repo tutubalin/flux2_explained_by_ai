@@ -509,7 +509,7 @@ footer a{color:var(--text2)}
     <code>src/ref/qa_coverage.py</code> verifies that all 692 non-blank lines of the file are shown
     somewhere; <code>src/ref/qa_linerefs.py</code> checks every place where the prose cites a line
     number — "line 455", or a row of the cheat-sheet table — against what really sits on that line;
-    <code>src/ref/qa_xrefs.py</code> resolves every "see §9.9" and "FIG 3" in the page; and
+    <code>src/ref/qa_xrefs.py</code> resolves every "see §9.9" and "FIG 5" in the page; and
     <code>src/ref/verify4.py</code> re-derives every number quoted here from the source and then looks
     for it in the finished page. All five are clean.</p>
     <p>One convention to know: numbers and structure are checked against the code, but the file carries
@@ -530,8 +530,10 @@ footer a{color:var(--text2)}
 <section id="flow">
 <h2><span class="secno">§ 1</span>Rectified flow in five minutes</h2>
 <p class="section-intro">
-Everything in <code>model.py</code> follows from one equation. Understand this section and the rest of
-the file is bookkeeping.
+A FLUX.2 image is not painted. It is <em>developed</em> — out of pure noise, by asking one network the
+same question over and over: <strong>which way is real?</strong> This chapter is that question. Everything
+in <code>model.py</code> exists to answer it, and once you can answer it yourself, the rest of this
+article is bookkeeping.
 </p>
 
 <h3>1.1 · The single idea</h3>
@@ -557,8 +559,9 @@ the direction and speed you would have to travel along that line. Formally it le
 <p>Notice what that means: the target the network is trained to predict is simply
 <em>noise minus image</em>. Not the noise, not the clean image — the <strong>difference</strong>. This is
 why FLUX.2 is called a <em>flow</em> model rather than a diffusion model: it is trained to integrate an
-ordinary differential equation along (approximately) straight paths, following
-<a href="#refs">Lipman et al. 2023</a> and <a href="#refs">Liu et al. 2023</a>.</p>
+ordinary differential equation along (approximately) straight paths — <em>flow matching</em>
+(<a href="#refs">Lipman et al., 2022</a>) with <em>rectified flows</em> (<a href="#refs">Liu et al.,
+2022</a>), both in §19.</p>
 
 <figure>
 <div class="fig">
@@ -608,6 +611,70 @@ points along the line at many values of <em>t</em> and asks it to predict <em>v<
 few steps are needed — this is why the distilled klein models manage with only 4.</figcaption>
 </figure>
 
+<figure>
+<div class="fig">
+<svg viewBox="0 0 1560 440" role="img" aria-label="Two panels. Left: a curved path from noise to image walked in twelve short steps, because the direction keeps changing. Right: a straight path walked in four long strides, which is what rectified flow trains for.">
+<defs><marker id="pA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#ff7ab8"/></marker>
+<marker id="pV" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5fe08a"/></marker></defs>
+<text x="40" y="32" class="ttl">Why "rectified"? Two kinds of path from noise to image</text>
+
+<rect x="40" y="56" width="700" height="310" rx="14" fill="#0e1622" stroke="#2e4054"/>
+<text x="66" y="86" class="axb" style="fill:#ff7ab8">a curved trajectory — what older diffusion models learned</text>
+<path d="M690,115 C640,320 300,80 110,330" stroke="#2e4054" stroke-width="1.6" fill="none" stroke-dasharray="6 5"/>
+<path d="M690,115 L672,158" stroke="#ff7ab8" stroke-width="2" fill="none" marker-end="url(#pA)" opacity=".9"/>
+<path d="M643,185 L605,200" stroke="#ff7ab8" stroke-width="2" fill="none" marker-end="url(#pA)" opacity=".9"/>
+<path d="M560,206 L508,207" stroke="#ff7ab8" stroke-width="2" fill="none" marker-end="url(#pA)" opacity=".9"/>
+<path d="M452,206 L394,205" stroke="#ff7ab8" stroke-width="2" fill="none" marker-end="url(#pA)" opacity=".9"/>
+<path d="M334,209 L274,220" stroke="#ff7ab8" stroke-width="2" fill="none" marker-end="url(#pA)" opacity=".9"/>
+<path d="M215,242 L160,277" stroke="#ff7ab8" stroke-width="2" fill="none" marker-end="url(#pA)" opacity=".9"/>
+
+<circle cx="672" cy="158" r="4.5" fill="#ff7ab8" opacity=".85"/>
+<circle cx="643" cy="185" r="4.5" fill="#ff7ab8" opacity=".85"/>
+<circle cx="605" cy="200" r="4.5" fill="#ff7ab8" opacity=".85"/>
+<circle cx="560" cy="206" r="4.5" fill="#ff7ab8" opacity=".85"/>
+<circle cx="508" cy="207" r="4.5" fill="#ff7ab8" opacity=".85"/>
+<circle cx="452" cy="206" r="4.5" fill="#ff7ab8" opacity=".85"/>
+<circle cx="394" cy="205" r="4.5" fill="#ff7ab8" opacity=".85"/>
+<circle cx="334" cy="209" r="4.5" fill="#ff7ab8" opacity=".85"/>
+<circle cx="274" cy="220" r="4.5" fill="#ff7ab8" opacity=".85"/>
+<circle cx="215" cy="242" r="4.5" fill="#ff7ab8" opacity=".85"/>
+<circle cx="160" cy="277" r="4.5" fill="#ff7ab8" opacity=".85"/>
+
+<circle cx="690" cy="115" r="9" fill="#0c1119" stroke="#ff7ab8" stroke-width="2.6"/>
+<text x="674" y="99" class="ax" text-anchor="end">noise · t = 1</text>
+<circle cx="110" cy="330" r="9" fill="#0c1119" stroke="#f6a93b" stroke-width="2.6"/>
+<text x="128" y="352" class="ax" style="fill:#f6a93b">image · t = 0</text>
+<text x="66" y="344" class="eq">the direction turns continuously, so every step must be short:</text>
+
+<rect x="820" y="56" width="700" height="310" rx="14" fill="#0e1622" stroke="#2e4054"/>
+<text x="846" y="86" class="axb" style="fill:#5fe08a">a straight trajectory — what rectified flow trains for</text>
+<path d="M1460,115 L880,327" stroke="#2e4054" stroke-width="1.6" fill="none" stroke-dasharray="6 5"/>
+<path d="M1460,115 L1315,168" stroke="#5fe08a" stroke-width="2.6" fill="none" marker-end="url(#pV)"/>
+<path d="M1315,168 L1170,221" stroke="#5fe08a" stroke-width="2.6" fill="none" marker-end="url(#pV)"/>
+<path d="M1170,221 L1025,274" stroke="#5fe08a" stroke-width="2.6" fill="none" marker-end="url(#pV)"/>
+<path d="M1025,274 L880,327" stroke="#5fe08a" stroke-width="2.6" fill="none" marker-end="url(#pV)"/>
+
+<circle cx="1315" cy="168" r="5" fill="#5fe08a"/>
+<circle cx="1170" cy="221" r="5" fill="#5fe08a"/>
+<circle cx="1025" cy="274" r="5" fill="#5fe08a"/>
+
+<circle cx="1460" cy="115" r="9" fill="#0c1119" stroke="#ff7ab8" stroke-width="2.6"/>
+<text x="1444" y="99" class="ax" text-anchor="end">noise · t = 1</text>
+<circle cx="880" cy="327" r="9" fill="#0c1119" stroke="#f6a93b" stroke-width="2.6"/>
+<text x="898" y="349" class="ax" style="fill:#f6a93b">image · t = 0</text>
+<text x="846" y="344" class="eq">one direction the whole way, so four long strides suffice:</text>
+
+<text x="40" y="404" class="ax">Training does not change the endpoints — it bends the paths between them straight. That is the whole of</text>
+<text x="40" y="426" class="ax">"rectified" — and it is why this model can generate in 50 steps, or 8, or 4, instead of hundreds.</text>
+</svg>
+</div>
+<figcaption><span class="figno">FIG 2</span><b>Straight paths are the whole trick.</b> Both panels start at pure
+noise and end at an image; only the route differs. On a curved route the velocity changes direction as you
+go, so a long step would leave the path — hence the many short arrows on the left. On a straight route the
+velocity is the same everywhere along it, so a handful of long strides lands you exactly on the end. FLUX.2
+is trained for the right-hand picture.</figcaption>
+</figure>
+
 <h3>1.2 · The walk: ask, move, ask again</h3>
 <p>Generation is a loop, and it is worth stating in words before any code appears (the code is in §16,
 where the loop lives). The sampler starts at pure noise and repeats, until it runs out of schedule:
@@ -624,6 +691,215 @@ a real image, and the autoencoder turns it back into pixels.</li>
 <p>Nothing else happens. No noise is injected on the way, no variance schedule is applied, no randomness
 survives the first step: it is a deterministic integration of an ordinary differential equation, and the
 same starting noise plus the same prompt gives the same picture every time.</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 1560 430" role="img" aria-label="Five panels left to right: pure noise, then faint shapes in noise, then coarse forms, then a nearly clean image, then the finished image. Four of them are calls to the network at t = 1.000, 0.906, 0.763 and 0.580 in an eight step run; the last is the destination t = 0, which is never fed to the network.">
+<defs><marker id="fB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7d8da1"/></marker></defs>
+<text x="40" y="34" class="ttl">One network, asked the same question four times — an 8-step run at 1024²</text>
+<rect x="40" y="66" width="260" height="200" rx="12" fill="#0c1119" stroke="#2e4054" stroke-width="1.6"/>
+<circle cx="129" cy="106" r="3.3" fill="#7d8da1" opacity="0.55"/>
+<circle cx="71" cy="172" r="2.6" fill="#7d8da1" opacity="0.55"/>
+<circle cx="67" cy="167" r="1.7" fill="#7d8da1" opacity="0.55"/>
+<circle cx="155" cy="92" r="1.8" fill="#7d8da1" opacity="0.55"/>
+<circle cx="152" cy="222" r="1.9" fill="#7d8da1" opacity="0.55"/>
+<circle cx="106" cy="188" r="4.1" fill="#7d8da1" opacity="0.55"/>
+<circle cx="188" cy="148" r="4.1" fill="#7d8da1" opacity="0.55"/>
+<circle cx="65" cy="228" r="2.4" fill="#7d8da1" opacity="0.55"/>
+<circle cx="87" cy="100" r="2.4" fill="#7d8da1" opacity="0.55"/>
+<circle cx="243" cy="111" r="3.1" fill="#7d8da1" opacity="0.55"/>
+<circle cx="202" cy="144" r="3.0" fill="#7d8da1" opacity="0.55"/>
+<circle cx="69" cy="90" r="2.1" fill="#7d8da1" opacity="0.55"/>
+<circle cx="212" cy="154" r="2.4" fill="#7d8da1" opacity="0.55"/>
+<circle cx="190" cy="158" r="2.4" fill="#7d8da1" opacity="0.55"/>
+<circle cx="238" cy="200" r="2.2" fill="#7d8da1" opacity="0.55"/>
+<circle cx="187" cy="170" r="3.9" fill="#7d8da1" opacity="0.55"/>
+<circle cx="223" cy="130" r="4.1" fill="#7d8da1" opacity="0.55"/>
+<circle cx="81" cy="152" r="3.6" fill="#7d8da1" opacity="0.55"/>
+<circle cx="89" cy="164" r="1.7" fill="#7d8da1" opacity="0.55"/>
+<circle cx="209" cy="212" r="3.1" fill="#7d8da1" opacity="0.55"/>
+<circle cx="257" cy="134" r="3.4" fill="#7d8da1" opacity="0.55"/>
+<circle cx="192" cy="180" r="2.8" fill="#7d8da1" opacity="0.55"/>
+<circle cx="249" cy="242" r="2.8" fill="#7d8da1" opacity="0.55"/>
+<circle cx="208" cy="90" r="3.4" fill="#7d8da1" opacity="0.55"/>
+<circle cx="204" cy="251" r="3.7" fill="#7d8da1" opacity="0.55"/>
+<circle cx="120" cy="146" r="3.3" fill="#7d8da1" opacity="0.55"/>
+<circle cx="59" cy="159" r="2.0" fill="#7d8da1" opacity="0.55"/>
+<circle cx="81" cy="90" r="3.6" fill="#7d8da1" opacity="0.55"/>
+<circle cx="84" cy="123" r="2.6" fill="#7d8da1" opacity="0.55"/>
+<circle cx="256" cy="94" r="2.8" fill="#7d8da1" opacity="0.55"/>
+<circle cx="181" cy="232" r="3.7" fill="#7d8da1" opacity="0.55"/>
+<circle cx="254" cy="128" r="2.7" fill="#7d8da1" opacity="0.55"/>
+<circle cx="137" cy="232" r="4.1" fill="#7d8da1" opacity="0.55"/>
+<circle cx="89" cy="110" r="2.2" fill="#7d8da1" opacity="0.55"/>
+<circle cx="108" cy="163" r="3.1" fill="#7d8da1" opacity="0.55"/>
+<circle cx="115" cy="81" r="2.7" fill="#7d8da1" opacity="0.55"/>
+<circle cx="140" cy="177" r="4.1" fill="#7d8da1" opacity="0.55"/>
+<circle cx="214" cy="169" r="3.2" fill="#7d8da1" opacity="0.55"/>
+<circle cx="211" cy="89" r="3.9" fill="#7d8da1" opacity="0.55"/>
+<circle cx="235" cy="230" r="3.7" fill="#7d8da1" opacity="0.55"/>
+<circle cx="145" cy="149" r="1.9" fill="#7d8da1" opacity="0.55"/>
+<circle cx="201" cy="91" r="1.8" fill="#7d8da1" opacity="0.55"/>
+<circle cx="102" cy="108" r="2.5" fill="#7d8da1" opacity="0.55"/>
+<circle cx="66" cy="80" r="2.0" fill="#7d8da1" opacity="0.55"/>
+<circle cx="78" cy="143" r="1.7" fill="#7d8da1" opacity="0.55"/>
+<circle cx="257" cy="186" r="2.0" fill="#7d8da1" opacity="0.55"/>
+<circle cx="113" cy="140" r="2.5" fill="#7d8da1" opacity="0.55"/>
+<circle cx="82" cy="226" r="4.2" fill="#7d8da1" opacity="0.55"/>
+<circle cx="162" cy="163" r="1.8" fill="#7d8da1" opacity="0.55"/>
+<circle cx="78" cy="139" r="2.3" fill="#7d8da1" opacity="0.55"/>
+<circle cx="246" cy="108" r="1.7" fill="#7d8da1" opacity="0.55"/>
+<circle cx="275" cy="171" r="2.0" fill="#7d8da1" opacity="0.55"/>
+<circle cx="180" cy="85" r="3.0" fill="#7d8da1" opacity="0.55"/>
+<circle cx="281" cy="228" r="3.4" fill="#7d8da1" opacity="0.55"/>
+<circle cx="115" cy="143" r="2.0" fill="#7d8da1" opacity="0.55"/>
+<circle cx="233" cy="172" r="3.6" fill="#7d8da1" opacity="0.55"/>
+<circle cx="130" cy="118" r="3.7" fill="#7d8da1" opacity="0.55"/>
+<circle cx="283" cy="227" r="3.7" fill="#7d8da1" opacity="0.55"/>
+<circle cx="244" cy="207" r="2.2" fill="#7d8da1" opacity="0.55"/>
+<circle cx="174" cy="141" r="1.7" fill="#7d8da1" opacity="0.55"/>
+<circle cx="60" cy="128" r="2.3" fill="#7d8da1" opacity="0.55"/>
+<circle cx="215" cy="245" r="2.8" fill="#7d8da1" opacity="0.55"/>
+<circle cx="271" cy="250" r="4.1" fill="#7d8da1" opacity="0.55"/>
+<circle cx="139" cy="118" r="2.2" fill="#7d8da1" opacity="0.55"/>
+<circle cx="100" cy="115" r="3.2" fill="#7d8da1" opacity="0.55"/>
+<circle cx="263" cy="225" r="2.8" fill="#7d8da1" opacity="0.55"/>
+<circle cx="205" cy="218" r="1.8" fill="#7d8da1" opacity="0.55"/>
+<circle cx="207" cy="236" r="3.6" fill="#7d8da1" opacity="0.55"/>
+<circle cx="228" cy="162" r="2.1" fill="#7d8da1" opacity="0.55"/>
+<circle cx="237" cy="137" r="3.7" fill="#7d8da1" opacity="0.55"/>
+<circle cx="279" cy="148" r="2.6" fill="#7d8da1" opacity="0.55"/>
+<circle cx="274" cy="205" r="2.0" fill="#7d8da1" opacity="0.55"/>
+<text x="170" y="292" class="axb" text-anchor="middle">t = 1.000</text>
+<text x="170" y="312" class="eq" text-anchor="middle" style="fill:#5fe08a">call 1 of 8</text>
+<text x="170" y="332" class="eq" text-anchor="middle">pure noise — the answer</text>
+<text x="170" y="350" class="eq" text-anchor="middle">is a global layout</text>
+<rect x="330" y="66" width="260" height="200" rx="12" fill="#0c1119" stroke="#2e4054" stroke-width="1.6"/>
+<circle cx="373" cy="106" r="4.0" fill="#7d8da1" opacity="0.45"/>
+<circle cx="531" cy="105" r="3.7" fill="#7d8da1" opacity="0.45"/>
+<circle cx="571" cy="193" r="2.5" fill="#7d8da1" opacity="0.45"/>
+<circle cx="471" cy="103" r="1.6" fill="#7d8da1" opacity="0.45"/>
+<circle cx="569" cy="192" r="3.0" fill="#7d8da1" opacity="0.45"/>
+<circle cx="561" cy="155" r="3.9" fill="#7d8da1" opacity="0.45"/>
+<circle cx="536" cy="116" r="2.3" fill="#7d8da1" opacity="0.45"/>
+<circle cx="412" cy="121" r="3.1" fill="#7d8da1" opacity="0.45"/>
+<circle cx="404" cy="152" r="1.9" fill="#7d8da1" opacity="0.45"/>
+<circle cx="555" cy="141" r="2.8" fill="#7d8da1" opacity="0.45"/>
+<circle cx="479" cy="236" r="2.7" fill="#7d8da1" opacity="0.45"/>
+<circle cx="557" cy="166" r="3.0" fill="#7d8da1" opacity="0.45"/>
+<circle cx="465" cy="83" r="2.7" fill="#7d8da1" opacity="0.45"/>
+<circle cx="386" cy="81" r="3.7" fill="#7d8da1" opacity="0.45"/>
+<circle cx="384" cy="161" r="3.5" fill="#7d8da1" opacity="0.45"/>
+<circle cx="473" cy="136" r="2.9" fill="#7d8da1" opacity="0.45"/>
+<circle cx="473" cy="215" r="1.9" fill="#7d8da1" opacity="0.45"/>
+<circle cx="474" cy="123" r="2.3" fill="#7d8da1" opacity="0.45"/>
+<circle cx="523" cy="167" r="3.1" fill="#7d8da1" opacity="0.45"/>
+<circle cx="520" cy="237" r="2.8" fill="#7d8da1" opacity="0.45"/>
+<circle cx="486" cy="167" r="2.9" fill="#7d8da1" opacity="0.45"/>
+<circle cx="505" cy="158" r="3.0" fill="#7d8da1" opacity="0.45"/>
+<circle cx="455" cy="242" r="3.4" fill="#7d8da1" opacity="0.45"/>
+<circle cx="547" cy="242" r="2.3" fill="#7d8da1" opacity="0.45"/>
+<circle cx="474" cy="242" r="3.8" fill="#7d8da1" opacity="0.45"/>
+<circle cx="376" cy="101" r="2.7" fill="#7d8da1" opacity="0.45"/>
+<circle cx="361" cy="121" r="1.8" fill="#7d8da1" opacity="0.45"/>
+<circle cx="499" cy="215" r="3.9" fill="#7d8da1" opacity="0.45"/>
+<circle cx="380" cy="203" r="3.3" fill="#7d8da1" opacity="0.45"/>
+<circle cx="377" cy="232" r="4.1" fill="#7d8da1" opacity="0.45"/>
+<circle cx="395" cy="244" r="2.6" fill="#7d8da1" opacity="0.45"/>
+<circle cx="457" cy="250" r="3.8" fill="#7d8da1" opacity="0.45"/>
+<circle cx="381" cy="154" r="2.9" fill="#7d8da1" opacity="0.45"/>
+<circle cx="423" cy="114" r="2.4" fill="#7d8da1" opacity="0.45"/>
+<circle cx="512" cy="83" r="3.0" fill="#7d8da1" opacity="0.45"/>
+<circle cx="446" cy="83" r="2.5" fill="#7d8da1" opacity="0.45"/>
+<circle cx="489" cy="168" r="1.8" fill="#7d8da1" opacity="0.45"/>
+<circle cx="573" cy="216" r="4.1" fill="#7d8da1" opacity="0.45"/>
+<circle cx="368" cy="126" r="1.7" fill="#7d8da1" opacity="0.45"/>
+<circle cx="525" cy="127" r="1.9" fill="#7d8da1" opacity="0.45"/>
+<circle cx="442" cy="237" r="3.7" fill="#7d8da1" opacity="0.45"/>
+<circle cx="404" cy="106" r="4.0" fill="#7d8da1" opacity="0.45"/>
+<circle cx="476" cy="200" r="1.8" fill="#7d8da1" opacity="0.45"/>
+<circle cx="357" cy="198" r="2.7" fill="#7d8da1" opacity="0.45"/>
+<circle cx="361" cy="241" r="3.2" fill="#7d8da1" opacity="0.45"/>
+<circle cx="530" cy="94" r="3.8" fill="#7d8da1" opacity="0.45"/>
+<circle cx="426" cy="128" r="30" fill="#f6a93b" opacity="0.20"/>
+<rect x="396" y="162" width="128" height="72" rx="26" fill="#f6a93b" opacity="0.17"/>
+<circle cx="504" cy="120" r="13" fill="#35d6f0" opacity="0.20"/>
+<text x="460" y="292" class="axb" text-anchor="middle">t = 0.906</text>
+<text x="460" y="312" class="eq" text-anchor="middle" style="fill:#5fe08a">call 5 of 8</text>
+<text x="460" y="332" class="eq" text-anchor="middle">still mostly noise —</text>
+<text x="460" y="350" class="eq" text-anchor="middle">commit to shapes</text>
+<rect x="620" y="66" width="260" height="200" rx="12" fill="#0c1119" stroke="#2e4054" stroke-width="1.6"/>
+<circle cx="649" cy="228" r="2.8" fill="#7d8da1" opacity="0.3"/>
+<circle cx="713" cy="175" r="4.0" fill="#7d8da1" opacity="0.3"/>
+<circle cx="696" cy="102" r="3.0" fill="#7d8da1" opacity="0.3"/>
+<circle cx="689" cy="99" r="2.0" fill="#7d8da1" opacity="0.3"/>
+<circle cx="646" cy="115" r="2.4" fill="#7d8da1" opacity="0.3"/>
+<circle cx="705" cy="211" r="2.4" fill="#7d8da1" opacity="0.3"/>
+<circle cx="750" cy="111" r="2.5" fill="#7d8da1" opacity="0.3"/>
+<circle cx="638" cy="123" r="1.6" fill="#7d8da1" opacity="0.3"/>
+<circle cx="804" cy="175" r="2.1" fill="#7d8da1" opacity="0.3"/>
+<circle cx="744" cy="241" r="1.9" fill="#7d8da1" opacity="0.3"/>
+<circle cx="824" cy="154" r="2.9" fill="#7d8da1" opacity="0.3"/>
+<circle cx="828" cy="148" r="2.9" fill="#7d8da1" opacity="0.3"/>
+<circle cx="794" cy="249" r="2.5" fill="#7d8da1" opacity="0.3"/>
+<circle cx="827" cy="202" r="3.3" fill="#7d8da1" opacity="0.3"/>
+<circle cx="728" cy="140" r="1.7" fill="#7d8da1" opacity="0.3"/>
+<circle cx="664" cy="92" r="3.5" fill="#7d8da1" opacity="0.3"/>
+<circle cx="693" cy="108" r="1.8" fill="#7d8da1" opacity="0.3"/>
+<circle cx="829" cy="230" r="3.3" fill="#7d8da1" opacity="0.3"/>
+<circle cx="699" cy="122" r="2.4" fill="#7d8da1" opacity="0.3"/>
+<circle cx="741" cy="107" r="2.8" fill="#7d8da1" opacity="0.3"/>
+<circle cx="695" cy="245" r="4.1" fill="#7d8da1" opacity="0.3"/>
+<circle cx="761" cy="122" r="4.1" fill="#7d8da1" opacity="0.3"/>
+<circle cx="716" cy="128" r="30" fill="#f6a93b" opacity="0.50"/>
+<rect x="686" y="162" width="128" height="72" rx="26" fill="#f6a93b" opacity="0.42"/>
+<circle cx="794" cy="120" r="13" fill="#35d6f0" opacity="0.50"/>
+<text x="750" y="292" class="axb" text-anchor="middle">t = 0.763</text>
+<text x="750" y="312" class="eq" text-anchor="middle" style="fill:#5fe08a">call 7 of 8</text>
+<text x="750" y="332" class="eq" text-anchor="middle">coarse forms —</text>
+<text x="750" y="350" class="eq" text-anchor="middle">place the edges</text>
+<rect x="910" y="66" width="260" height="200" rx="12" fill="#0c1119" stroke="#2e4054" stroke-width="1.6"/>
+<circle cx="996" cy="141" r="1.6" fill="#7d8da1" opacity="0.18"/>
+<circle cx="1013" cy="162" r="2.9" fill="#7d8da1" opacity="0.18"/>
+<circle cx="971" cy="167" r="1.6" fill="#7d8da1" opacity="0.18"/>
+<circle cx="985" cy="95" r="2.6" fill="#7d8da1" opacity="0.18"/>
+<circle cx="934" cy="84" r="2.4" fill="#7d8da1" opacity="0.18"/>
+<circle cx="978" cy="181" r="3.0" fill="#7d8da1" opacity="0.18"/>
+<circle cx="1098" cy="193" r="3.5" fill="#7d8da1" opacity="0.18"/>
+<circle cx="1128" cy="147" r="2.4" fill="#7d8da1" opacity="0.18"/>
+<circle cx="1006" cy="128" r="30" fill="#f6a93b" opacity="0.85"/>
+<rect x="976" y="162" width="128" height="72" rx="26" fill="#f6a93b" opacity="0.72"/>
+<circle cx="1084" cy="120" r="13" fill="#35d6f0" opacity="0.85"/>
+<circle cx="996" cy="122" r="4" fill="#0c1119" opacity="0.85"/>
+<circle cx="1016" cy="122" r="4" fill="#0c1119" opacity="0.85"/>
+<text x="1040" y="292" class="axb" text-anchor="middle">t = 0.580</text>
+<text x="1040" y="312" class="eq" text-anchor="middle" style="fill:#5fe08a">call 8 of 8</text>
+<text x="1040" y="332" class="eq" text-anchor="middle">one long stride,</text>
+<text x="1040" y="350" class="eq" text-anchor="middle">58 % of the way</text>
+<rect x="1200" y="66" width="260" height="200" rx="12" fill="#0c1119" stroke="#f6a93b" stroke-width="1.6"/>
+<circle cx="1296" cy="128" r="30" fill="#f6a93b" opacity="1.00"/>
+<rect x="1266" y="162" width="128" height="72" rx="26" fill="#f6a93b" opacity="0.85"/>
+<circle cx="1374" cy="120" r="13" fill="#35d6f0" opacity="1.00"/>
+<circle cx="1286" cy="122" r="4" fill="#0c1119" opacity="1.00"/>
+<circle cx="1306" cy="122" r="4" fill="#0c1119" opacity="1.00"/>
+<text x="1330" y="292" class="axb" text-anchor="middle">t = 0</text>
+<text x="1330" y="312" class="eq" text-anchor="middle" style="fill:#5fe08a">the destination</text>
+<text x="1330" y="332" class="eq" text-anchor="middle">never fed to</text>
+<text x="1330" y="350" class="eq" text-anchor="middle">the network</text>
+<path d="M304,166 L326,166" stroke="#7d8da1" stroke-width="2.2" fill="none" marker-end="url(#fB)"/>
+<path d="M594,166 L616,166" stroke="#7d8da1" stroke-width="2.2" fill="none" marker-end="url(#fB)"/>
+<path d="M884,166 L906,166" stroke="#7d8da1" stroke-width="2.2" fill="none" marker-end="url(#fB)"/>
+<path d="M1174,166 L1196,166" stroke="#7d8da1" stroke-width="2.2" fill="none" marker-end="url(#fB)"/>
+
+<text x="40" y="392" class="ax">Every arrow is one call to the network plus one step along the velocity it returned. The weights never change; only t does.</text>
+<text x="40" y="414" class="ax">What changes is what the network is <tspan font-style="italic">for</tspan>: at t = 1 it decides the composition, at t = 0.58 it is already refining detail.</text>
+</svg>
+</div>
+<figcaption><span class="figno">FIG 3</span><b>The walk, drawn.</b> Four of the eight calls in a real
+1024² schedule (the times are the ladder of §16.1). The noise thins and the picture sharpens, but the
+question is identical every time — <em>which way, and how fast?</em> The last panel is where the final
+stride lands: t = 0 is a destination, so it is the one time the network is never asked about.</figcaption>
+</figure>
 
 <div class="note idea">
 <div class="nh">💡 Two questions this walk always raises</div>
@@ -659,8 +935,10 @@ the <a href="#refs">Stable Diffusion 3 paper</a>:</p>
 <span class="op" style="padding-left:2em">μ = f(number of tokens, number of steps), σ = 1</span>
 </div>
 
-<p>The parameter μ grows with the number of image tokens — bigger images get a stronger shift. Here
-are the <em>actual</em> schedules produced by <code>get_schedule</code>, plotted (I ran the function):</p>
+<p>Two things to take from that formula, and neither is a number. The shift is <em>deterministic</em>: the
+same canvas size and the same step count always produce the same ladder, so there is no seed and nothing
+random in a run. And it grows with the number of image tokens — the bigger the canvas, the harder the run
+pushes its steps into the noisy end. Here are the schedules that produces, plotted:</p>
 
 <figure>
 <div class="fig">
@@ -707,22 +985,21 @@ are the <em>actual</em> schedules produced by <code>get_schedule</code>, plotted
 <text x="186" y="164" class="ax">50 steps · 4 MP (μ = 3.23)</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 2</span><b>Curves, not straight lines.</b> Every schedule hugs the top of the plot —
-the noisy end — and only dives toward 0 at the very last steps. The 4-megapixel curve (green) hugs it
-hardest: at 4 MP, 46 of the 50 steps happen above t = 0.7. That is the model spending its
-budget on global structure. The dashed diagonal is the naive uniform schedule for comparison.</figcaption>
+<figcaption><span class="figno">FIG 4</span><b>Curves, not straight lines.</b> Every schedule hugs the top of the plot —
+the noisy end — and only dives toward 0 in the last few steps. The larger the canvas, the
+harder it hugs (the green curve is 4 megapixels): the run spends its budget where the picture is decided.
+The dashed diagonal is the naive uniform schedule, for comparison. The exact rungs, and how many of them
+sit above any given t, are worked out in §16.1.</figcaption>
 </figure>
 
 <div class="note idea">
 <div class="nh">💡 Why this matters for reading the code</div>
-<p><code>model.py</code> never sees the schedule; it only ever receives <em>one</em> value of <em>t</em>
-per call, via the argument named <code>timesteps</code>. So whenever you read
-"timestep" in this file, think: <em>"a single float telling the model how noisy its input currently
-is"</em>. Because of the shift above, that float spends most of the run in a narrow band near 1 —
-39 of the 50 steps at 1 MP sit above <code>t = 0.7</code> — so the model has to resolve very fine
-differences inside it, which is one more reason the scalar is expanded into 128 frequencies (§9.1)
-rather than fed in raw. The <code>× 1000</code> inside <code>timestep_embedding</code> is a separate
-matter: a scale convention, not a consequence of the schedule.</p>
+<p><code>model.py</code> never sees the schedule. It receives exactly <em>one</em> number per call, so
+whenever you read "timestep" in this file, think: <em>"a single float telling the network how noisy its
+input currently is"</em>. And because of the shift above, that float spends most of the run in a narrow
+band just below 1 — the network has to tell very close times apart. That is one more reason a bare scalar
+is a poor thing to feed a neural network — and why a whole chapter of Part 1 is spent turning one into
+something richer before the code ever sees it.</p>
 </div>
 
 </section>
@@ -799,7 +1076,7 @@ before the model is called:</p>
 <text x="942" y="194" class="eq" text-anchor="middle">→ 6144</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 3</span><b>Sixteen-fold compression in each spatial direction.</b> The VAE shrinks
+<figcaption><span class="figno">FIG 5</span><b>Sixteen-fold compression in each spatial direction.</b> The VAE shrinks
 1024² to 128² with 32 channels; then each 2×2 block of latent cells is folded into a single token of
 4 × 32 = 128 numbers (<code>autoencoder.py</code> literally does this with an einops
 <code>rearrange</code> and calls it <code>ps = [2, 2]</code>). The result is a flat list the transformer
@@ -1007,7 +1284,7 @@ gets its own section, §10.)</p>
 <text x="520" y="356" class="eq" text-anchor="middle">mostly v₁, a little of the rest</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 4</span><b>Attention as a soft lookup.</b> One querying token compares its
+<figcaption><span class="figno">FIG 6</span><b>Attention as a soft lookup.</b> One querying token compares its
 query against four keys (dot products, scaled by √d), softmax turns the four scores into weights that
 sum to 100 %, and the answer is the values mixed in exactly those proportions — arrow thickness is the
 weight. In the real model the "four keys" are all 4 608 tokens of the sequence, and <em>every</em> token
@@ -1118,7 +1395,7 @@ tokens are</b>. Zero learned parameters, no maximum sequence length, nothing to 
 <text x="40" y="306" class="ax">both vectors spun by the same extra 7·ω — the angle between them, and therefore the attention score, is untouched</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 5</span><b>The relative-angle trick.</b> Left: a query at position 3 and a key at
+<figcaption><span class="figno">FIG 7</span><b>The relative-angle trick.</b> Left: a query at position 3 and a key at
 position 11, each rotated by its own position times ω. Right: the same pair moved seven positions along —
 both vectors spin by the same extra angle, so the angle <em>between</em> them never changes, and neither
 does the attention score. Absolute position cancels out of the equation; distance stays in it.</figcaption>
@@ -1166,7 +1443,7 @@ apart. Summed together, the ladder gives every gap its own fingerprint.</p>
 <text x="80" y="302" class="ax">slow plane 7 barely moves: unambiguous but coarse. Attention sums all 64 planes — and only the sum is unique per gap</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 6</span><b>Why one plane is not enough.</b> Every plane contributes
+<figcaption><span class="figno">FIG 8</span><b>Why one plane is not enough.</b> Every plane contributes
 cos(gap·ωᵢ) to the attention score. The fast plane oscillates and aliases — every peak looks like every
 other. The slow plane never repeats but cannot resolve neighbours. The geometric ladder of 64 speeds
 between those extremes gives each gap a distinct summed fingerprint: no learned parameters, no length
@@ -1269,7 +1546,7 @@ would do in older architectures.</p>
 <text x="520" y="360" class="ax">slow planes resolve coarse layout (far-apart regions).</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 7</span><b>How 128 dimensions become a 4-D coordinate system.</b> The mixed ladder of
+<figcaption><span class="figno">FIG 9</span><b>How 128 dimensions become a 4-D coordinate system.</b> The mixed ladder of
 fast and slow frequencies is the same idea as the wheels on an odometer: the fast wheel tells you the
 last digit, the slow wheel tells you how far you have really travelled. Stacking four such odometers —
 one per axis — gives every token an unambiguous address in (image, row, column, text-slot) space.</figcaption>
@@ -1656,7 +1933,7 @@ Six vectors, one stream.</p>
 <text x="66" y="586" class="eq" style="fill:#b18cff">exception: reference tokens need t = 0 while the canvas is at t — see the splice in §14</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 8</span><b>The conditioning channel.</b> Two scalars enter at the left,
+<figcaption><span class="figno">FIG 10</span><b>The conditioning channel.</b> Two scalars enter at the left,
 become 256-number fingerprints, become learned 6144-vectors, are summed into <code>vec</code>, and are
 then turned by three bias-free matrices into 15 dial vectors — six for the double blocks' image stream,
 six for their text stream, three for the single blocks. Every block in the network is steered by those
@@ -1967,7 +2244,7 @@ how much?"</em></li>
   <span class="li"><span class="sw" style="background:#5fe08a"></span>time &amp; guidance signal</span>
   <span class="li"><span class="sw" style="background:#ff7ab8"></span>the sampling loop</span>
 </div>
-<figcaption><span class="figno">FIG 9</span><b>The complete FLUX.2 pipeline.</b> Note that the transformer is called
+<figcaption><span class="figno">FIG 11</span><b>The complete FLUX.2 pipeline.</b> Note that the transformer is called
 over and over — 50 times for FLUX.2 [dev], just 4 times for the distilled klein models. Each call moves
 the image a little closer to finished. The three coloured paths at the top are the three kinds of
 "token" the transformer consumes; the green path at the bottom is the tiny signal that tells it
@@ -2096,7 +2373,7 @@ and round and look identical again. Language models use θ = 10 000 or more beca
 into the hundreds of thousands: they need a wheel slow enough not to wrap inside the context.</p>
 <p>FLUX.2's coordinates are tiny by comparison — grid indices under ~200, text indices under 512, and a
 <em>t</em> axis that only ever reaches about 100 — so its slowest plane (period 2π·2000 ≈ 12 566
-positions, FIG 7) is already far slower than the longest distance it will ever be asked about.
+positions, FIG 9) is already far slower than the longest distance it will ever be asked about.
 <span class="spec">inference</span> A smaller base than 10 000 therefore costs nothing here and keeps the
 rest of the ladder in the range of distances the model actually needs to resolve; <code>model.py</code>
 simply states <code>theta: int = 2000</code> (L19) without saying why.</p>
@@ -2204,7 +2481,7 @@ rotation matrix per rotation plane per token.</p>
 
 <div class="codeblock"><div class="cb-head"><span class="dot"></span><span class="fname">src/flux2/model.py · rope()</span><span class="ln">lines 818–825 · 8 lines</span></div><pre><table class="lineno"><tbody><tr><td class="ln-col">818</td><td class="code-col"><span class="k">def</span> <span class="f">rope</span><span class="p">(</span>pos<span class="o">:</span> <span class="t">Tensor</span><span class="p">,</span> dim<span class="o">:</span> <span class="t">int</span><span class="p">,</span> theta<span class="o">:</span> <span class="t">int</span><span class="p">)</span> <span class="p">-&gt;</span> <span class="t">Tensor</span><span class="o">:</span></td></tr><tr class="hl"><td class="ln-col">819</td><td class="code-col">    <span class="k">assert</span> dim <span class="o">%</span> <span class="n">2</span> <span class="p">==</span> <span class="n">0</span></td></tr><tr class="hl"><td class="ln-col">820</td><td class="code-col">    scale <span class="o">=</span> <span class="t">torch</span><span class="p">.</span><span class="f">arange</span><span class="p">(</span><span class="n">0</span><span class="p">,</span> dim<span class="p">,</span> <span class="n">2</span><span class="p">,</span> dtype<span class="o">=</span>pos<span class="p">.</span>dtype<span class="p">,</span> device<span class="o">=</span>pos<span class="p">.</span>device<span class="p">)</span> <span class="o">/</span> dim</td></tr><tr class="hl"><td class="ln-col">821</td><td class="code-col">    omega <span class="o">=</span> <span class="n">1.0</span> <span class="o">/</span> <span class="p">(</span>theta<span class="p">**</span>scale<span class="p">)</span></td></tr><tr class="hl"><td class="ln-col">822</td><td class="code-col">    out <span class="o">=</span> <span class="t">torch</span><span class="p">.</span><span class="f">einsum</span><span class="p">(</span><span class="s">&quot;...n,d-&gt;...nd&quot;</span><span class="p">,</span> pos<span class="p">,</span> omega<span class="p">)</span></td></tr><tr class="hl"><td class="ln-col">823</td><td class="code-col">    out <span class="o">=</span> <span class="t">torch</span><span class="p">.</span><span class="f">stack</span><span class="p">(</span><span class="p">[</span><span class="t">torch</span><span class="p">.</span><span class="f">cos</span><span class="p">(</span>out<span class="p">)</span><span class="p">,</span> <span class="o">-</span><span class="t">torch</span><span class="p">.</span><span class="f">sin</span><span class="p">(</span>out<span class="p">)</span><span class="p">,</span> <span class="t">torch</span><span class="p">.</span><span class="f">sin</span><span class="p">(</span>out<span class="p">)</span><span class="p">,</span> <span class="t">torch</span><span class="p">.</span><span class="f">cos</span><span class="p">(</span>out<span class="p">)</span><span class="p">]</span><span class="p">,</span> dim<span class="o">=</span><span class="o">-</span><span class="n">1</span><span class="p">)</span></td></tr><tr class="hl"><td class="ln-col">824</td><td class="code-col">    out <span class="o">=</span> <span class="f">rearrange</span><span class="p">(</span>out<span class="p">,</span> <span class="s">&quot;b n d (i j) -&gt; b n d i j&quot;</span><span class="p">,</span> i<span class="o">=</span><span class="n">2</span><span class="p">,</span> j<span class="o">=</span><span class="n">2</span><span class="p">)</span></td></tr><tr class="hl"><td class="ln-col">825</td><td class="code-col">    <span class="k">return</span> out<span class="p">.</span><span class="f">float</span><span class="p">(</span><span class="p">)</span></td></tr></tbody></table></pre></div>
 
-<div class="trace"><div class="tr-row"><div class="tr-ln"><span>L819</span></div><div class="tr-body"><div class="tr-code">    <span class="k">assert</span> dim <span class="o">%</span> <span class="n">2</span> <span class="p">==</span> <span class="n">0</span></div><div class="tr-note">Refuse odd dimension budgets: rotations consume dimensions in pairs, so an axis with an odd number of dimensions would leave one dimension un-rotated and therefore position-blind.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L820</span></div><div class="tr-body"><div class="tr-code">    scale <span class="o">=</span> <span class="t">torch</span><span class="p">.</span><span class="f">arange</span><span class="p">(</span><span class="n">0</span><span class="p">,</span> dim<span class="p">,</span> <span class="n">2</span><span class="p">,</span> dtype<span class="o">=</span>pos<span class="p">.</span>dtype<span class="p">,</span> device<span class="o">=</span>pos<span class="p">.</span>device<span class="p">)</span> <span class="o">/</span> dim</div><div class="tr-note">Build the exponent ladder for this axis: <code>arange(0, dim, 2)</code> steps by two — one entry per rotation <em>plane</em>, i.e. 0, 2, 4, …, 30 for dim = 32 — then divides by <code>dim</code> to get fractions 0, 1/16, 2/16, …, 15/16. (Dividing by <code>dim</code> rather than by the plane count is just the standard RoPE formula written with the full dimension.)</div></div></div><div class="tr-row"><div class="tr-ln"><span>L821</span></div><div class="tr-body"><div class="tr-code">    omega <span class="o">=</span> <span class="n">1.0</span> <span class="o">/</span> <span class="p">(</span>theta<span class="p">**</span>scale<span class="p">)</span></div><div class="tr-note"><code>omega = 1 / θ^scale</code>: the angular speed of each plane. With θ = 2000 and dim = 32 the 16 speeds run from 1.0 down to 0.000804 — the odometer wheels of §4.2, drawn in FIG 7.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L822</span></div><div class="tr-body"><div class="tr-code">    out <span class="o">=</span> <span class="t">torch</span><span class="p">.</span><span class="f">einsum</span><span class="p">(</span><span class="s">&quot;...n,d-&gt;...nd&quot;</span><span class="p">,</span> pos<span class="p">,</span> omega<span class="p">)</span></div><div class="tr-note"><code>einsum("...n,d-&gt;...nd", pos, omega)</code> multiplies every position (the "n" axis) by every frequency (the "d" axis): the angle of plane <em>d</em> at position <em>p</em> is <code>p·ω_d</code>. Shape goes from (B, L) to (B, L, 16). The <code>...</code> keeps it general over any leading batch axes.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L823</span></div><div class="tr-body"><div class="tr-code">    out <span class="o">=</span> <span class="t">torch</span><span class="p">.</span><span class="f">stack</span><span class="p">(</span><span class="p">[</span><span class="t">torch</span><span class="p">.</span><span class="f">cos</span><span class="p">(</span>out<span class="p">)</span><span class="p">,</span> <span class="o">-</span><span class="t">torch</span><span class="p">.</span><span class="f">sin</span><span class="p">(</span>out<span class="p">)</span><span class="p">,</span> <span class="t">torch</span><span class="p">.</span><span class="f">sin</span><span class="p">(</span>out<span class="p">)</span><span class="p">,</span> <span class="t">torch</span><span class="p">.</span><span class="f">cos</span><span class="p">(</span>out<span class="p">)</span><span class="p">]</span><span class="p">,</span> dim<span class="o">=</span><span class="o">-</span><span class="n">1</span><span class="p">)</span></div><div class="tr-note">Here is the clever bit. For each angle φ we need the rotation matrix [[cos φ, −sin φ], [sin φ, cos φ]]. Read row-major, that matrix's four entries are exactly <code>[cos, −sin, sin, cos]</code> — so stacking those four tensors along a new last axis yields, in one shot, every rotation matrix. Shape: (B, L, 16, 4).</div></div></div><div class="tr-row"><div class="tr-ln"><span>L824</span></div><div class="tr-body"><div class="tr-code">    out <span class="o">=</span> <span class="f">rearrange</span><span class="p">(</span>out<span class="p">,</span> <span class="s">&quot;b n d (i j) -&gt; b n d i j&quot;</span><span class="p">,</span> i<span class="o">=</span><span class="n">2</span><span class="p">,</span> j<span class="o">=</span><span class="n">2</span><span class="p">)</span></div><div class="tr-note">Reshape the flat 4 into a genuine 2×2: <code>(i j)</code> with i = j = 2 splits the last axis into two. Now the tensor is (B, L, 16, 2, 2) — a real matrix per plane, per token.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L825</span></div><div class="tr-body"><div class="tr-code">    <span class="k">return</span> out<span class="p">.</span><span class="f">float</span><span class="p">(</span><span class="p">)</span></div><div class="tr-note">Cast to float32 and return. Rotations are computed and stored in full precision; the function that applies them (§9.6) works in float32 and casts back only at the very end. This is a deliberate accuracy choice <span class="spec">inference</span> — the file gives no comment, but the rotation is the one place where a tiny angular error would be applied to <em>every</em> query and key in all 56 blocks, and cos/sin of a bfloat16 angle loses most of its significant digits.</div></div></div></div>
+<div class="trace"><div class="tr-row"><div class="tr-ln"><span>L819</span></div><div class="tr-body"><div class="tr-code">    <span class="k">assert</span> dim <span class="o">%</span> <span class="n">2</span> <span class="p">==</span> <span class="n">0</span></div><div class="tr-note">Refuse odd dimension budgets: rotations consume dimensions in pairs, so an axis with an odd number of dimensions would leave one dimension un-rotated and therefore position-blind.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L820</span></div><div class="tr-body"><div class="tr-code">    scale <span class="o">=</span> <span class="t">torch</span><span class="p">.</span><span class="f">arange</span><span class="p">(</span><span class="n">0</span><span class="p">,</span> dim<span class="p">,</span> <span class="n">2</span><span class="p">,</span> dtype<span class="o">=</span>pos<span class="p">.</span>dtype<span class="p">,</span> device<span class="o">=</span>pos<span class="p">.</span>device<span class="p">)</span> <span class="o">/</span> dim</div><div class="tr-note">Build the exponent ladder for this axis: <code>arange(0, dim, 2)</code> steps by two — one entry per rotation <em>plane</em>, i.e. 0, 2, 4, …, 30 for dim = 32 — then divides by <code>dim</code> to get fractions 0, 1/16, 2/16, …, 15/16. (Dividing by <code>dim</code> rather than by the plane count is just the standard RoPE formula written with the full dimension.)</div></div></div><div class="tr-row"><div class="tr-ln"><span>L821</span></div><div class="tr-body"><div class="tr-code">    omega <span class="o">=</span> <span class="n">1.0</span> <span class="o">/</span> <span class="p">(</span>theta<span class="p">**</span>scale<span class="p">)</span></div><div class="tr-note"><code>omega = 1 / θ^scale</code>: the angular speed of each plane. With θ = 2000 and dim = 32 the 16 speeds run from 1.0 down to 0.000804 — the odometer wheels of §4.2, drawn in FIG 9.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L822</span></div><div class="tr-body"><div class="tr-code">    out <span class="o">=</span> <span class="t">torch</span><span class="p">.</span><span class="f">einsum</span><span class="p">(</span><span class="s">&quot;...n,d-&gt;...nd&quot;</span><span class="p">,</span> pos<span class="p">,</span> omega<span class="p">)</span></div><div class="tr-note"><code>einsum("...n,d-&gt;...nd", pos, omega)</code> multiplies every position (the "n" axis) by every frequency (the "d" axis): the angle of plane <em>d</em> at position <em>p</em> is <code>p·ω_d</code>. Shape goes from (B, L) to (B, L, 16). The <code>...</code> keeps it general over any leading batch axes.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L823</span></div><div class="tr-body"><div class="tr-code">    out <span class="o">=</span> <span class="t">torch</span><span class="p">.</span><span class="f">stack</span><span class="p">(</span><span class="p">[</span><span class="t">torch</span><span class="p">.</span><span class="f">cos</span><span class="p">(</span>out<span class="p">)</span><span class="p">,</span> <span class="o">-</span><span class="t">torch</span><span class="p">.</span><span class="f">sin</span><span class="p">(</span>out<span class="p">)</span><span class="p">,</span> <span class="t">torch</span><span class="p">.</span><span class="f">sin</span><span class="p">(</span>out<span class="p">)</span><span class="p">,</span> <span class="t">torch</span><span class="p">.</span><span class="f">cos</span><span class="p">(</span>out<span class="p">)</span><span class="p">]</span><span class="p">,</span> dim<span class="o">=</span><span class="o">-</span><span class="n">1</span><span class="p">)</span></div><div class="tr-note">Here is the clever bit. For each angle φ we need the rotation matrix [[cos φ, −sin φ], [sin φ, cos φ]]. Read row-major, that matrix's four entries are exactly <code>[cos, −sin, sin, cos]</code> — so stacking those four tensors along a new last axis yields, in one shot, every rotation matrix. Shape: (B, L, 16, 4).</div></div></div><div class="tr-row"><div class="tr-ln"><span>L824</span></div><div class="tr-body"><div class="tr-code">    out <span class="o">=</span> <span class="f">rearrange</span><span class="p">(</span>out<span class="p">,</span> <span class="s">&quot;b n d (i j) -&gt; b n d i j&quot;</span><span class="p">,</span> i<span class="o">=</span><span class="n">2</span><span class="p">,</span> j<span class="o">=</span><span class="n">2</span><span class="p">)</span></div><div class="tr-note">Reshape the flat 4 into a genuine 2×2: <code>(i j)</code> with i = j = 2 splits the last axis into two. Now the tensor is (B, L, 16, 2, 2) — a real matrix per plane, per token.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L825</span></div><div class="tr-body"><div class="tr-code">    <span class="k">return</span> out<span class="p">.</span><span class="f">float</span><span class="p">(</span><span class="p">)</span></div><div class="tr-note">Cast to float32 and return. Rotations are computed and stored in full precision; the function that applies them (§9.6) works in float32 and casts back only at the very end. This is a deliberate accuracy choice <span class="spec">inference</span> — the file gives no comment, but the rotation is the one place where a tiny angular error would be applied to <em>every</em> query and key in all 56 blocks, and cos/sin of a bfloat16 angle loses most of its significant digits.</div></div></div></div>
 
 <p class="dim">Used later: EmbedND (§9.5) calls it once per position axis.</p>
 
@@ -2249,7 +2526,7 @@ right: −1 is the matrix column, −2 the matrix row, −3 the plane. Concatena
 2×2 matrix untouched and simply lines the planes up in axis order — t's 16 planes first, then h's,
 then w's, then l's. That order is a contract: plane <em>j</em> of this output is exactly the rotation
 that <code>apply_rope</code> will apply to dimensions <em>(2j, 2j+1)</em> of q and k, which is
-precisely the dim-split drawn in <a href="#rope">FIG 7</a>.</p>
+precisely the dim-split drawn in <a href="#rope">FIG 9</a>.</p>
 <p><b>Step 4 — make room for heads.</b> <code>unsqueeze(1)</code> inserts a size-1 axis at position
 1: <span class="shape">(B, 1, L, 64, 2, 2)</span>. All 48 heads of a layer share the same rotations,
 so a size-1 axis lets one computed copy broadcast across every head for free during
@@ -2342,10 +2619,10 @@ so a size-1 axis lets one computed copy broadcast across every head for free dur
 <text x="840" y="474" class="eq" text-anchor="middle">→ (B, 1, L, 64, 2, 2) — 1 broadcasts to 48 heads</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 10</span><b>Inside EmbedND.</b> The four coordinate columns are sliced apart,
+<figcaption><span class="figno">FIG 12</span><b>Inside EmbedND.</b> The four coordinate columns are sliced apart,
 each runs through <code>rope</code> on its own dimension budget, and the four bundles of 16 rotation
 planes are glued end-to-end along the plane axis. The colour order — t, h, w, l — is not cosmetic: it
-is the same dim-split as FIG 7, and it is what lets <code>apply_rope</code> pair plane <em>j</em> with
+is the same dim-split as FIG 9, and it is what lets <code>apply_rope</code> pair plane <em>j</em> with
 head dimensions <em>(2j, 2j+1)</em> without any bookkeeping.</figcaption>
 </figure>
 
@@ -2552,7 +2829,7 @@ it — redundant parameters with no extra expressiveness. That is the file-wide 
 <text x="740" y="106" class="eq" style="fill:#5fe08a">gate</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 11</span><b>adaLN in one picture.</b> The green dials are generated, not learned
+<figcaption><span class="figno">FIG 13</span><b>adaLN in one picture.</b> The green dials are generated, not learned
 per-layer: the same <code>vec</code> that encodes "we are 62 % noisy" decides how strongly every
 sub-layer of every block is allowed to speak. The gate is also what makes DiT's
 "adaLN-Zero" trick possible: a block whose gate is zero starts life as the identity function, which is
@@ -2632,7 +2909,7 @@ of §15 mathematically exact. Read the name as "references are sealed", not as "
 <text x="660" y="414" class="ax">coloured cells = attended</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 12</span><b>The isolation rule, measured.</b> I fed one-hot values
+<figcaption><span class="figno">FIG 14</span><b>The isolation rule, measured.</b> I fed one-hot values
 through <code>causal_attn_fn</code> and read back which key each query actually mixed: on the left is what
 came out. (No mask tensor exists anywhere in the code — this pattern is what the <em>slicing</em> of §10.2
 produces, and it is drawn as a grid only because a grid is the easiest way to see it.) Text and image rows are completely dense — every token sees every token, in both directions. The
@@ -2645,7 +2922,7 @@ cached variant: the reference <em>rows</em> are gone (we no longer compute their
 <div class="trace"><div class="tr-row"><div class="tr-ln"><span>L772–774</span></div><div class="tr-body"><div class="tr-code">    <span class="k">if</span> kv_cache <span class="k">is</span> <span class="k">not</span> <span class="k">None</span><span class="o">:</span><br>        k_ref <span class="o">=</span> kv_cache<span class="p">[</span><span class="s">&quot;k_ref&quot;</span><span class="p">]</span><br>        v_ref <span class="o">=</span> kv_cache<span class="p">[</span><span class="s">&quot;v_ref&quot;</span><span class="p">]</span></div><div class="tr-note">The whole function is one <code>if</code>: is a cache present? If so, pull the stored reference keys and values out of it. They were computed once, on step 0, and are reused verbatim on every later step.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L776–781</span></div><div class="tr-body"><div class="tr-code">        q_txt <span class="o">=</span> q<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">,</span> <span class="o">:</span>num_txt_tokens<span class="p">,</span> <span class="o">:</span><span class="p">]</span><br>        q_img <span class="o">=</span> q<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">,</span> num_txt_tokens<span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">]</span><br>        k_txt <span class="o">=</span> k<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">,</span> <span class="o">:</span>num_txt_tokens<span class="p">,</span> <span class="o">:</span><span class="p">]</span><br>        v_txt <span class="o">=</span> v<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">,</span> <span class="o">:</span>num_txt_tokens<span class="p">,</span> <span class="o">:</span><span class="p">]</span><br>        k_img <span class="o">=</span> k<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">,</span> num_txt_tokens<span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">]</span><br>        v_img <span class="o">=</span> v<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">,</span> num_txt_tokens<span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">]</span></div><div class="tr-note">Slice the current step's q/k/v into a text part and an image part. In this branch the incoming sequence is <code>[txt, img]</code> — the references are <em>not</em> present, which is the entire point of the cache.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L783</span></div><div class="tr-body"><div class="tr-code">        q_txt_img <span class="o">=</span> <span class="t">torch</span><span class="p">.</span><span class="f">cat</span><span class="p">(</span><span class="p">[</span>q_txt<span class="p">,</span> q_img<span class="p">]</span><span class="p">,</span> dim<span class="o">=</span><span class="n">2</span><span class="p">)</span></div><div class="tr-note">Re-unite the queries: text and image queries are processed together as <code>[txt, img]</code>.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L784–785</span></div><div class="tr-body"><div class="tr-code">        k_all <span class="o">=</span> <span class="t">torch</span><span class="p">.</span><span class="f">cat</span><span class="p">(</span><span class="p">[</span>k_txt<span class="p">,</span> k_ref<span class="p">,</span> k_img<span class="p">]</span><span class="p">,</span> dim<span class="o">=</span><span class="n">2</span><span class="p">)</span><br>        v_all <span class="o">=</span> <span class="t">torch</span><span class="p">.</span><span class="f">cat</span><span class="p">(</span><span class="p">[</span>v_txt<span class="p">,</span> v_ref<span class="p">,</span> v_img<span class="p">]</span><span class="p">,</span> dim<span class="o">=</span><span class="n">2</span><span class="p">)</span></div><div class="tr-note">But the <em>keys and values</em> are re-assembled as <code>[txt, ref, img]</code>, with the cached reference slice spliced back into the middle. The queries therefore still get to look at the references — without the references ever being recomputed.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L786</span></div><div class="tr-body"><div class="tr-code">        out <span class="o">=</span> <span class="t">F</span><span class="p">.</span><span class="f">scaled_dot_product_attention</span><span class="p">(</span>q_txt_img<span class="p">,</span> k_all<span class="p">,</span> v_all<span class="p">,</span> is_causal<span class="o">=</span><span class="k">False</span><span class="p">)</span></div><div class="tr-note">One dense, unmasked attention call over all of them: softmax over (n_txt + n_ref + n_img) keys for every query.</div></div></div></div>
 
 <h3>10.2 · The uncached branch (L789–815)</h3>
-<div class="trace"><div class="tr-row"><div class="tr-ln"><span>L789–790</span></div><div class="tr-body"><div class="tr-code">        ref_start <span class="o">=</span> num_txt_tokens<br>        ref_end <span class="o">=</span> num_txt_tokens <span class="o">+</span> num_ref_tokens</div><div class="tr-note">Compute the reference slice boundaries: references occupy positions <code>[num_txt, num_txt + num_ref)</code> of the combined sequence. This is the layout contract of the whole file — always <code>[txt, ref, img]</code>.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L792–800</span></div><div class="tr-body"><div class="tr-code">        q_txt <span class="o">=</span> q<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">,</span> <span class="o">:</span>ref_start<span class="p">,</span> <span class="o">:</span><span class="p">]</span><br>        q_ref <span class="o">=</span> q<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">,</span> ref_start<span class="o">:</span>ref_end<span class="p">,</span> <span class="o">:</span><span class="p">]</span><br>        q_img <span class="o">=</span> q<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">,</span> ref_end<span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">]</span><br>        k_txt <span class="o">=</span> k<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">,</span> <span class="o">:</span>ref_start<span class="p">,</span> <span class="o">:</span><span class="p">]</span><br>        v_txt <span class="o">=</span> v<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">,</span> <span class="o">:</span>ref_start<span class="p">,</span> <span class="o">:</span><span class="p">]</span><br>        k_ref <span class="o">=</span> k<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">,</span> ref_start<span class="o">:</span>ref_end<span class="p">,</span> <span class="o">:</span><span class="p">]</span><br>        v_ref <span class="o">=</span> v<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">,</span> ref_start<span class="o">:</span>ref_end<span class="p">,</span> <span class="o">:</span><span class="p">]</span><br>        k_img <span class="o">=</span> k<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">,</span> ref_end<span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">]</span><br>        v_img <span class="o">=</span> v<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">,</span> ref_end<span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">]</span></div><div class="tr-note">Cut q, k and v into three contiguous parts each: text, reference, image. Pure slicing; no arithmetic.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L802–806</span></div><div class="tr-body"><div class="tr-code">        <span class="c"># txt+img attend to all keys</span><br>        q_txt_img <span class="o">=</span> <span class="t">torch</span><span class="p">.</span><span class="f">cat</span><span class="p">(</span><span class="p">[</span>q_txt<span class="p">,</span> q_img<span class="p">]</span><span class="p">,</span> dim<span class="o">=</span><span class="n">2</span><span class="p">)</span><br>        k_all <span class="o">=</span> <span class="t">torch</span><span class="p">.</span><span class="f">cat</span><span class="p">(</span><span class="p">[</span>k_txt<span class="p">,</span> k_ref<span class="p">,</span> k_img<span class="p">]</span><span class="p">,</span> dim<span class="o">=</span><span class="n">2</span><span class="p">)</span><br>        v_all <span class="o">=</span> <span class="t">torch</span><span class="p">.</span><span class="f">cat</span><span class="p">(</span><span class="p">[</span>v_txt<span class="p">,</span> v_ref<span class="p">,</span> v_img<span class="p">]</span><span class="p">,</span> dim<span class="o">=</span><span class="n">2</span><span class="p">)</span><br>        attn_txt_img <span class="o">=</span> <span class="t">F</span><span class="p">.</span><span class="f">scaled_dot_product_attention</span><span class="p">(</span>q_txt_img<span class="p">,</span> k_all<span class="p">,</span> v_all<span class="p">,</span> is_causal<span class="o">=</span><span class="k">False</span><span class="p">)</span></div><div class="tr-note">Text and image queries are concatenated and attend to <em>all</em> keys — text, reference and image alike, in one dense <code>scaled_dot_product_attention</code> call. This is the bidirectional core of the model: every canvas token can read every word of your prompt and every patch of every reference. Note what is <em>not</em> here: no boolean mask tensor is ever built. The allowed/forbidden pattern of FIG 12 is produced by <em>which slices are concatenated</em>, not by a mask argument.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L807–808</span></div><div class="tr-body"><div class="tr-code">        attn_txt <span class="o">=</span> attn_txt_img<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">,</span> <span class="o">:</span>ref_start<span class="p">,</span> <span class="o">:</span><span class="p">]</span><br>        attn_img <span class="o">=</span> attn_txt_img<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">,</span> ref_start<span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">]</span></div><div class="tr-note">Split that result back into a text half and an image half, preserving row order: the first <code>ref_start</code> rows are text, the rest are canvas. The reference queries were deliberately left out of this call.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L810–811</span></div><div class="tr-body"><div class="tr-code">        <span class="c"># ref only attends to itself</span><br>        attn_ref <span class="o">=</span> <span class="t">F</span><span class="p">.</span><span class="f">scaled_dot_product_attention</span><span class="p">(</span>q_ref<span class="p">,</span> k_ref<span class="p">,</span> v_ref<span class="p">,</span> is_causal<span class="o">=</span><span class="k">False</span><span class="p">)</span></div><div class="tr-note">The isolation rule, in one line: reference queries attend <strong>only to reference keys</strong>. Their outputs are updated and handed to the next layer (and eventually discarded), but their hidden states can never be contaminated by the noisy canvas — which is exactly why they are identical at every denoising step, and therefore cacheable.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L813</span></div><div class="tr-body"><div class="tr-code">        out <span class="o">=</span> <span class="t">torch</span><span class="p">.</span><span class="f">cat</span><span class="p">(</span><span class="p">[</span>attn_txt<span class="p">,</span> attn_ref<span class="p">,</span> attn_img<span class="p">]</span><span class="p">,</span> dim<span class="o">=</span><span class="n">2</span><span class="p">)</span></div><div class="tr-note">Stitch <code>[attn_txt, attn_ref, attn_img]</code> back into the original <code>[txt, ref, img]</code> order so the caller's own slicing keeps working.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L815</span></div><div class="tr-body"><div class="tr-code">    <span class="k">return</span> <span class="f">rearrange</span><span class="p">(</span>out<span class="p">,</span> <span class="s">&quot;b h n d -&gt; b n (h d)&quot;</span><span class="p">)</span></div><div class="tr-note">Flatten the head axis back into the feature axis: <code>(B, H, L, D) → (B, L, H·D)</code>. Every consumer of this function expects tokens-as-rows with heads folded in.</div></div></div></div>
+<div class="trace"><div class="tr-row"><div class="tr-ln"><span>L789–790</span></div><div class="tr-body"><div class="tr-code">        ref_start <span class="o">=</span> num_txt_tokens<br>        ref_end <span class="o">=</span> num_txt_tokens <span class="o">+</span> num_ref_tokens</div><div class="tr-note">Compute the reference slice boundaries: references occupy positions <code>[num_txt, num_txt + num_ref)</code> of the combined sequence. This is the layout contract of the whole file — always <code>[txt, ref, img]</code>.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L792–800</span></div><div class="tr-body"><div class="tr-code">        q_txt <span class="o">=</span> q<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">,</span> <span class="o">:</span>ref_start<span class="p">,</span> <span class="o">:</span><span class="p">]</span><br>        q_ref <span class="o">=</span> q<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">,</span> ref_start<span class="o">:</span>ref_end<span class="p">,</span> <span class="o">:</span><span class="p">]</span><br>        q_img <span class="o">=</span> q<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">,</span> ref_end<span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">]</span><br>        k_txt <span class="o">=</span> k<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">,</span> <span class="o">:</span>ref_start<span class="p">,</span> <span class="o">:</span><span class="p">]</span><br>        v_txt <span class="o">=</span> v<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">,</span> <span class="o">:</span>ref_start<span class="p">,</span> <span class="o">:</span><span class="p">]</span><br>        k_ref <span class="o">=</span> k<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">,</span> ref_start<span class="o">:</span>ref_end<span class="p">,</span> <span class="o">:</span><span class="p">]</span><br>        v_ref <span class="o">=</span> v<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">,</span> ref_start<span class="o">:</span>ref_end<span class="p">,</span> <span class="o">:</span><span class="p">]</span><br>        k_img <span class="o">=</span> k<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">,</span> ref_end<span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">]</span><br>        v_img <span class="o">=</span> v<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">,</span> ref_end<span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">]</span></div><div class="tr-note">Cut q, k and v into three contiguous parts each: text, reference, image. Pure slicing; no arithmetic.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L802–806</span></div><div class="tr-body"><div class="tr-code">        <span class="c"># txt+img attend to all keys</span><br>        q_txt_img <span class="o">=</span> <span class="t">torch</span><span class="p">.</span><span class="f">cat</span><span class="p">(</span><span class="p">[</span>q_txt<span class="p">,</span> q_img<span class="p">]</span><span class="p">,</span> dim<span class="o">=</span><span class="n">2</span><span class="p">)</span><br>        k_all <span class="o">=</span> <span class="t">torch</span><span class="p">.</span><span class="f">cat</span><span class="p">(</span><span class="p">[</span>k_txt<span class="p">,</span> k_ref<span class="p">,</span> k_img<span class="p">]</span><span class="p">,</span> dim<span class="o">=</span><span class="n">2</span><span class="p">)</span><br>        v_all <span class="o">=</span> <span class="t">torch</span><span class="p">.</span><span class="f">cat</span><span class="p">(</span><span class="p">[</span>v_txt<span class="p">,</span> v_ref<span class="p">,</span> v_img<span class="p">]</span><span class="p">,</span> dim<span class="o">=</span><span class="n">2</span><span class="p">)</span><br>        attn_txt_img <span class="o">=</span> <span class="t">F</span><span class="p">.</span><span class="f">scaled_dot_product_attention</span><span class="p">(</span>q_txt_img<span class="p">,</span> k_all<span class="p">,</span> v_all<span class="p">,</span> is_causal<span class="o">=</span><span class="k">False</span><span class="p">)</span></div><div class="tr-note">Text and image queries are concatenated and attend to <em>all</em> keys — text, reference and image alike, in one dense <code>scaled_dot_product_attention</code> call. This is the bidirectional core of the model: every canvas token can read every word of your prompt and every patch of every reference. Note what is <em>not</em> here: no boolean mask tensor is ever built. The allowed/forbidden pattern of FIG 14 is produced by <em>which slices are concatenated</em>, not by a mask argument.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L807–808</span></div><div class="tr-body"><div class="tr-code">        attn_txt <span class="o">=</span> attn_txt_img<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">,</span> <span class="o">:</span>ref_start<span class="p">,</span> <span class="o">:</span><span class="p">]</span><br>        attn_img <span class="o">=</span> attn_txt_img<span class="p">[</span><span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">,</span> ref_start<span class="o">:</span><span class="p">,</span> <span class="o">:</span><span class="p">]</span></div><div class="tr-note">Split that result back into a text half and an image half, preserving row order: the first <code>ref_start</code> rows are text, the rest are canvas. The reference queries were deliberately left out of this call.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L810–811</span></div><div class="tr-body"><div class="tr-code">        <span class="c"># ref only attends to itself</span><br>        attn_ref <span class="o">=</span> <span class="t">F</span><span class="p">.</span><span class="f">scaled_dot_product_attention</span><span class="p">(</span>q_ref<span class="p">,</span> k_ref<span class="p">,</span> v_ref<span class="p">,</span> is_causal<span class="o">=</span><span class="k">False</span><span class="p">)</span></div><div class="tr-note">The isolation rule, in one line: reference queries attend <strong>only to reference keys</strong>. Their outputs are updated and handed to the next layer (and eventually discarded), but their hidden states can never be contaminated by the noisy canvas — which is exactly why they are identical at every denoising step, and therefore cacheable.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L813</span></div><div class="tr-body"><div class="tr-code">        out <span class="o">=</span> <span class="t">torch</span><span class="p">.</span><span class="f">cat</span><span class="p">(</span><span class="p">[</span>attn_txt<span class="p">,</span> attn_ref<span class="p">,</span> attn_img<span class="p">]</span><span class="p">,</span> dim<span class="o">=</span><span class="n">2</span><span class="p">)</span></div><div class="tr-note">Stitch <code>[attn_txt, attn_ref, attn_img]</code> back into the original <code>[txt, ref, img]</code> order so the caller's own slicing keeps working.</div></div></div><div class="tr-row"><div class="tr-ln"><span>L815</span></div><div class="tr-body"><div class="tr-code">    <span class="k">return</span> <span class="f">rearrange</span><span class="p">(</span>out<span class="p">,</span> <span class="s">&quot;b h n d -&gt; b n (h d)&quot;</span><span class="p">)</span></div><div class="tr-note">Flatten the head axis back into the feature axis: <code>(B, H, L, D) → (B, L, H·D)</code>. Every consumer of this function expects tokens-as-rows with heads folded in.</div></div></div></div>
 
 <div class="note proof">
 <div class="nh">◆ Verified · the two branches agree exactly</div>
@@ -2746,7 +3023,7 @@ fused MLP over it.
 <text x="430" y="450" class="ax" text-anchor="middle">residual skip — added after the gate, unchanged</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 13</span><b>The single-stream block.</b> The design trick is the fusion:
+<figcaption><span class="figno">FIG 15</span><b>The single-stream block.</b> The design trick is the fusion:
 <code>linear1</code> computes the queries, keys, values <em>and</em> the MLP's input in one matrix
 multiply, and <code>linear2</code> consumes the attention output and the gated MLP output together.
 Two big matmuls per block instead of five smaller ones — much better GPU utilisation, identical
@@ -2852,7 +3129,7 @@ other.
 <path d="M992,100 L972,100 M992,326 L972,326 M992,414 L972,414" stroke="#5fe08a" stroke-width="1.3" fill="none" stroke-dasharray="4 4" marker-end="url(#dV)"/>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 14</span><b>The double-stream block.</b> Everything is doubled except the attention.
+<figcaption><span class="figno">FIG 16</span><b>The double-stream block.</b> Everything is doubled except the attention.
 Text tokens are transformed by text weights and image tokens by image weights; only when it is time to
 <em>compare</em> them are their q/k/v concatenated into one sequence. After attention the streams split
 again and each finishes with its own projection and its own MLP. Eight of these teach the two
@@ -3037,7 +3314,7 @@ make sense together.
 <text x="40" y="312" class="ax">cost of an N-step run with reference images: 1 full step + (N−1) discounted ones instead of N full ones</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 15</span><b>Two phases, one sequence contract.</b> Step 0 pays full price and
+<figcaption><span class="figno">FIG 17</span><b>Two phases, one sequence contract.</b> Step 0 pays full price and
 banks the reference keys and values from all 56 blocks. Every later step omits the reference tokens from
 the sequence entirely and splices the stored keys back in at attention time — so the queries still see
 the references, but nothing about them is ever recomputed. The checkpoint this path ships with,
@@ -3179,12 +3456,15 @@ image (1024²) with 8 steps, μ = 2.27 and the times are</p>
 </tbody>
 </table>
 </div>
+<p>Counting rungs is where the shift of §1.3 becomes concrete: at 1024² with 50 steps, <strong>39 of the
+50</strong> sit above <code>t = 0.7</code>; at 4 megapixels, <strong>46 of the 50</strong> do. The run
+spends nearly its whole budget before the image is even roughly formed.</p>
 <p>Two rows, two owners. The first is what the network is told — eight start times, because nine schedule
 entries make eight steps and the ninth entry (0.0) is only a destination. The second is what the
 <em>sampler</em> keeps to itself: how far each answer is allowed to move the image. The model never sees
 it (§1.2). Half the steps happen above <code>t = 0.9</code>: the model spends its budget on the early,
 global structure decisions, then takes one long stride from 0.58 to 0 — one hop covering 58 % of the whole
-distance from noise to image, and 39 times the size of the first. See <a href="#flow">FIG 2</a> for the
+distance from noise to image, and 39 times the size of the first. See <a href="#flow">FIG 4</a> for the
 full curve family.</p>
 
 <div class="note warn">
@@ -3269,7 +3549,7 @@ are, collected.
 <tr><td><b>No biases anywhere</b></td><td>all Linears</td><td>171 linear layers, all <code>bias=False</code> — verifiable by grepping the file. <span class="spec">inference</span> The likely reason is that every linear here is followed or preceded by a normalisation whose shift is generated per token, which a constant bias adds nothing to.</td></tr>
 <tr><td><b>fp32 for the delicate arithmetic</b></td><td>L722–726, L741, L825, L829–832</td><td>The network runs in bf16, but three things are computed in float32 and cast back: the sinusoidal frequency ladder, the RMSNorm statistics (<code>x.float()</code> then <code>.to(x_dtype)</code>) and the RoPE rotations (<code>.float()</code> then <code>type_as</code>). Note what is <em>not</em> in this list: <code>LastLayer</code> — the prediction leaves the model in the working dtype.</td></tr>
 <tr><td><b>4-axis RoPE instead of 1-D</b></td><td>L694–707</td><td>Images are 2-D and references are separated in "time". Four rotation planes with equal dimension splits let one mechanism encode <code>(t, h, w, l)</code> without learned position tables.</td></tr>
-<tr><td><b>Isolation by slicing, not by masking</b></td><td>L802–813</td><td>No boolean mask tensor is ever built. The uncached branch makes <em>two</em> dense attention calls — txt+img over all keys, then ref over ref — and the cached branch needs only one, because the reference queries are gone. Same rule (FIG 12), expressed as concatenations.</td></tr>
+<tr><td><b>Isolation by slicing, not by masking</b></td><td>L802–813</td><td>No boolean mask tensor is ever built. The uncached branch makes <em>two</em> dense attention calls — txt+img over all keys, then ref over ref — and the cached branch needs only one, because the reference queries are gone. Same rule (FIG 14), expressed as concatenations.</td></tr>
 <tr><td><b>8 double + 48 single</b></td><td>L16–17, built at L76–96</td><td><code>depth = 8</code> and <code>depth_single_blocks = 48</code> are config fields, consumed by the two <code>ModuleList</code> comprehensions in <code>__init__</code>. A double block costs exactly 2× a single one, so depth on the shared side is twice as cheap. FLUX.1 used 19+38; FLUX.2 moves further along that trade.</td></tr>
 <tr><td><b>Cache as a dict of lists</b></td><td>L260–264</td><td>Plain Python structures, one entry per block in block order. No abstraction layer, no registry — the simplest thing that makes <code>kv_cache["double_blocks"][i]</code> obvious.</td></tr>
 <tr><td><b>Dead code left in place</b></td><td>L446, L449</td><td><code>self.hidden_dim</code> and <code>self.scale</code> are never read again after <code>__init__</code>. They are a plain Python int and float — not parameters, not buffers — so they appear in no <code>state_dict</code> and cost nothing but a line each. <span class="spec">inference</span> They look like leftovers from a hand-written attention that <code>scaled_dot_product_attention</code> replaced.</td></tr>
@@ -3359,6 +3639,11 @@ ever get lost, this is the map back.
 <li><b>Scaling Rectified Flow Transformers (SD3 / MM-DiT).</b> Esser et al., 2024 — arXiv:2403.03206. Where the double-stream block comes from — two weight sets meeting in one joint attention — together with rectified-flow training, the timestep-shift formula of §1.3 and logit-normal timestep <em>sampling during training</em>. What does <em>not</em> come from SD3: the hybrid double-then-single stack (SD3 is double-stream throughout) and the single shared modulation (SD3 modulates per block, as DiT does).</li>
 <li><b>RoPE.</b> Su et al., "RoFormer: Enhanced Transformer with Rotary Position Embedding", arXiv:2104.09864 — the rotation mechanism generalised to four axes in §4.</li>
 <li><b>SwiGLU.</b> Shazeer, "GLU Variants Improve Transformer", arXiv:2002.05202 — the <code>silu(x₁)·x₂</code> gate of §9.2.</li>
+<li><b>Flow matching.</b> Lipman et al., "Flow Matching for Generative Modeling", 2022 —
+arXiv:2210.02747. Train a network to predict a velocity field, then integrate it: §1 in one equation.</li>
+<li><b>Rectified flow.</b> Liu et al., "Flow Straight and Fast: Learning to Generate and Transfer Data
+with Rectified Flow", 2022 — arXiv:2209.03003. Why the paths can be bent straight, and therefore why a few
+steps suffice (FIG 2).</li>
 <li><b>Classifier-free guidance.</b> Ho &amp; Salimans, "Classifier-Free Diffusion Guidance", 2022 —
 arXiv:2207.12598. The two-pass extrapolation of §5.3 that <code>use_guidance_embed</code> lets a distilled
 model skip.</li>

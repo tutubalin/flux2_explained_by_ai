@@ -60,12 +60,15 @@ image (1024²) with 8 steps, μ = 2.27 and the times are</p>
 </tbody>
 </table>
 </div>
+<p>Counting rungs is where the shift of §1.3 becomes concrete: at 1024² with 50 steps, <strong>39 of the
+50</strong> sit above <code>t = 0.7</code>; at 4 megapixels, <strong>46 of the 50</strong> do. The run
+spends nearly its whole budget before the image is even roughly formed.</p>
 <p>Two rows, two owners. The first is what the network is told — eight start times, because nine schedule
 entries make eight steps and the ninth entry (0.0) is only a destination. The second is what the
 <em>sampler</em> keeps to itself: how far each answer is allowed to move the image. The model never sees
 it (§1.2). Half the steps happen above <code>t = 0.9</code>: the model spends its budget on the early,
 global structure decisions, then takes one long stride from 0.58 to 0 — one hop covering 58 % of the whole
-distance from noise to image, and 39 times the size of the first. See <a href="#flow">FIG 2</a> for the
+distance from noise to image, and 39 times the size of the first. See <a href="#flow">FIG 4</a> for the
 full curve family.</p>
 
 <div class="note warn">

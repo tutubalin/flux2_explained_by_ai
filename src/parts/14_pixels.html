@@ -70,7 +70,7 @@ before the model is called:</p>
 <text x="942" y="194" class="eq" text-anchor="middle">→ 6144</text>
 </svg>
 </div>
-<figcaption><span class="figno">FIG 3</span><b>Sixteen-fold compression in each spatial direction.</b> The VAE shrinks
+<figcaption><span class="figno">FIG 5</span><b>Sixteen-fold compression in each spatial direction.</b> The VAE shrinks
 1024² to 128² with 32 channels; then each 2×2 block of latent cells is folded into a single token of
 4 × 32 = 128 numbers (<code>autoencoder.py</code> literally does this with an einops
 <code>rearrange</code> and calls it <code>ps = [2, 2]</code>). The result is a flat list the transformer
