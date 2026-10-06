@@ -510,15 +510,17 @@ footer a{color:var(--text2)}
     real tensor shapes, derived the attention isolation pattern empirically by feeding one-hot vectors through the router,
     and measured the KV-cache error as exactly <code>0.000e+00</code>. The scripts are
     <code>src/ref/verify1.py … verify4.py</code> in this repository.</p>
-    <p>Five more checks run on every build, because this page quotes real source line numbers all the
+    <p>Six more checks run on every build, because this page quotes real source line numbers all the
     way through, and any one of them stops the build. <code>src/ref/qa_trace.py</code> verifies that
     every line-by-line annotation points at lines containing the identifiers it talks about;
     <code>src/ref/qa_coverage.py</code> verifies that all 692 non-blank lines of the file are shown
     somewhere; <code>src/ref/qa_linerefs.py</code> checks every place where the prose cites a line
     number — "line 455", or a row of the cheat-sheet table — against what really sits on that line;
-    <code>src/ref/qa_xrefs.py</code> resolves every "see §16.9" and "FIG 7" in the page; and
+    <code>src/ref/qa_xrefs.py</code> resolves every "see §16.9" and "FIG 7" in the page;
+    <code>src/ref/qa_order.py</code> fails if any chapter tells the reader they have already met
+    something a later chapter explains; and
     <code>src/ref/verify4.py</code> re-derives every number quoted here from the source and then looks
-    for it in the finished page. All five are clean.</p>
+    for it in the finished page. All six are clean.</p>
     <p>One convention to know: numbers and structure are checked against the code, but the file carries
     almost no comments, so a statement about <em>why</em> the authors chose something is marked
     <span class="spec">inference</span>. The page carries 15 of these badges, this one
@@ -1794,13 +1796,14 @@ nothing else happens.</p>
 </div>
 <div class="note idea">
 <div class="nh">💡 Why the doors are plain matrices, while the time door is an MLP</div>
-<p>Compare them with the third and fourth doors, which you met in §7: <code>time_in</code> and
-<code>guidance_in</code> are <em>two</em> linear layers with a SiLU between them (256 → 6 144 → 6 144,
-39 321 600 parameters each). Why the difference? Because of what arrives. A prompt row has already been
-through a 24-billion-parameter language model and a patch row through a trained autoencoder — their
-<em>meaning</em> is computed, and all that is left is a change of basis, which one matrix does. A timestep
-fingerprint is the opposite: 256 numbers produced by a fixed formula, carrying no learned meaning at all.
-Something has to decide what "t = 0.62" <em>means</em>, and that something is the MLP.
+<p>Compare them with the two doors that are still to come — the ones for the timestep and for the guidance
+value. Those are <code>time_in</code> and <code>guidance_in</code>, and each is <em>two</em> linear layers
+with a SiLU between them: 256 → 6 144 → 6 144, 39 321 600 parameters apiece. Why the difference? Because of
+what arrives. A prompt row has already been through a 24-billion-parameter language model and a patch row
+through a trained autoencoder — their <em>meaning</em> is computed, and all that is left is a change of
+basis, which one matrix does. A timestep arrives as a 256-number code produced by a fixed formula (§7 builds
+that code, §9 feeds it in) — numbers with no learned meaning in them yet. Something has to decide what
+"t = 0.62" <em>means</em>, and that something is the second layer.
 <span class="spec">inference</span> — the shapes are in the file; the reasoning about why one door needs
 depth and the other does not is not written down anywhere.</p>
 </div>

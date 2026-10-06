@@ -115,19 +115,21 @@ OUT.write_text(html)
 print(f"\nwrote {OUT}  ({OUT.stat().st_size/1024:.1f} KB)")
 
 # ---------------------------------------------------------------- content QA
-# Five static checks over the *parts* and the page, because the article's
+# Six static checks over the *parts* and the page, because the article's
 # whole claim is that its quoted line numbers and annotations match the real file:
 #   qa_trace     every annotation describes lines that contain what it talks about
 #   qa_coverage  every non-blank line of model.py is shown somewhere
 #   qa_linerefs  every "L455" in the prose points at a plausible line, and every
 #                row of the cheat-sheet symbol table names a symbol that lives there
+#   qa_order     no chapter claims the reader has already met something a later
+#                chapter explains - a forward pointer is fine, "which you met in §7" is not
 #   qa_xrefs     every "§7.9" / "FIG 5" / contents entry resolves, and both the
 #                section and the figure numbering are dense
 #   verify4      re-derives every quoted number from model.py and greps the page for it
 qa_fail = 0
 sys.stdout.flush()          # keep the QA output in order when stdout is a pipe
 QA = [("qa_trace.py", PARTS), ("qa_coverage.py", PARTS), ("qa_linerefs.py", PARTS),
-      ("qa_xrefs.py", PARTS), ("verify4.py", OUT)]   # verify4 also greps the page it wrote
+      ("qa_xrefs.py", PARTS), ("qa_order.py", PARTS), ("verify4.py", OUT)]
 for script, arg in QA:
     print()
     qa_fail |= subprocess.run([sys.executable, str(HERE / "ref" / script), str(arg)]).returncode

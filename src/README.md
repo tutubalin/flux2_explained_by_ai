@@ -14,6 +14,7 @@ Everything needed to rebuild `../index.html` and to re-derive every number quote
 | `ref/qa_trace.py` | annotation alignment: fails on an annotation whose quoted lines carry no code, or that names an identifier which occurs nowhere in `model.py`; lists legitimate cross-references with `-v` |
 | `ref/qa_coverage.py` | fails if any non-blank line of `model.py` is never shown in a listing or an annotation |
 | `ref/qa_linerefs.py` | fails if a place where the prose cites a source line points at lines containing none of the identifiers that same sentence names, or if a row of the §17 cheat-sheet table gives a line that does not hold the symbol it names (`-v` lists every reference for skimming) |
+| `ref/qa_order.py` | fails if a reference is phrased as prior knowledge ("you met in §7", "recall §22", "as §24 explained", "§9 above") but points at a *later* chapter — a forward pointer phrased as a pointer is fine |
 | `ref/qa_xrefs.py` | fails if a `§8.9`, a bare `8.1`, a `§8.1–§8.10` range, a `FIG 5` or a contents entry points at something that does not exist; if the section or figure numbering has a gap; or if a subsection sits under the wrong parent section (this is the gate that makes a renumbering sweep safe) |
 | `ref/qa_svg.py` | renders each `<svg>` to PNG (`resvg-py`, optional) so the figures can be eyeballed |
 | `ref/verify1.py` | exact parameter census per config, per-block costs, tensor-shape trace through a miniature model, KV-cache bit-exactness, RoPE orthogonality, mask semantics (needs `torch`, `einops`) |
@@ -32,4 +33,4 @@ python3 ref/qa_svg.py ../index.html out/  # optional, needs: pip install resvg-p
 
 The verification scripts construct the real model on the `meta` device, so they need
 `pip install torch einops` but download no weights. `qa_layout.py`, `qa_trace.py`,
-`qa_coverage.py`, `qa_linerefs.py` and `qa_xrefs.py` are pure standard library.
+`qa_coverage.py`, `qa_linerefs.py`, `qa_xrefs.py` and `qa_order.py` are pure standard library.

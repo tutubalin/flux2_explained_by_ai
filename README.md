@@ -51,7 +51,7 @@ directly from the repository's code. The scripts that did it are in [`src/ref/`]
 
 The build also refuses to emit a page containing an unterminated `<!--T …` annotation — a missing
 `-->` used to be swallowed silently, which cost the page seven explanations and hid everything after them
-in the browser. Beyond that, five checks run on every build, because the article quotes real line numbers
+in the browser. Beyond that, six checks run on every build, because the article quotes real line numbers
 throughout:
 
 | check | what it proves |
@@ -60,6 +60,7 @@ throughout:
 | `ref/qa_coverage.py` | all 692 non-blank lines of `model.py` are shown in a listing or an annotation — 480 of them carry an annotation of their own |
 | `ref/qa_linerefs.py` | every place the prose cites a source line points at lines containing what the sentence claims, and every row of the cheat-sheet symbol table names a symbol that really lives on the line it gives |
 | `ref/qa_xrefs.py` | every `§7.9`, every `FIG 5` and every contents entry resolves to something that exists, and the section and figure numbering have no gaps |
+| `ref/qa_order.py` | no chapter tells the reader they have already met something a *later* chapter explains — the bottom-up promise, enforced mechanically ("which you met in §7" from §5 is a failure; "§7 builds it" is not) |
 | `ref/verify4.py` | every quoted number is re-derived from the source with no dependencies at all, and then looked up in `index.html` — so a figure cannot stay in the page once it stops being true |
 
 Statements about *why* the authors made a choice are a different kind of claim — the file carries

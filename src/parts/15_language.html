@@ -166,13 +166,14 @@ nothing else happens.</p>
 </div>
 <div class="note idea">
 <div class="nh">💡 Why the doors are plain matrices, while the time door is an MLP</div>
-<p>Compare them with the third and fourth doors, which you met in §7: <code>time_in</code> and
-<code>guidance_in</code> are <em>two</em> linear layers with a SiLU between them (256 → 6 144 → 6 144,
-39 321 600 parameters each). Why the difference? Because of what arrives. A prompt row has already been
-through a 24-billion-parameter language model and a patch row through a trained autoencoder — their
-<em>meaning</em> is computed, and all that is left is a change of basis, which one matrix does. A timestep
-fingerprint is the opposite: 256 numbers produced by a fixed formula, carrying no learned meaning at all.
-Something has to decide what "t = 0.62" <em>means</em>, and that something is the MLP.
+<p>Compare them with the two doors that are still to come — the ones for the timestep and for the guidance
+value. Those are <code>time_in</code> and <code>guidance_in</code>, and each is <em>two</em> linear layers
+with a SiLU between them: 256 → 6 144 → 6 144, 39 321 600 parameters apiece. Why the difference? Because of
+what arrives. A prompt row has already been through a 24-billion-parameter language model and a patch row
+through a trained autoencoder — their <em>meaning</em> is computed, and all that is left is a change of
+basis, which one matrix does. A timestep arrives as a 256-number code produced by a fixed formula (§7 builds
+that code, §9 feeds it in) — numbers with no learned meaning in them yet. Something has to decide what
+"t = 0.62" <em>means</em>, and that something is the second layer.
 <span class="spec">inference</span> — the shapes are in the file; the reasoning about why one door needs
 depth and the other does not is not written down anywhere.</p>
 </div>
