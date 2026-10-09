@@ -110,7 +110,7 @@ def code_block(spec: str) -> str:
     hlm = re.search(r'hl="([^"]*)"', rest)
     ttm = re.search(r'title="([^"]*)"', rest)
     hls = _ranges(hlm.group(1) if hlm else "")
-    title = ttm.group(1) if ttm else f"model.py"
+    title = ttm.group(1) if ttm else SRC.name
     spans = _build_spans()
 
     rows = []
@@ -227,8 +227,22 @@ def _expand_raw(htmltext: str) -> str:
     )
 
 
+def _expand_include(htmltext: str) -> str:
+    """<!--INCLUDE shared/style.html--> - pull in a file both articles share.
+
+    Two articles (model.py and sampling.py) must not drift apart in how they look,
+    so the stylesheet lives in src/shared/ exactly once and each head includes it.
+    """
+    def one(m):
+        p = (HERE / m.group(1).strip()).resolve()
+        if not p.is_file():
+            raise FileNotFoundError(f"INCLUDE target missing: {m.group(1).strip()}")
+        return p.read_text().rstrip("\n")
+    return re.sub(r"<!--INCLUDE ([^>]*?)-->", one, htmltext)
+
+
 _orig_expand = expand
 
 
 def expand(htmltext: str) -> str:
-    return _orig_expand(_expand_raw(htmltext))
+    return _orig_expand(_expand_raw(_expand_include(htmltext)))

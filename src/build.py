@@ -8,10 +8,20 @@ we promote the attribute to an inline style, which wins over the stylesheet.
 """
 import os, re, pathlib, subprocess, sys
 HERE = pathlib.Path(__file__).resolve().parent
+
+# One builder, two articles: which source file the listings quote and which parts
+# directory they live in are both environment variables, resolved here to absolute
+# paths so that codex.py (imported below) and every QA subprocess see the same file.
+SRCFILE = pathlib.Path(os.environ.get("FLUX2_SRC", str(HERE / "ref" / "model.py"))).resolve()
+if not SRCFILE.is_file():
+    sys.exit(f"FLUX2_SRC does not exist: {SRCFILE}")
+os.environ["FLUX2_SRC"] = str(SRCFILE)
+
 sys.path.insert(0, str(HERE))
 import codex
 
-PARTS = pathlib.Path(os.environ.get("FLUX2_PARTS", str(HERE / "parts")))
+PARTS = pathlib.Path(os.environ.get("FLUX2_PARTS", str(HERE / "parts"))).resolve()
+os.environ["FLUX2_PARTS"] = str(PARTS)
 ARGS = [a for a in sys.argv[1:] if not a.startswith("-")]
 OUT = pathlib.Path(ARGS[0]) if ARGS else HERE.parent / "index.html"
 
@@ -51,7 +61,7 @@ def fix_svg_fills(html: str) -> str:
 
 
 parts = sorted(PARTS.glob("[0-9][0-9]_*.html"))
-print(f"assembling {len(parts)} parts:")
+print(f"assembling {len(parts)} parts of {PARTS.name}/ against src/ref/{SRCFILE.name}:")
 buf = []
 for p in parts:
     txt = p.read_text()
@@ -96,7 +106,7 @@ for p in parts:
         s = line.strip()
         if s.startswith("<!--") and not s.endswith("-->"):
             hygiene.append(f"{p.name}:{lineno}: unterminated directive: {s[:72]}...")
-leftover = re.findall(r"<!--\s*(?:T\s|TRACE|/TRACE|CODE|RAW|/RAW|SPECCOUNT)", html)
+leftover = re.findall(r"<!--\s*(?:T\s|TRACE|/TRACE|CODE|RAW|/RAW|INCLUDE|SPECCOUNT)", html)
 if leftover:
     hygiene.append(f"{len(leftover)} unexpanded directive marker(s) reached the page: {leftover[:3]}")
 for m in re.finditer(r"<!--(.*?)-->", html, flags=re.S):
@@ -118,18 +128,22 @@ print(f"\nwrote {OUT}  ({OUT.stat().st_size/1024:.1f} KB)")
 # Six static checks over the *parts* and the page, because the article's
 # whole claim is that its quoted line numbers and annotations match the real file:
 #   qa_trace     every annotation describes lines that contain what it talks about
-#   qa_coverage  every non-blank line of model.py is shown somewhere
+#   qa_coverage  every non-blank line of the source file is shown somewhere
 #   qa_linerefs  every "L455" in the prose points at a plausible line, and every
 #                row of the cheat-sheet symbol table names a symbol that lives there
 #   qa_order     no chapter claims the reader has already met something a later
 #                chapter explains - a forward pointer is fine, "which you met in §7" is not
 #   qa_xrefs     every "§7.9" / "FIG 5" / contents entry resolves, and both the
 #                section and the figure numbering are dense
-#   verify4      re-derives every quoted number from model.py and greps the page for it
+#   verify4 /    re-derives every quoted number from the source file with nothing but
+#   verify_...   the standard library, then greps the built page for each of them
 qa_fail = 0
 sys.stdout.flush()          # keep the QA output in order when stdout is a pipe
+NUMERIC_GATE = {"model.py": "verify4.py", "sampling.py": "verify_sampling.py"}
+if SRCFILE.name not in NUMERIC_GATE:
+    sys.exit(f"no numeric gate registered for {SRCFILE.name}")
 QA = [("qa_trace.py", PARTS), ("qa_coverage.py", PARTS), ("qa_linerefs.py", PARTS),
-      ("qa_xrefs.py", PARTS), ("qa_order.py", PARTS), ("verify4.py", OUT)]
+      ("qa_xrefs.py", PARTS), ("qa_order.py", PARTS), (NUMERIC_GATE[SRCFILE.name], OUT)]
 for script, arg in QA:
     print()
     qa_fail |= subprocess.run([sys.executable, str(HERE / "ref" / script), str(arg)]).returncode

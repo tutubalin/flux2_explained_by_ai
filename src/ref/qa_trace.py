@@ -27,10 +27,10 @@ ADVISORY (printed, not fatal):
 
 Usage:  python3 src/ref/qa_trace.py [parts_dir]
 """
-import io, pathlib, re, sys, tokenize
+import os, io, pathlib, re, sys, tokenize
 
 HERE = pathlib.Path(__file__).resolve().parent
-SRC = HERE / "model.py"
+SRC = pathlib.Path(os.environ.get("FLUX2_SRC", str(HERE / "model.py")))
 ARGS = [a for a in sys.argv[1:] if not a.startswith("-")]
 PARTS = pathlib.Path(ARGS[0]) if ARGS else HERE.parent / "parts"
 
@@ -49,6 +49,8 @@ EXTERNAL = {
     "eval", "matmul", "softmax", "ModuleList", "Sequential", "Linear", "LayerNorm", "Parameter",
     "GroupNorm", "BatchNorm2d", "functional", "device", "dtype", "shape", "ndim", "Tensor",
     "rearrange", "dataclass", "field", "prod", "log", "exp", "cos", "sin", "zeros_like",
+    "squeeze", "torch", "np", "cuda", "item", "tolist", "append", "zip", "range", "sorted",
+    "min", "max", "sum", "abs", "round", "int", "str", "list", "dict", "set", "bool",
 }
 # Prose words and single-letter maths symbols that happen to sit inside <code>.
 SKIP = {
@@ -63,18 +65,26 @@ SKIP = {
 }
 
 
-def source_names():
+def source_names(text):
     names = set()
-    for tok in tokenize.generate_tokens(io.StringIO(TEXT).readline):
+    for tok in tokenize.generate_tokens(io.StringIO(text).readline):
         if tok.type == tokenize.NAME:
             names.add(tok.string)
         elif tok.type == tokenize.STRING:
             # names that live inside einops patterns, dict keys and f-strings
             names |= set(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", tok.string))
+        elif tok.type == tokenize.COMMENT:
+            # `noqa`, `F841`, TODO tags: quoted from the file's own comments
+            names |= set(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", tok.string))
     return names
 
 
-NAMES = source_names()
+# The articles explain a repository, not one file in isolation: sampling.py is only
+# readable next to model.py and vice versa. A name is therefore "fabricated" only if
+# it occurs nowhere in the vendored sources -- the checkers themselves excluded.
+CORPUS = sorted(f for f in HERE.glob("*.py")
+                if not f.name.startswith(("qa_", "verify", "gen_")))
+NAMES = set().union(*(source_names(f.read_text()) for f in CORPUS))
 
 # lines that are inside a triple-quoted string, by line number
 DOCSTRING_LINES = set()
@@ -130,8 +140,13 @@ def main():
                 continue
 
             # --- B: does the quoted range contain any code at all?
+            # A range that is nothing but a docstring is quoting prose on purpose, so it
+            # is exempt; otherwise a single line must carry one identifier and a
+            # multi-line quote at least two, or the annotation is off by some lines.
             content = code_content(lo, hi)
-            if len(content) < 2:
+            all_doc = all(ln in DOCSTRING_LINES for ln in range(lo, hi + 1))
+            need = 0 if all_doc else (1 if lo == hi else 2)
+            if len(content) < need:
                 quoted = " ⏎ ".join(LINES[l - 1] for l in range(lo, hi + 1)).strip()
                 fatal.append(
                     f"{part.name} L{lo}-{hi}: quoted lines carry no code "
@@ -144,7 +159,7 @@ def main():
             for w in identifiers(note):
                 if w not in NAMES:
                     fatal.append(
-                        f"{part.name} L{lo}-{hi}: <code>{w}</code> occurs nowhere in model.py "
+                        f"{part.name} L{lo}-{hi}: <code>{w}</code> occurs nowhere in the vendored sources "
                         f"and is not a torch/einops API name — fabricated?\n        note: {plain[:140]}")
                 elif not re.search(rf"\b{re.escape(w)}\b", quoted_text) and not marked:
                     advice.append(f"{part.name} L{lo}-{hi}: <code>{w}</code> — cross-reference to elsewhere in the file")

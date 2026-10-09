@@ -1,0 +1,206 @@
+<div class="part-banner" id="part2" style="border-left-color:var(--txt)">
+  <div class="pb-num">Part 2</div>
+  <div class="pb-txt">
+    <div class="pb-title">Code overview</div>
+    <p>The whole file on one screen: nine lines of imports, twenty-one functions in four families, and the map of who calls whom — including the two files outside this one that use it, and the one function that nothing uses at all.</p>
+  </div>
+</div>
+
+<section id="smap">
+<h2><span class="secno">§ 8</span>The file at a glance</h2>
+<p class="section-intro">
+442 lines, twenty-one top-level functions, no classes. Read in file order the file looks scattered — an image
+helper appears at the very bottom, an unused function sits between two loops — so this chapter reorders it into
+the four families of §1 and then puts it back together again.
+</p>
+
+<h3>8.1 · Nine lines of imports</h3>
+
+<!--CODE 1-9 title="sampling.py · the complete import block" hl="4,5,6,9"-->
+
+<p>That is the entire dependency list, and each name has a small, checkable job:</p>
+
+<div class="tbl-wrap">
+<table class="data">
+<thead><tr><th style="width:20%">Import</th><th>Used for</th></tr></thead>
+<tbody>
+<tr><td><code>math</code></td><td>Twice: <code>math.sqrt</code> in the pixel cap and <code>math.exp</code> in the
+    timestep shift.</td></tr>
+<tr><td><code>torch</code></td><td>The tensor work — <code>linspace</code>, <code>cartesian_prod</code>,
+    <code>cat</code>, <code>full</code>, <code>scatter_</code>, <code>stack</code>, <code>chunk</code>.</td></tr>
+<tr><td><code>torchvision</code></td><td>Once, for <code>transforms.ToTensor()</code> — the only place a PIL
+    image becomes a tensor.</td></tr>
+<tr><td><code>rearrange</code></td><td>Twice: flattening a latent grid into tokens, and rebuilding a volume out
+    of flat tokens.</td></tr>
+<tr><td><code>Image</code></td><td>The PIL type in every signature that accepts a photograph, plus
+    <code>Image.Resampling.LANCZOS</code> and <code>Image.new</code>.</td></tr>
+<tr><td><code>Tensor</code></td><td>Imported as a name so the hints read <code>x: Tensor</code>.</td></tr>
+<tr><td><code>Flux2</code></td><td><strong>Only as a type hint.</strong> It appears in exactly three places
+    after the import — <code>model: Flux2</code> in each of the three loop signatures. Nothing in this file
+    builds, loads or configures a model; one is handed in.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>8.2 · Every function, in file order</h3>
+<p>The tag on each row is the family from §1.1: <b style="color:var(--vec)">ids</b> for the position machinery,
+<b style="color:var(--ref)">prep</b> for turning photographs into tensors,
+<b style="color:var(--gold)">sched</b> for choosing the times, <b style="color:var(--img)">loop</b> for the three
+denoisers. Click a row to jump to its explanation.</p>
+
+<div class="filemap">
+  <a class="fm-row" href="#p-compress"><span class="fm-ln">L12–21</span><span><span class="fm-name">compress_time</span><span class="fm-kind kind-fn">ids</span><div class="fm-desc">Squeezes arbitrary <code>t_ids</code> down to 0…k−1 so a rebuilt volume has no empty planes.</div></span></a>
+  <a class="fm-row" href="#p-scatter"><span class="fm-ln">L24–49</span><span><span class="fm-name">scatter_ids</span><span class="fm-kind kind-fn">ids</span><div class="fm-desc">The inverse of tokenisation: uses the ids to put flat tokens back into a <code>(t h w)</code> volume.</div></span></a>
+  <a class="fm-row" href="#encoderefs"><span class="fm-ln">L52–90</span><span><span class="fm-name">encode_image_refs</span><span class="fm-kind kind-fn">prep</span><div class="fm-desc">The whole reference path: pixel budget, prep chain, <code>ae.encode</code> per photo, planes at <code>t_off</code> = 10, 20, 30…</div></span></a>
+  <a class="fm-row" href="#p-prc"><span class="fm-ln">L93–103</span><span><span class="fm-name">prc_txt</span><span class="fm-kind kind-fn">ids</span><div class="fm-desc">Gives prompt rows the address <code>(0, 0, 0, l)</code> by taking a cartesian product with three dummy axes.</div></span></a>
+  <a class="fm-row" href="#p-wrappers"><span class="fm-ln">L106–119</span><span><span class="fm-name">batched_wrapper</span><span class="fm-kind kind-fn">ids</span><div class="fm-desc">Turns a one-sample addresser into a batched one by looping and <code>torch.stack</code>ing — which requires equal shapes.</div></span></a>
+  <a class="fm-row" href="#p-wrappers"><span class="fm-ln">L122–138</span><span><span class="fm-name">listed_wrapper</span><span class="fm-kind kind-fn">ids</span><div class="fm-desc">The same idea for a Python list of differently shaped samples; returns lists instead of a stack.</div></span></a>
+  <a class="fm-row" href="#p-prc"><span class="fm-ln">L141–151</span><span><span class="fm-name">prc_img</span><span class="fm-kind kind-fn">ids</span><div class="fm-desc">Flattens <code>(c, h, w)</code> into tokens and writes their <code>(t, h, w, 0)</code> addresses.</div></span></a>
+  <a class="fm-row" href="#p-wrappers"><span class="fm-ln">L154–156</span><span><span class="fm-name">listed_prc_img · batched_prc_img · batched_prc_txt</span><span class="fm-kind kind-fn">ids</span><div class="fm-desc">Three module-level constants: the two wrappers applied to the two addressers.</div></span></a>
+  <a class="fm-row" href="#p-crop"><span class="fm-ln">L159–175</span><span><span class="fm-name">center_crop_to_multiple_of_x</span><span class="fm-kind kind-fn">prep</span><div class="fm-desc">Floors both sides to a multiple of 16 and crops the remainder off the centre.</div></span></a>
+  <a class="fm-row" href="#p-cap"><span class="fm-ln">L178–192</span><span><span class="fm-name">cap_pixels</span><span class="fm-kind kind-fn">prep</span><div class="fm-desc">Scales an image down by <code>sqrt(k / pixels)</code> if it exceeds the budget; aspect ratio survives.</div></span></a>
+  <a class="fm-row" href="#p-rgb"><span class="fm-ln">L195–203</span><span><span class="fm-name">cap_min_pixels</span><span class="fm-kind kind-fn">prep</span><div class="fm-desc">The only gatekeeper in the file: raises <code>ValueError</code> on a side below 64 or an aspect ratio above 8.</div></span></a>
+  <a class="fm-row" href="#p-rgb"><span class="fm-ln">L206–214</span><span><span class="fm-name">to_rgb</span><span class="fm-kind kind-fn">prep</span><div class="fm-desc">One <code>convert("RGB")</code>, so nothing with an alpha channel reaches the autoencoder.</div></span></a>
+  <a class="fm-row" href="#p-prep"><span class="fm-ln">L217–223</span><span><span class="fm-name">default_images_prep</span><span class="fm-kind kind-fn">prep</span><div class="fm-desc"><code>ToTensor</code> then <code>2·x − 1</code>: the [−1, 1] range the autoencoder expects.</div></span></a>
+  <a class="fm-row" href="#p-prep"><span class="fm-ln">L226–237</span><span><span class="fm-name">default_prep</span><span class="fm-kind kind-fn">prep</span><div class="fm-desc">The chain of §5.1 in one place: rgb → min → cap → crop → tensor.</div></span></a>
+  <a class="fm-row" href="#p-shift"><span class="fm-ln">L240–241</span><span><span class="fm-name">generalized_time_snr_shift</span><span class="fm-kind kind-fn">sched</span><div class="fm-desc">One expression: <code>exp(mu) / (exp(mu) + (1/t − 1)**sigma)</code>, i.e. add μ in logit space.</div></span></a>
+  <a class="fm-row" href="#p-getsched"><span class="fm-ln">L244–248</span><span><span class="fm-name">get_schedule</span><span class="fm-kind kind-fn">sched</span><div class="fm-desc">Uniform <code>linspace(1, 0, N+1)</code>, then the shift with σ = 1.0, then a plain Python list.</div></span></a>
+  <a class="fm-row" href="#p-mu"><span class="fm-ln">L251–266</span><span><span class="fm-name">compute_empirical_mu</span><span class="fm-kind kind-fn">sched</span><div class="fm-desc">Eight fitted constants, two straight lines, an interpolation, and a knee at 4 300 tokens.</div></span></a>
+  <a class="fm-row" href="#denoise"><span class="fm-ln">L269–307</span><span><span class="fm-name">denoise</span><span class="fm-kind kind-fn">loop</span><div class="fm-desc">The plain loop: references concatenated to the canvas every step, discarded from the prediction.</div></span></a>
+  <a class="fm-row" href="#denoisecached"><span class="fm-ln">L310–355</span><span><span class="fm-name">denoise_cached</span><span class="fm-kind kind-fn">loop</span><div class="fm-desc">Two phases: <code>forward_kv_extract</code> at step 0, <code>forward_kv_cached</code> after.</div></span></a>
+  <a class="fm-row" href="#unused"><span class="fm-ln">L358–361</span><span><span class="fm-name">vanilla_guidance</span><span class="fm-kind kind-fn">unused</span><div class="fm-desc">The textbook CFG combine. Correct, and called by nothing in the repository (§11).</div></span></a>
+  <a class="fm-row" href="#denoisecfg"><span class="fm-ln">L364–410</span><span><span class="fm-name">denoise_cfg</span><span class="fm-kind kind-fn">loop</span><div class="fm-desc">Doubles the batch, calls the model with <code>guidance=None</code>, extrapolates, re-doubles, returns half.</div></span></a>
+  <a class="fm-row" href="#p-concat"><span class="fm-ln">L413–442</span><span><span class="fm-name">concatenate_images</span><span class="fm-kind kind-fn">prep</span><div class="fm-desc">Pastes photos side by side on white, centred. Used by the prompt upsampler, not by sampling.</div></span></a>
+</div>
+
+<h3>8.3 · Four families, and who calls them</h3>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 1120 600" role="img" aria-label="The call graph of sampling.py in four columns: position ids, image preparation, the schedule and the three loops. scripts/cli.py calls into all four columns, text_encoder.py imports two preparation helpers, the loops call model.py, and vanilla_guidance is called by nothing.">
+<defs><marker id="mG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7d8da1"/></marker>
+<marker id="mA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#f6a93b"/></marker></defs>
+<text x="40" y="30" class="ttl">Everything in the file, and everything that reaches into it</text>
+
+<!-- external callers -->
+<rect x="40" y="48" width="300" height="40" rx="9" fill="#0e1622" stroke="#7d8da1" stroke-width="1.6"/>
+<text x="60" y="73" class="axb" fill="#7d8da1">scripts/cli.py</text>
+<g stroke="#7d8da1" stroke-width="1.5" opacity=".75" marker-end="url(#mG)">
+<path d="M120,90 C120,116 160,116 160,138" fill="none"/>
+<path d="M200,90 C240,116 400,112 430,138" fill="none"/>
+<path d="M260,90 C400,110 640,110 700,138" fill="none"/>
+<path d="M320,90 C560,104 900,106 970,138" fill="none"/></g>
+
+<!-- column 1: ids -->
+<text x="40" y="152" class="axb" fill="#5fe08a">POSITION IDS · 92 lines</text>
+<g>
+<rect x="40" y="164" width="240" height="30" rx="7" fill="#0e1622" stroke="#163d26"/><text x="52" y="184" class="lbl-m">compress_time</text>
+<rect x="40" y="202" width="240" height="30" rx="7" fill="#0e1622" stroke="#163d26"/><text x="52" y="222" class="lbl-m">scatter_ids</text>
+<rect x="40" y="240" width="240" height="30" rx="7" fill="#0e1622" stroke="#163d26"/><text x="52" y="260" class="lbl-m">prc_txt</text>
+<rect x="40" y="278" width="240" height="30" rx="7" fill="#0e1622" stroke="#163d26"/><text x="52" y="298" class="lbl-m">prc_img</text>
+<rect x="40" y="316" width="240" height="30" rx="7" fill="#0e1622" stroke="#163d26"/><text x="52" y="336" class="lbl-m">batched_wrapper</text>
+<rect x="40" y="354" width="240" height="30" rx="7" fill="#0e1622" stroke="#163d26"/><text x="52" y="374" class="lbl-m">listed_wrapper</text>
+<rect x="40" y="392" width="240" height="30" rx="7" fill="#0e1622" stroke="#5fe08a"/><text x="52" y="412" class="lbl-m" fill="#5fe08a">listed_prc_img</text>
+<rect x="40" y="430" width="240" height="30" rx="7" fill="#0e1622" stroke="#5fe08a"/><text x="52" y="450" class="lbl-m" fill="#5fe08a">batched_prc_img</text>
+<rect x="40" y="468" width="240" height="30" rx="7" fill="#0e1622" stroke="#5fe08a"/><text x="52" y="488" class="lbl-m" fill="#5fe08a">batched_prc_txt</text>
+</g>
+<path d="M160,202 L160,196" stroke="#5fe08a" stroke-width="1.4" opacity=".8"/>
+<text x="166" y="200" class="lbl-s" fill="#7d8da1">calls compress_time</text>
+
+<!-- column 2: prep -->
+<text x="310" y="152" class="axb" fill="#b18cff">IMAGE PREP · 138 lines</text>
+<g>
+<rect x="310" y="164" width="240" height="30" rx="7" fill="#0e1622" stroke="#b18cff" stroke-width="1.6"/><text x="322" y="184" class="lbl-m" fill="#b18cff">encode_image_refs</text>
+<rect x="310" y="202" width="240" height="30" rx="7" fill="#0e1622" stroke="#2e2450"/><text x="322" y="222" class="lbl-m">to_rgb</text>
+<rect x="310" y="240" width="240" height="30" rx="7" fill="#0e1622" stroke="#2e2450"/><text x="322" y="260" class="lbl-m">cap_min_pixels</text>
+<rect x="310" y="278" width="240" height="30" rx="7" fill="#0e1622" stroke="#2e2450"/><text x="322" y="298" class="lbl-m">cap_pixels</text>
+<rect x="310" y="316" width="240" height="30" rx="7" fill="#0e1622" stroke="#2e2450"/><text x="322" y="336" class="lbl-m">center_crop_to_multiple_of_x</text>
+<rect x="310" y="354" width="240" height="30" rx="7" fill="#0e1622" stroke="#2e2450"/><text x="322" y="374" class="lbl-m">default_images_prep</text>
+<rect x="310" y="392" width="240" height="30" rx="7" fill="#0e1622" stroke="#b18cff" stroke-width="1.4"/><text x="322" y="412" class="lbl-m" fill="#b18cff">default_prep</text>
+<rect x="310" y="430" width="240" height="30" rx="7" fill="#0e1622" stroke="#2e2450"/><text x="322" y="450" class="lbl-m">concatenate_images</text>
+</g>
+<path d="M506,255 L520,255 L520,406 L506,406" stroke="#b18cff" stroke-width="1.3" opacity=".55" stroke-dasharray="4 3" fill="none"/>
+<text x="310" y="478" class="lbl-s" fill="#7d8da1">default_prep calls these four</text>
+<path d="M310,178 C292,178 292,406 306,406" stroke="#b18cff" stroke-width="1.5" fill="none" marker-end="url(#mG)" opacity=".8"/>
+
+<!-- column 3: schedule -->
+<text x="580" y="152" class="axb" fill="#ffd479">SCHEDULE · 23 lines</text>
+<g>
+<rect x="580" y="164" width="240" height="30" rx="7" fill="#0e1622" stroke="#ffd479" stroke-width="1.4"/><text x="592" y="184" class="lbl-m" fill="#ffd479">get_schedule</text>
+<rect x="580" y="202" width="240" height="30" rx="7" fill="#0e1622" stroke="#4a3418"/><text x="592" y="222" class="lbl-m">generalized_time_snr_shift</text>
+<rect x="580" y="240" width="240" height="30" rx="7" fill="#0e1622" stroke="#4a3418"/><text x="592" y="260" class="lbl-m">compute_empirical_mu</text>
+</g>
+<path d="M700,194 L700,200" stroke="#ffd479" stroke-width="1.4" opacity=".8"/>
+<path d="M694,194 L640,236" stroke="#ffd479" stroke-width="1.3" opacity=".6"/>
+<path d="M706,194 L760,236" stroke="#ffd479" stroke-width="1.3" opacity=".6"/>
+
+<rect x="580" y="300" width="240" height="198" rx="10" fill="#0e1622" stroke="#22303f"/>
+<text x="596" y="324" class="lbl-s" fill="#7d8da1">imported by scripts/cli.py:</text>
+<text x="596" y="344" class="lbl-m" fill="#5fe08a">batched_prc_txt</text>
+<text x="596" y="362" class="lbl-m" fill="#5fe08a">batched_prc_img</text>
+<text x="596" y="380" class="lbl-m" fill="#5fe08a">scatter_ids</text>
+<text x="596" y="398" class="lbl-m" fill="#b18cff">encode_image_refs</text>
+<text x="596" y="416" class="lbl-m" fill="#ffd479">get_schedule</text>
+<text x="596" y="434" class="lbl-m" fill="#f6a93b">denoise · denoise_cached · denoise_cfg</text>
+<text x="596" y="458" class="lbl-s" fill="#7d8da1">imported by text_encoder.py:</text>
+<text x="596" y="476" class="lbl-m" fill="#35d6f0">cap_pixels · concatenate_images</text>
+
+<!-- column 4: loops -->
+<text x="850" y="152" class="axb" fill="#f6a93b">THE LOOPS · 136 lines</text>
+<g>
+<rect x="850" y="164" width="240" height="30" rx="7" fill="#0e1622" stroke="#f6a93b" stroke-width="1.6"/><text x="862" y="184" class="lbl-m" fill="#f6a93b">denoise</text>
+<rect x="850" y="202" width="240" height="30" rx="7" fill="#0e1622" stroke="#f6a93b" stroke-width="1.6"/><text x="862" y="222" class="lbl-m" fill="#f6a93b">denoise_cached</text>
+<rect x="850" y="240" width="240" height="30" rx="7" fill="#0e1622" stroke="#f6a93b" stroke-width="1.6"/><text x="862" y="260" class="lbl-m" fill="#f6a93b">denoise_cfg</text>
+<rect x="850" y="278" width="240" height="30" rx="7" fill="#0e1622" stroke="#2e4054" stroke-dasharray="5 4"/><text x="862" y="298" class="lbl-m" fill="#7d8da1">vanilla_guidance — never called</text>
+</g>
+<rect x="850" y="380" width="240" height="46" rx="10" fill="#0e1622" stroke="#f6a93b" stroke-width="1.8"/>
+<text x="866" y="400" class="lbl-m" fill="#f6a93b">model.py · Flux2</text>
+<text x="866" y="416" class="lbl-s" fill="#7d8da1">forward · kv_extract · kv_cached</text>
+<g stroke="#f6a93b" stroke-width="1.5" opacity=".8" marker-end="url(#mA)">
+<path d="M970,194 C970,300 940,330 940,376" fill="none"/>
+<path d="M990,232 C1010,300 1000,330 1000,376" fill="none"/>
+<path d="M1010,270 C1040,310 1040,340 1040,376" fill="none"/></g>
+
+<path d="M280,406 C300,406 300,180 308,180" stroke="#5fe08a" stroke-width="1.4" fill="none" stroke-dasharray="5 4" opacity=".7"/>
+<text x="40" y="540" class="ax">the arrows into model.py are the only calls that leave this file's own four families</text>
+<text x="40" y="566" class="eq">442 lines = 9 imports + 92 ids + 138 prep + 23 schedule + 136 loops + 44 blank separators</text>
+</svg>
+</div>
+<figcaption><span class="figno">FIG 12</span><b>The file as a dependency graph.</b> Nine of the twenty-one
+functions are entry points that <code>scripts/cli.py</code> imports directly; two more are imported by the text
+encoder for a feature that has nothing to do with sampling. Inside the file the arrows are short: one prep chain,
+one schedule chain, one id-compression call, and three loops that all end at <code>model.py</code>. The dashed box
+is the one function nothing calls.</figcaption>
+</figure>
+
+<div class="note idea">
+  <div class="nh">✦ Why the file order is not the reading order</div>
+  <p>Two functions sit away from their family. <code>concatenate_images</code> — 30 lines of PIL pasting, the
+  longest non-loop function in the file — is the very last thing in it, and is not used by sampling at all: the
+  text encoder imports it to lay reference photos side by side before describing them to a language model.
+  And <code>vanilla_guidance</code> is wedged between <code>denoise_cached</code> and <code>denoise_cfg</code>,
+  which reads like it belongs to the second one; it does not, and nothing calls it (§11). Both are reminders
+  that this file grew as a toolbox for the whole repository, not as a single algorithm written top to
+  bottom.</p>
+</div>
+
+<h3>8.4 · The size of each family</h3>
+<div class="tbl-wrap">
+<table class="data">
+<thead><tr><th>Family</th><th class="num">Functions</th><th class="num">Lines</th><th>Share of the file</th></tr></thead>
+<tbody>
+<tr><td><strong>Imports</strong></td><td class="num">—</td><td class="num">9</td><td>2 % · 7 of them code</td></tr>
+<tr><td><strong>Position ids</strong></td><td class="num">6 + 3 instances</td><td class="num">92</td><td>21 % · 84 non-blank</td></tr>
+<tr><td><strong>Image preparation</strong></td><td class="num">8</td><td class="num">138</td><td>31 % · 117 non-blank</td></tr>
+<tr><td><strong>Schedule</strong></td><td class="num">3</td><td class="num">23</td><td>5 % · 19 non-blank</td></tr>
+<tr><td><strong>Loops</strong></td><td class="num">4 (one unused)</td><td class="num">136</td><td>31 % · 121 non-blank</td></tr>
+<tr><td><strong>Blank separators between definitions</strong></td><td class="num">—</td><td class="num">44</td><td>10 %</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>The schedule — the thing that most changes what the picture looks like — is 23 lines. The image preparation,
+which exists to stop bad input from reaching the network, is six times that. That ratio is the character
+of this file: it is mostly <em>getting things into shape</em>, and the algorithm at the centre of it is four
+lines long.</p>
+</section>

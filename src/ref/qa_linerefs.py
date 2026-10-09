@@ -33,10 +33,10 @@ while the sentence around it is about something else, and no script can tell.
 
 Usage:  python3 src/ref/qa_linerefs.py [-v] [parts_dir]
 """
-import ast, pathlib, re, sys
+import os, ast, pathlib, re, sys
 
 HERE = pathlib.Path(__file__).resolve().parent
-SRC = HERE / "model.py"
+SRC = pathlib.Path(os.environ.get("FLUX2_SRC", str(HERE / "model.py")))
 ARGS = [a for a in sys.argv[1:] if not a.startswith("-")]
 PARTS = pathlib.Path(ARGS[0]) if ARGS else HERE.parent / "parts"
 
@@ -87,7 +87,9 @@ REF_RE = re.compile(r"\bL(\d{2,3})(?:\s*[–-]\s*(?:L)?(\d{2,3}))?"
 CODE_RE = re.compile(r"<code>(.*?)</code>", re.S)
 # the cheat-sheet table of §16: <td class="m">710</td><td><code>timestep_embedding</code></td>
 ROW_RE = re.compile(r'<td class="m">(\d+)</td>\s*<td><code>(?:·\s*)?([A-Za-z_][\w.]*)</code>')
-OTHER_FILE = ("sampling.py", "autoencoder.py", "text_encoder.py", "util.py", "docs/", "README")
+# sibling files the article also quotes, whose line numbers are NOT the checked file's
+OTHER_FILE = tuple(f for f in ("model.py", "sampling.py", "autoencoder.py", "text_encoder.py",
+                                "util.py", "cli.py", "docs/", "README") if f != SRC.name)
 SKIP = {"self", "None", "True", "False"}
 # names too generic to be evidence about a particular line: the article uses them as
 # layout shorthand (<code>[txt, ref, img]</code>) and as module qualifiers.
@@ -95,7 +97,7 @@ GENERIC = {"txt", "img", "ref", "vec", "pe", "cache", "torch", "nn", "split", "c
 # (part file, first quoted line) -> why the identifier check does not apply
 # Keyed by the first line number quoted, not by file name: the part files get renamed
 # whenever the article is restructured, and these rows are about model.py, not about them.
-ALLOWED = {
+ALLOWED = {} if SRC.name != "model.py" else {
     375: "the row's whole point is that SelfAttention has NO forward()",
     722: "the row's point is that LastLayer is NOT in the fp32 list",
     446: "the row's point is that scaled_dot_product_attention replaced the code "
@@ -114,7 +116,7 @@ def symbol_rows(fatal):
                 leaf = name.rsplit(".", 1)[-1]
                 if ln > N:
                     fatal.append(f"{part.name}:{lineno}: table says {name} is at L{ln}, "
-                                 f"but model.py ends at L{N}")
+                                 f"but {SRC.name} ends at L{N}")
                 elif not re.search(rf"\b{re.escape(leaf)}\b", LINES[ln - 1]):
                     fatal.append(f"{part.name}:{lineno}: table says {name} is at L{ln}, but that "
                                  f"line is\n      L{ln}: {LINES[ln-1].strip()[:88]}")
@@ -161,7 +163,7 @@ def main():
                 hi = int(m.group(2) or m.group(4) or 0) or lo
                 refs.append((lo, hi))
                 if hi > N:
-                    fatal.append(f"{part.name}:{lineno}: L{lo}–{hi} is beyond the end of model.py "
+                    fatal.append(f"{part.name}:{lineno}: L{lo}–{hi} is beyond the end of {SRC.name} "
                                  f"({N} lines)\n      …{plain[:150]}…")
                 elif lo == hi and not re.search(r"[A-Za-z_]{2,}", LINES[lo - 1]):
                     fatal.append(f"{part.name}:{lineno}: cites L{lo} alone, but that line carries no "

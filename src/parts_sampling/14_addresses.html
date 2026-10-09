@@ -1,0 +1,146 @@
+<section id="addresses">
+<h2><span class="secno">§ 4</span>Addresses: four numbers per token</h2>
+<p class="section-intro">
+Attention on its own cannot tell one token from another: shuffle the rows of the input and the output rows
+shuffle with them, unchanged. Something has to say <em>where</em> each row came from. FLUX.2 says it with four
+integers per token, and this file is what writes them.
+</p>
+
+<div class="mathbox">
+<span class="mm">x_ids</span> <span class="op">:</span> (B, N, 4) <span class="op">=</span> (<span class="mm">t</span>, <span class="mm">h</span>, <span class="mm">w</span>, <span class="mm">l</span>) per token
+<span class="op" style="padding-left:1.6em">→</span> 4 <span class="op">×</span> 32 <span class="op">=</span> 128 rotation numbers per head, inside the network
+</div>
+
+<p>The four axes divide the work between them. Two of them describe a position inside a picture, one describes a
+position inside a prompt, and the fourth — <em>t</em> — says which <em>plane</em> a token belongs to. The canvas
+lives on plane 0. Every reference photograph gets its own plane, ten apart.</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 1120 440" role="img" aria-label="The four-axis address grid. A wide strip of 512 text tokens addressed by l, a square canvas of 64 by 64 tokens addressed by h and w on plane t = 0, and three offset violet squares for reference images on planes t = 10, 20 and 30.">
+<text x="40" y="30" class="ttl">Four numbers, three families of token</text>
+
+<g>
+<rect x="40" y="52" width="240" height="32" rx="8" fill="#0e1622" stroke="#2e4054"/>
+<text x="60" y="73" class="lbl">t — which plane</text>
+<rect x="290" y="52" width="240" height="32" rx="8" fill="#0e1622" stroke="#2e4054"/>
+<text x="310" y="73" class="lbl">h — row in the plane</text>
+<rect x="540" y="52" width="240" height="32" rx="8" fill="#0e1622" stroke="#2e4054"/>
+<text x="560" y="73" class="lbl">w — column in the plane</text>
+<rect x="790" y="52" width="240" height="32" rx="8" fill="#0e1622" stroke="#2e4054"/>
+<text x="810" y="73" class="lbl">l — index along the prompt</text>
+</g>
+
+<!-- text strip -->
+<rect x="40" y="108" width="990" height="48" rx="10" fill="#0e1622" stroke="#35d6f0" stroke-width="1.6"/>
+<text x="60" y="138" class="axb" fill="#35d6f0">512 text tokens · (0, 0, 0, l) with l = 0 … 511</text>
+<g stroke="#123c46" stroke-width="1">
+<line x1="560" y1="116" x2="560" y2="148"/><line x1="600" y1="116" x2="600" y2="148"/>
+<line x1="640" y1="116" x2="640" y2="148"/><line x1="680" y1="116" x2="680" y2="148"/>
+<line x1="720" y1="116" x2="720" y2="148"/><line x1="760" y1="116" x2="760" y2="148"/>
+<line x1="800" y1="116" x2="800" y2="148"/><line x1="840" y1="116" x2="840" y2="148"/>
+<line x1="880" y1="116" x2="880" y2="148"/><line x1="920" y1="116" x2="920" y2="148"/>
+<line x1="960" y1="116" x2="960" y2="148"/><line x1="1000" y1="116" x2="1000" y2="148"/></g>
+
+<!-- canvas plane -->
+<rect x="40" y="190" width="250" height="210" rx="10" fill="#0e1622" stroke="#f6a93b" stroke-width="1.8"/>
+<g stroke="#4a3418" stroke-width="1">
+<line x1="40" y1="225" x2="290" y2="225"/><line x1="40" y1="260" x2="290" y2="260"/>
+<line x1="40" y1="295" x2="290" y2="295"/><line x1="40" y1="330" x2="290" y2="330"/>
+<line x1="40" y1="365" x2="290" y2="365"/>
+<line x1="75" y1="190" x2="75" y2="400"/><line x1="110" y1="190" x2="110" y2="400"/>
+<line x1="145" y1="190" x2="145" y2="400"/><line x1="180" y1="190" x2="180" y2="400"/>
+<line x1="215" y1="190" x2="215" y2="400"/><line x1="250" y1="190" x2="250" y2="400"/></g>
+<rect x="145" y="260" width="35" height="35" fill="#f6a93b" opacity=".85"/>
+<text x="40" y="424" class="axb" fill="#f6a93b">canvas · 64 × 64 tokens · (0, h, w, 0)</text>
+
+<!-- reference planes -->
+<rect x="380" y="250" width="180" height="150" rx="10" fill="#0e1622" stroke="#b18cff" stroke-width="1.6" opacity=".55"/>
+<rect x="420" y="225" width="180" height="150" rx="10" fill="#0e1622" stroke="#b18cff" stroke-width="1.6" opacity=".75"/>
+<rect x="460" y="200" width="180" height="150" rx="10" fill="#0e1622" stroke="#b18cff" stroke-width="1.8"/>
+<text x="690" y="212" class="axb" fill="#b18cff">reference photos · (t, h, w, 0)</text>
+<text x="690" y="240" class="lbl">photo 1 → t = 10</text>
+<text x="690" y="262" class="lbl">photo 2 → t = 20</text>
+<text x="690" y="284" class="lbl">photo 3 → t = 30</text>
+<text x="690" y="312" class="lbl" fill="#7d8da1">ten apart from each other,</text>
+<text x="690" y="332" class="lbl" fill="#7d8da1">ten away from the canvas</text>
+<text x="690" y="368" class="lbl-s" fill="#7d8da1">each photo keeps its own h, w grid</text>
+</svg>
+</div>
+<figcaption><span class="figno">FIG 7</span><b>One grid, three tenants.</b> Text tokens vary only <em>l</em>: they
+form a strip 512 tokens long, and their <em>t</em>, <em>h</em>, <em>w</em> are all zero. Canvas tokens vary only
+<em>h</em> and <em>w</em>: a square plane at <em>t</em>&nbsp;=&nbsp;0, with <em>l</em>&nbsp;=&nbsp;0. Reference
+tokens vary all three spatial axes but sit on planes of their own, ten units apart. Nothing in the network
+knows which family a token belongs to — it only ever sees the four numbers.</figcaption>
+</figure>
+
+<h3>4.1 · Who writes which address</h3>
+<div class="tbl-wrap">
+<table class="data">
+<thead><tr><th style="width:20%">Tokens</th><th class="num" style="width:12%">Count</th><th style="width:24%">Address</th><th>Written by</th></tr></thead>
+<tbody>
+<tr><td><strong>Prompt</strong></td><td class="num">up to 512</td><td class="m">(0, 0, 0, l)</td>
+    <td><code>prc_txt</code> — the four coordinate ranges are <span class="mono">arange(1), arange(1), arange(1),
+    arange(L)</span>, so only the last one has more than one value (§9.3).</td></tr>
+<tr><td><strong>Canvas</strong></td><td class="num">H/16 × W/16</td><td class="m">(0, h, w, 0)</td>
+    <td><code>prc_img</code> with no <code>t_coord</code>, which defaults the plane to
+    <span class="mono">arange(1)</span> = 0 (§9.3).</td></tr>
+<tr><td><strong>References</strong></td><td class="num">≤ 10 photos</td><td class="m">(10·i, h, w, 0)</td>
+    <td><code>prc_img</code> again, but called through <code>listed_prc_img</code> with
+    <code>t_coord = [10, 20, 30, …]</code> — one plane per photo (§13).</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>All three are built the same way: a dictionary of four 1-D coordinate ranges, fed to
+<code>torch.cartesian_prod</code>, which enumerates every combination with the <em>last</em> axis varying
+fastest. That ordering is not a detail — it is what makes the addresses line up with the tokens. The image branch
+flattens its latent grid with <span class="mono">rearrange(x, "c h w -&gt; (h w) c")</span>, which also runs
+<em>w</em> fastest, so row <em>i</em> of the token tensor and row <em>i</em> of the id tensor describe the same
+patch of the picture. Text needs no such argument: its tokens are already a line, and its ids are
+<span class="mono">arange(L)</span> in the same order.</p>
+
+<div class="note beginner">
+  <div class="nh">▸ Why four axes and not two</div>
+  <p>A two-axis address (<em>row</em>, <em>column</em>) would be enough for the canvas, and a one-axis address
+  would be enough for the prompt — but the network attends over all of them <em>at once</em>, in a single
+  sequence, so they need one shared coordinate system in which no two tokens accidentally look like the same
+  place. Four axes give that: text is pinned to the origin of <em>h</em> and <em>w</em> and spreads along
+  <em>l</em>; the canvas is pinned to the origin of <em>l</em> and spreads over <em>h</em> and <em>w</em>; and
+  each reference gets a plane of its own along <em>t</em>. The network's positional encoder is told to spend 32
+  of its 128 numbers on each axis, and that budget is fixed — <code>model.py</code> refuses to build if
+  <span class="mono">sum(axes_dim) != head_dim</span>.</p>
+</div>
+
+<h3>4.2 · Why the references get t = 10, 20, 30</h3>
+<p>RoPE — the positional encoding FLUX.2 uses — turns each address into rotations, and rotations only ever
+depend on <em>differences</em>. So what the network actually feels is not "plane 10" but "ten units away from the
+canvas, and ten units away from the next reference". Two consequences follow, and both are why
+<span class="mono">scale = 10</span> is a sensible constant:</p>
+<p><strong>No reference is privileged.</strong> Consecutive photos are all exactly ten apart from each other, so
+the model has no positional reason to prefer the first one it was given over the fourth. Had they been placed at
+<em>t</em> = 1, 2, 3, the gaps would still be equal — but the distance from the canvas would have been almost
+nothing, and reference one would have been nearly indistinguishable from it.</p>
+<p><strong>The canvas stays alone at t = 0.</strong> Ten units of separation is far outside anything the canvas
+produces internally (its own tokens differ only in <em>h</em> and <em>w</em>, all with <em>t</em>&nbsp;=&nbsp;0),
+so "is this token part of the picture I am painting?" has an unambiguous positional answer.</p>
+
+<div class="note idea">
+  <div class="nh">✦ The t axis was free, so references took it <span class="spec">inference</span></div>
+  <p>Nothing else in FLUX.2 uses the <em>t</em> axis: the canvas is always at 0 and text is always at 0, so
+  during a normal generation all 128 numbers the network spends on that axis encode the constant zero. The
+  <em>t</em> in the name suggests it was designed for something temporal — video frames, perhaps — and reference
+  images are the thing that actually occupies it today. The file gives no comment either way; what is certain is
+  that <span class="mono">scale = 10</span> appears once, at the top of <code>encode_image_refs</code>, and is
+  used nowhere else.</p>
+</div>
+
+<div class="note warn">
+  <div class="nh">⚠ Addresses are assigned once, before the loop</div>
+  <p><code>x_ids</code>, <code>ctx_ids</code> and <code>ref_ids</code> are computed outside the sampling loop and
+  reused at every step — the geometry never changes, only the content of the tokens does. That is what makes the
+  cached path of §15 possible: the reference tokens' keys and values depend on their addresses and on the
+  timestep, and if the addresses are frozen and the timestep is frozen with them, the whole computation can be
+  kept from step 0 and replayed.</p>
+</div>
+</section>

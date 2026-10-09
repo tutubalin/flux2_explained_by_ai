@@ -11,10 +11,10 @@ listing that spans them shows them to the reader even though nobody annotates a
 
 Usage:  python3 src/ref/qa_coverage.py [parts_dir]
 """
-import pathlib, re, sys
+import os, pathlib, re, sys
 
 HERE = pathlib.Path(__file__).resolve().parent
-SRC = HERE / "model.py"
+SRC = pathlib.Path(os.environ.get("FLUX2_SRC", str(HERE / "model.py")))
 ARGS = [a for a in sys.argv[1:] if not a.startswith("-")]
 PARTS = pathlib.Path(ARGS[0]) if ARGS else HERE.parent / "parts"
 
@@ -40,7 +40,7 @@ trivial = [i for i in nonblank
            if re.fullmatch(r"[\s\)\]\},:]+", LINES[i - 1]) or LINES[i - 1].strip() in ("else:", "):")]
 missing = [i for i in nonblank if i not in shown]
 
-print(f"qa_coverage: {N} lines in model.py, {len(nonblank)} non-blank")
+print(f"qa_coverage: {N} lines in {SRC.name}, {len(nonblank)} non-blank")
 print(f"   shown in a listing or annotation : {len([i for i in nonblank if i in shown])}/{len(nonblank)}"
       f"  ({100*len([i for i in nonblank if i in shown])/len(nonblank):.1f} %)")
 print(f"   carrying their own annotation    : {len([i for i in nonblank if i in annotated])}/{len(nonblank)}")

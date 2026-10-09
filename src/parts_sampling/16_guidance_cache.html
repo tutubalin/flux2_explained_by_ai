@@ -1,0 +1,292 @@
+<section id="guided">
+<h2><span class="secno">§ 6</span>Two ways to be guided</h2>
+<p class="section-intro">
+The word "guidance" appears in every signature in this file, and it means two completely different things
+depending on which checkpoint you loaded. One is a number the network was trained to obey; the other is a
+subtraction performed outside the network. Confusing them is the easiest way to misread the three loops.
+</p>
+
+<h3>6.1 · Route A — guidance as an input</h3>
+<p>A <em>guidance-distilled</em> model has learned to take a strength dial as part of its input. The loop builds
+a tensor filled with that one float, hands it over with every call, and the network embeds it exactly the way it
+embeds the timestep: a 256-number sinusoidal code, a two-layer MLP, and a vector added to the timestep vector
+that steers every block. One batch, one call per step, no arithmetic afterwards.</p>
+
+<div class="mathbox">
+<span class="mm">pred</span> <span class="op">=</span> model(<span class="mm">x</span>, <span class="mm">t</span>, <span class="mm">ctx</span>, guidance=<span class="mm">w</span>)
+<span class="op" style="padding-left:2em">and that is the whole of it — nothing is combined or extrapolated</span>
+</div>
+
+<h3>6.2 · Route B — guidance as an extrapolation</h3>
+<p>An ordinary model has no dial. To make it obey a prompt more strongly you run it <strong>twice per
+step</strong> — once on the real prompt and once on an empty one — and push the difference further than the
+model itself would:</p>
+
+<div class="mathbox">
+<span class="mm">pred</span> <span class="op">=</span> <span class="mm">pred_uncond</span> <span class="op">+</span> <span class="mm">w</span>·(<span class="mm">pred_cond</span> <span class="op">−</span> <span class="mm">pred_uncond</span>)
+</div>
+
+<p>At <em>w</em>&nbsp;=&nbsp;1 this returns the conditional prediction untouched. At <em>w</em>&nbsp;=&nbsp;0 it
+returns the unconditional one — what the model would paint with no prompt at all. FLUX.2's non-distilled models
+ship with <em>w</em>&nbsp;=&nbsp;4, which means going four times as far from "no prompt" as the network
+suggested, in the direction of "your prompt".</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 1120 320" role="img" aria-label="A number line in prediction space. The unconditional prediction sits at w = 0, the conditional one at w = 1, and the guided prediction is the extrapolation to w = 4, four times as far from the unconditional point.">
+<defs><marker id="gA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#35d6f0"/></marker></defs>
+<text x="40" y="30" class="ttl">Classifier-free guidance is extrapolation, not interpolation</text>
+
+<line x1="80" y1="180" x2="1040" y2="180" stroke="#2e4054" stroke-width="2"/>
+<circle cx="140" cy="180" r="9" fill="#7d8da1"/>
+<circle cx="320" cy="180" r="9" fill="#35d6f0"/>
+<circle cx="860" cy="180" r="11" fill="#0c1119" stroke="#ffd479" stroke-width="3"/>
+
+<line x1="152" y1="140" x2="308" y2="140" stroke="#35d6f0" stroke-width="2.2" marker-end="url(#gA)"/>
+<line x1="332" y1="140" x2="848" y2="140" stroke="#ffd479" stroke-width="2.2" stroke-dasharray="7 5" marker-end="url(#gA)"/>
+<text x="230" y="126" class="axb" text-anchor="middle" fill="#35d6f0">one unit</text>
+<text x="590" y="126" class="axb" text-anchor="middle" fill="#ffd479">three more units of the same direction</text>
+
+<text x="140" y="212" class="axb" text-anchor="middle">w = 0</text>
+<text x="140" y="232" class="ax" text-anchor="middle" fill="#7d8da1">pred_uncond</text>
+<text x="140" y="250" class="ax" text-anchor="middle" fill="#7d8da1">the empty prompt</text>
+
+<text x="320" y="212" class="axb" text-anchor="middle" fill="#35d6f0">w = 1</text>
+<text x="320" y="232" class="ax" text-anchor="middle" fill="#35d6f0">pred_cond</text>
+<text x="320" y="250" class="ax" text-anchor="middle" fill="#35d6f0">your prompt, as asked</text>
+
+<text x="860" y="212" class="axb" text-anchor="middle" fill="#ffd479">w = 4</text>
+<text x="860" y="232" class="ax" text-anchor="middle" fill="#ffd479">what the loop keeps</text>
+<text x="860" y="250" class="ax" text-anchor="middle" fill="#ffd479">and steps with</text>
+
+<text x="80" y="292" class="eq">both predictions come from ONE call: the batch is doubled, then split in half again</text>
+</svg>
+</div>
+<figcaption><span class="figno">FIG 10</span><b>Guidance as a lever.</b> The two predictions are two points; the
+guided prediction is on the same line, past the conditional one, at a distance <em>w</em> times the gap. Because
+both points come from the same forward pass over a doubled batch, the price of route B is exactly a factor of two
+on every step — which is why distilling the dial into the model (route A) halves the cost of a
+generation.</figcaption>
+</figure>
+
+<h3>6.3 · Which checkpoint takes which route</h3>
+<p>The choice is not made in this file. <code>sampling.py</code> offers all three loops; the script picks one
+from a single flag in the checkpoint's metadata, <code>guidance_distilled</code>:</p>
+
+<div class="tbl-wrap">
+<table class="data">
+<thead><tr><th>Checkpoint</th><th class="num">guidance</th><th class="num">steps</th><th>Loop</th><th>What the number does</th></tr></thead>
+<tbody>
+<tr><td><code>flux.2-dev</code> (32B)</td><td class="num">4.0</td><td class="num">50</td>
+    <td><code>denoise</code></td>
+    <td>Embedded and obeyed — this config has <code>use_guidance_embed = True</code>.</td></tr>
+<tr><td><code>flux.2-klein-4b</code></td><td class="num">1.0</td><td class="num">4</td>
+    <td><code>denoise</code></td>
+    <td>Passed, then ignored (§6.4).</td></tr>
+<tr><td><code>flux.2-klein-9b</code></td><td class="num">1.0</td><td class="num">4</td>
+    <td><code>denoise</code></td>
+    <td>Passed, then ignored.</td></tr>
+<tr><td><code>flux.2-klein-9b-kv</code></td><td class="num">1.0</td><td class="num">4</td>
+    <td><code>denoise_cached</code> with references, else <code>denoise</code></td>
+    <td>Passed, then ignored.</td></tr>
+<tr><td><code>flux.2-klein-base-4b</code></td><td class="num">4.0</td><td class="num">50</td>
+    <td><code>denoise_cfg</code></td>
+    <td>Used as the extrapolation weight <em>w</em>; the model itself is called with
+    <code>guidance=None</code>.</td></tr>
+<tr><td><code>flux.2-klein-base-9b</code></td><td class="num">4.0</td><td class="num">50</td>
+    <td><code>denoise_cfg</code></td>
+    <td>As above.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="note warn">
+  <div class="nh">⚠ The klein models are handed a guidance number they cannot read</div>
+  <p>All three loops build a guidance tensor and pass it on — <code>denoise</code> fills it with the configured
+  value, <code>denoise_cfg</code> fills it with <code>None</code>. Inside
+  <a href="index.html"><code>model.py</code></a> the embedding is guarded:
+  <span class="mono">if self.use_guidance_embed: vec = vec + self.guidance_in(…)</span>, and the klein parameter
+  sets have <code>use_guidance_embed = False</code>. So for klein-4B, klein-9B and klein-9B-kv the value 1.0
+  travels into the network and is dropped on the floor: there is no <code>guidance_in</code> module to receive it.
+  The loops are written as if every model had a dial, and only <code>flux.2-dev</code> does.</p>
+  <p>The mirror image is also true: <code>denoise_cfg</code> passes <code>guidance=None</code>, which is safe for
+  the base klein models precisely because they never look. Hand the same function a distilled model and that
+  <code>None</code> would be passed straight to the timestep embedding. The three loops and the checkpoint
+  families line up one-to-one, and the pairing is enforced by the script, not by this file.
+  <span class="spec">inference</span></p>
+</div>
+
+<h3>6.4 · The price of each route</h3>
+<div class="tbl-wrap">
+<table class="data">
+<thead><tr><th style="width:22%">Loop</th><th class="num">Calls per step</th><th class="num">Batch</th><th>Cost of one generation</th></tr></thead>
+<tbody>
+<tr><td><code>denoise</code></td><td class="num">1</td><td class="num">B</td>
+    <td><em>N</em> passes over the sequence — the cheapest, and what distilled models are for.</td></tr>
+<tr><td><code>denoise_cfg</code></td><td class="num">1</td><td class="num">2B</td>
+    <td><em>N</em> passes over <strong>twice</strong> the tokens. Same number of calls, double the work per
+    call.</td></tr>
+<tr><td><code>denoise_cached</code></td><td class="num">1</td><td class="num">B</td>
+    <td>One full pass over canvas + references, then <em>N</em>&nbsp;−&nbsp;1 passes over the canvas alone with
+    the references served from memory (§7).</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="note idea">
+  <div class="nh">✦ Why the caller doubles the text and the loop doubles the image</div>
+  <p>In <code>denoise_cfg</code> the image is duplicated inside the function
+  (<span class="mono">img = torch.cat([img, img], dim=0)</span>) but the prompt is not — it arrives already
+  doubled, and the signature says so in a comment: <span class="mono">txt # Already cat([txt_empty,
+  txt_prompt])</span>. The two halves of the text batch are <em>different</em> (empty, then real), so they have
+  to be built by whoever has both strings; the two halves of the image are <em>identical</em>, so the loop can
+  make them itself. The division of labour follows the data, not a convention.</p>
+</div>
+</section>
+
+<section id="cacheloop">
+<h2><span class="secno">§ 7</span>Caching at the loop level</h2>
+<p class="section-intro">
+The third loop exists for one arithmetic fact: with reference images, most of what the network looks at does not
+change between steps. Recomputing it fifty times is the single largest waste in a FLUX.2 edit — and removing it
+changes the mathematics, which is why it needs its own checkpoint.
+</p>
+
+<h3>7.1 · What is actually constant</h3>
+<p>Take one reference photograph and a 512×512 canvas. The image-side sequence the network attends over is
+15 876 reference tokens plus 1 024 canvas tokens: <strong>94&nbsp;% of it is the photograph</strong>. Now ask
+what changes from step to step:</p>
+
+<div class="tbl-wrap">
+<table class="data">
+<thead><tr><th style="width:26%">Quantity</th><th>Between two consecutive steps</th></tr></thead>
+<tbody>
+<tr><td>Reference token <em>content</em></td><td>Identical. The encoded photo never changes during a
+    generation.</td></tr>
+<tr><td>Reference token <em>addresses</em></td><td>Identical. <code>ref_ids</code> is built once, before the
+    loop.</td></tr>
+<tr><td>Reference tokens' <em>timestep</em> in the cached path</td><td>Identical — and not merely in practice:
+    <code>forward_kv_extract</code> gives the references a fixed timestep of
+    <span class="mono">ref_fixed_timestep = 0.0</span>, and <code>denoise_cached</code> never overrides it. To
+    the network, a reference is always a finished image, never a noisy one.</td></tr>
+<tr><td>Reference tokens' <em>timestep</em> in the plain path</td><td><strong>Changes.</strong> In
+    <code>denoise</code> the references are simply concatenated to the canvas and the whole sequence is
+    processed at the current <em>t</em>, so their modulation — and therefore their keys and values — is
+    different at every step.</td></tr>
+<tr><td>Canvas tokens</td><td>Change every step. That is the point of the loop.</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>So in the plain path nothing can be cached: the references really are recomputed, and they really do produce
+different keys and values each time. Caching is not an optimisation of <code>denoise</code> — it is a
+<em>different model of the world</em> in which the references are frozen at <em>t</em>&nbsp;=&nbsp;0 and their
+contribution is computed once.</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 1120 400" role="img" aria-label="Two timelines. Top: the plain loop, where every step pushes the reference tokens and the canvas tokens through the network together. Bottom: the cached loop, where step 0 pushes both and stores the references' keys and values, and every later step pushes only the canvas and reads the stored keys and values.">
+<defs><marker id="cA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5fe08a"/></marker></defs>
+<text x="40" y="30" class="ttl">Four steps of an edit, with and without the cache</text>
+
+<!-- plain -->
+<text x="40" y="66" class="axb" fill="#7d8da1">denoise — every step pays for the references again</text>
+<g>
+<rect x="40" y="80" width="240" height="52" rx="9" fill="#0e1622" stroke="#b18cff" stroke-width="1.6"/>
+<rect x="40" y="80" width="216" height="52" rx="9" fill="#2e2450" opacity=".55"/>
+<text x="52" y="112" class="lbl-s" fill="#b18cff">ref 15 876</text>
+<text x="266" y="112" class="lbl-s" text-anchor="end" fill="#f6a93b">img</text>
+
+<rect x="300" y="80" width="240" height="52" rx="9" fill="#0e1622" stroke="#b18cff" stroke-width="1.6"/>
+<rect x="300" y="80" width="216" height="52" rx="9" fill="#2e2450" opacity=".55"/>
+<text x="312" y="112" class="lbl-s" fill="#b18cff">ref 15 876</text>
+<text x="526" y="112" class="lbl-s" text-anchor="end" fill="#f6a93b">img</text>
+
+<rect x="560" y="80" width="240" height="52" rx="9" fill="#0e1622" stroke="#b18cff" stroke-width="1.6"/>
+<rect x="560" y="80" width="216" height="52" rx="9" fill="#2e2450" opacity=".55"/>
+<text x="572" y="112" class="lbl-s" fill="#b18cff">ref 15 876</text>
+<text x="786" y="112" class="lbl-s" text-anchor="end" fill="#f6a93b">img</text>
+
+<rect x="820" y="80" width="240" height="52" rx="9" fill="#0e1622" stroke="#b18cff" stroke-width="1.6"/>
+<rect x="820" y="80" width="216" height="52" rx="9" fill="#2e2450" opacity=".55"/>
+<text x="832" y="112" class="lbl-s" fill="#b18cff">ref 15 876</text>
+<text x="1046" y="112" class="lbl-s" text-anchor="end" fill="#f6a93b">img</text>
+</g>
+<g class="lbl-s" fill="#7d8da1">
+<text x="160" y="152" text-anchor="middle">step 1 · t = 1.000</text>
+<text x="420" y="152" text-anchor="middle">step 2 · t = 0.958</text>
+<text x="680" y="152" text-anchor="middle">step 3 · t = 0.884</text>
+<text x="940" y="152" text-anchor="middle">step 4 · t = 0.717</text></g>
+
+<!-- cached -->
+<text x="40" y="200" class="axb" fill="#5fe08a">denoise_cached — step 0 stores the references' keys and values</text>
+<rect x="40" y="214" width="240" height="52" rx="9" fill="#0e1622" stroke="#b18cff" stroke-width="1.8"/>
+<rect x="40" y="214" width="216" height="52" rx="9" fill="#2e2450" opacity=".55"/>
+<text x="52" y="246" class="lbl-s" fill="#b18cff">ref 15 876</text>
+<text x="266" y="246" class="lbl-s" text-anchor="end" fill="#f6a93b">img</text>
+
+<rect x="330" y="278" width="300" height="46" rx="9" fill="#0e1622" stroke="#5fe08a" stroke-width="1.6"/>
+<text x="348" y="306" class="lbl-s" fill="#5fe08a">kv_cache — K and V for the refs, per block</text>
+<path d="M286,246 C310,246 310,300 328,300" stroke="#5fe08a" stroke-width="1.8" fill="none" marker-end="url(#cA)"/>
+
+<rect x="300" y="214" width="24" height="52" rx="6" fill="#0e1622" stroke="#f6a93b" stroke-width="1.6"/>
+<rect x="560" y="214" width="24" height="52" rx="6" fill="#0e1622" stroke="#f6a93b" stroke-width="1.6"/>
+<rect x="820" y="214" width="24" height="52" rx="6" fill="#0e1622" stroke="#f6a93b" stroke-width="1.6"/>
+<text x="336" y="246" class="lbl-s" fill="#f6a93b">img 1 024</text>
+<text x="596" y="246" class="lbl-s" fill="#f6a93b">img 1 024</text>
+<text x="856" y="246" class="lbl-s" fill="#f6a93b">img 1 024</text>
+<path d="M630,300 L556,300 L556,270" stroke="#5fe08a" stroke-width="1.4" fill="none" stroke-dasharray="5 4"/>
+<path d="M630,306 L816,306 L816,270" stroke="#5fe08a" stroke-width="1.4" fill="none" stroke-dasharray="5 4"/>
+<g class="lbl-s" fill="#7d8da1">
+<text x="160" y="286" text-anchor="middle">step 0</text>
+<text x="306" y="286" text-anchor="middle">step 1</text>
+<text x="572" y="286" text-anchor="middle">step 2</text>
+<text x="832" y="286" text-anchor="middle">step 3</text></g>
+<text x="40" y="360" class="eq">the canvas still attends to the references — through keys and values that were computed once</text>
+<text x="40" y="382" class="ax" fill="#7d8da1">measured speedup: 1.78× with one reference at 512², 2.66× with four, 1.21× / 1.85× at 1440²</text>
+</svg>
+</div>
+<figcaption><span class="figno">FIG 11</span><b>What the cache removes.</b> Top: the plain loop feeds
+15 876 reference tokens through every block at every step, at the current timestep. Bottom: the cached loop
+feeds them once, at <em>t</em>&nbsp;=&nbsp;0, keeps the keys and values each block produced, and afterwards sends
+only the 1 024 canvas tokens — which still attend to the references, but to a frozen version of them. The
+speedups quoted are the ones published for <code>flux.2-klein-9b-kv</code>.</figcaption>
+</figure>
+
+<h3>7.2 · What the cache costs</h3>
+<p>Keys and values are not free. Every block stores two tensors of
+<span class="mono">hidden_size</span> numbers per cached token, in bfloat16 — so four bytes per token per block
+for K and V together:</p>
+
+<div class="mathbox">
+bytes per cached token <span class="op">=</span> 2 <span class="op">×</span> hidden <span class="op">×</span> 2 bytes <span class="op">×</span> blocks
+<span class="op" style="padding-left:1.2em">=</span> 4 <span class="op">×</span> hidden <span class="op">×</span> (double <span class="op">+</span> single)
+</div>
+
+<div class="tbl-wrap">
+<table class="data">
+<thead><tr><th>Model</th><th class="num">hidden</th><th class="num">blocks</th><th class="num">bytes / token</th><th class="num">4 refs at 1024² (16 384 tokens)</th></tr></thead>
+<tbody>
+<tr><td><code>flux.2-dev</code></td><td class="num">6 144</td><td class="num">8 + 48</td><td class="num">1 376 256</td><td class="num">22.55 GB</td></tr>
+<tr><td><code>flux.2-klein-9b</code></td><td class="num">4 096</td><td class="num">8 + 24</td><td class="num">524 288</td><td class="num">8.59 GB</td></tr>
+<tr><td><code>flux.2-klein-4b</code></td><td class="num">3 072</td><td class="num">5 + 20</td><td class="num">307 200</td><td class="num">5.03 GB</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>Which is why the cached variant exists only for klein-9B: it is the configuration where the memory fits and
+the saving is largest. Four references at 512² mean the plain loop pushes <strong>17 408</strong> image-side
+tokens per step and the cached loop pushes <strong>1 024</strong>. Counting the 512 text tokens that both paths
+process, the whole sequence goes from 17 920 to 1 536 — a factor of 11.7 in tokens — and the published
+measurement is <strong>2.66×</strong> in wall-clock time, because the work that does not scale with the reference
+count still has to happen: the canvas's own attention, every MLP, and all of the modulation.</p>
+
+<div class="note idea">
+  <div class="nh">✦ Caching is a modelling choice wearing an optimisation's clothes <span class="spec">inference</span></div>
+  <p>Freezing the references at <em>t</em>&nbsp;=&nbsp;0 and refusing to let them see the canvas change is not
+  the same computation as <code>denoise</code> performs — the repository says so by shipping a separate
+  checkpoint, <code>flux.2-klein-9b-kv</code>, for the cached path. The two loops are not interchangeable and
+  the numbers they produce are not equal. Read §15 for what the sampler actually does at step 0, and the
+  <a href="index.html">model.py article</a> for what the cache contains block by block.</p>
+</div>
+</section>

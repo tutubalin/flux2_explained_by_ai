@@ -1,0 +1,270 @@
+<section id="denoise">
+<h2><span class="secno">§ 14</span>denoise — the plain loop</h2>
+<p class="section-intro">
+Thirty-nine lines, and the one that runs for every FLUX.2 checkpoint except the KV variant with references
+loaded. It is also the only one of the three where the references are re-processed from scratch at every step.
+</p>
+
+<!--CODE 269-307 title="sampling.py · denoise" hl="283,284,285,292,293,294,302,303,305"-->
+
+<!--TRACE-->
+<!--T 269-282|The signature, grouped by its own comments into the model, its inputs, the sampling parameters, and the optional extra image tokens. Every argument after <code>timesteps</code> is passed by keyword at the call site.-->
+<!--T 280-281|Both optional, both defaulting to <code>None</code> — and the loop asserts that you give either both or neither.-->
+<!--T 283|The guidance tensor, built once: one copy of the same float per batch element, on the image's device and in the image's dtype. For klein it is a number the model ignores (§6.3).-->
+<!--T 284|The whole schedule in one line: <code>zip</code> over the ladder with itself shifted by one, giving N pairs from N+1 times and stopping before the final 0.-->
+<!--T 285|A fresh time tensor per step — <code>t_vec</code> is rebuilt every iteration, in the image's dtype, which is where the bfloat16 rounding of §3.2 happens.-->
+<!--T 286-287|Two aliases, not two copies: <code>img_input</code> starts out as the same tensor as <code>img</code>.-->
+<!--T 288-291|If references were supplied, their ids must have been too; the assertion message says exactly that.-->
+<!--T 292-293|And they are appended to the canvas along the <em>sequence</em> axis, canvas first: the layout is [img, ref], and it is rebuilt every single step.-->
+<!--T 294-301|One call. No <code>num_ref_tokens</code> argument, so the model uses its default of 0 and treats the references as ordinary image tokens: fully bidirectional attention, at the current timestep.-->
+<!--T 302-303|The model returned a prediction for every token in the sequence, references included; this keeps the first <code>img.shape[1]</code> of them and discards the rest.-->
+<!--T 305|The Euler step of §3 — the only line that changes the image.-->
+<!--T 307|Returns the latent. Decoding is the caller's job.-->
+<!--/TRACE-->
+
+<h3>14.1 · What the model actually sees</h3>
+<p>Because no <code>num_ref_tokens</code> is passed, the references are not "conditioning" in any structural
+sense — they are extra image tokens. They attend to the canvas, the canvas attends to them, the text attends to
+both, and all of them are modulated by the same timestep vector. A reference photograph, which is a perfectly
+clean image, is processed as though it were as noisy as the half-finished canvas it is guiding.</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 1120 430" role="img" aria-label="Three horizontal bars showing what sequence the model receives. The plain loop sends canvas then references at every step. The cached loop sends references then canvas at step 0 and canvas alone afterwards, with the references served from a cache box. Bar widths are proportional to token counts: 1024 canvas tokens and 15876 reference tokens.">
+<defs><marker id="ly1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5fe08a"/></marker></defs>
+<text x="40" y="30" class="ttl">What goes into the network, at 512² with one reference photo</text>
+
+<text x="40" y="86" class="axb" fill="#7d8da1">denoise — every step, canvas first</text>
+<rect x="40" y="96" width="57" height="40" rx="6" fill="#4a3418" stroke="#f6a93b" stroke-width="1.6"/>
+<rect x="97" y="96" width="883" height="40" rx="6" fill="#2e2450" stroke="#b18cff" stroke-width="1.6"/>
+<text x="68" y="156" class="lbl-s" text-anchor="middle" fill="#f6a93b">img 1 024</text>
+<text x="538" y="156" class="lbl-s" text-anchor="middle" fill="#b18cff">ref 15 876 — recomputed from scratch, at the current t</text>
+
+<text x="40" y="196" class="axb" fill="#5fe08a">denoise_cached — step 0 only, references first</text>
+<rect x="40" y="206" width="883" height="40" rx="6" fill="#2e2450" stroke="#b18cff" stroke-width="1.6"/>
+<rect x="923" y="206" width="57" height="40" rx="6" fill="#4a3418" stroke="#f6a93b" stroke-width="1.6"/>
+<text x="481" y="266" class="lbl-s" text-anchor="middle" fill="#b18cff">ref 15 876 — frozen at t = 0, keys and values kept</text>
+<text x="951" y="266" class="lbl-s" text-anchor="middle" fill="#f6a93b">img</text>
+
+<text x="40" y="306" class="axb" fill="#5fe08a">denoise_cached — steps 1 to N−1</text>
+<rect x="40" y="316" width="57" height="40" rx="6" fill="#4a3418" stroke="#f6a93b" stroke-width="1.6"/>
+<rect x="130" y="316" width="330" height="40" rx="6" fill="#0e1622" stroke="#5fe08a" stroke-width="1.4" stroke-dasharray="6 4"/>
+<text x="146" y="341" class="lbl-m" fill="#5fe08a">kv_cache · K and V, per block</text>
+<path d="M97,336 L126,336" stroke="#5fe08a" stroke-width="1.8" marker-end="url(#ly1)"/>
+<text x="490" y="341" class="lbl-s" fill="#7d8da1">the canvas still attends to the references, through the cache</text>
+
+<text x="40" y="396" class="eq">94 % of the plain loop's image-side sequence is the photograph — and the model's prediction for it is thrown away</text>
+<text x="40" y="418" class="ax" fill="#7d8da1">the order differs between the two paths: denoise builds [img, ref], forward_kv_extract builds [ref, img]</text>
+</svg>
+</div>
+<figcaption><span class="figno">FIG 14</span><b>Three shapes of the same call.</b> Bar widths are proportional to
+token counts. The plain loop pays for all 16 900 image-side tokens at every step and keeps 1 024 predictions; the
+cached loop pays for all of them once, at a fixed timestep of 0, and then for 1 024 per step. Note that the two
+paths even disagree about the order — which is the kind of detail that only matters because the model strips
+different parts of the sequence in each case.</figcaption>
+</figure>
+
+<h3>14.2 · Three details worth knowing</h3>
+<p><strong>The slice is unconditional in practice.</strong> Line 302 tests
+<span class="mono">if img_input_ids is not None</span> — but <code>img_input_ids</code> is
+<code>img_ids</code>, which the caller always provides, so the test always passes. Without references the slice
+is a no-op (the prediction is already exactly <code>img.shape[1]</code> wide); with them it discards 15 876
+columns of computed predictions. The guard reads as if it were protecting against a missing-ids case that the
+signature does not allow.</p>
+<p><strong>The concatenation is rebuilt every step.</strong> <code>torch.cat</code> on lines 292–293 allocates a
+fresh 16 900-token tensor at each of the N iterations, copying the references every time. Since neither the
+reference tokens nor their ids change, that copy is pure overhead — small next to the transformer call, but not
+zero: at 512² with one reference it is 4.3 MB per step in bfloat16.</p>
+<p><strong>The model returns more than the sampler wants.</strong> <code>Flux2.forward</code> strips the text
+tokens but not the reference tokens, so the sampler has to. The cached path is the opposite:
+<code>forward_kv_extract</code> strips <em>both</em> before its final layer, which is why
+<code>denoise_cached</code> contains no slicing at all.</p>
+
+<div class="note beginner">
+  <div class="nh">▸ Why the ordinary forward pass builds a cache it throws away</div>
+  <p>In <a href="index.html"><code>model.py</code></a>, <code>Flux2.forward</code> runs its blocks through
+  <code>forward_kv_extract</code> with <code>num_ref_tokens=0</code> and assigns the returned cache to
+  <code>_</code>. One code path serves both modes: with zero reference tokens the "extract" is a no-op that costs
+  a few tensor slices, and the model does not need a second implementation of its own forward. The sampler never
+  sees any of this — it just calls <code>model(...)</code>.</p>
+</div>
+</section>
+
+<section id="denoisecached">
+<h2><span class="secno">§ 15</span>denoise_cached — the two-phase loop</h2>
+<p class="section-intro">
+Forty-six lines that look almost exactly like <code>denoise</code> and behave completely differently. The
+references enter the network once, at a timestep of zero, and every later step reads their keys and values out of
+a dictionary.
+</p>
+
+<!--CODE 310-355 title="sampling.py · denoise_cached" hl="318,319,321,328,331,332,339,343,350,353"-->
+
+<!--TRACE-->
+<!--T 310-320|The same arguments as <code>denoise</code>, with one crucial difference: <code>img_cond_seq</code> and its ids have no defaults. This loop cannot be called without references — there would be nothing to cache.-->
+<!--T 321-325|The docstring states the contract: step 0 extracts, steps 1+ reuse. It is the only loop in the file that documents its own schedule.-->
+<!--T 326|The guidance vector, built once, as in the plain loop — and as ignored by klein as it is there.-->
+<!--T 328|<code>enumerate</code> wrapped around the same <code>zip</code>, because the loop needs to know which step it is on.-->
+<!--T 329|The time tensor for this step.-->
+<!--T 331-341|Step 0: the full pass. The references go in as <code>x_seq_concat</code>, which the model puts <em>before</em> the canvas, and the call returns two things — the prediction and the cache.-->
+<!--T 342-351|Every later step: the canvas alone, plus the dictionary. No reference tokens, no reference ids, and no <code>ref_fixed_timestep</code> argument — so the model uses its default of 0.0 and the references stay frozen at "finished image".-->
+<!--T 350|The cache is read from a local that was assigned inside the other branch of the same <code>if</code>. It is guaranteed to exist, because step 0 always comes first.-->
+<!--T 353|The identical Euler step.-->
+<!--T 355|The identical return.-->
+<!--/TRACE-->
+
+<h3>15.1 · What is in the dictionary</h3>
+<p>The sampler treats <code>kv_cache</code> as an opaque object — it never indexes it, never inspects it, never
+copies it. Everything it contains is decided by <code>model.py</code>:</p>
+
+<div class="tbl-wrap">
+<table class="data">
+<thead><tr><th style="width:26%">Key</th><th>Contents</th></tr></thead>
+<tbody>
+<tr><td><code>double_blocks</code></td><td>One entry per double-stream block: the keys and values the reference
+    tokens produced in that block, for both of its two streams.</td></tr>
+<tr><td><code>single_blocks</code></td><td>One entry per single-stream block: the same, for the merged
+    sequence.</td></tr>
+<tr><td><code>num_ref_tokens</code></td><td>How many tokens those entries describe — the number the cached
+    forward needs in order to splice them back into the attention.</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>For klein-9B that is 32 entries of K and V over 15 876 tokens, which is the 524 288 bytes per token of §7.2 —
+8.59 GB for four references at 1024². The sampler's contribution to that cost is exactly zero lines of code: it
+holds the dictionary in a local variable and hands it back.</p>
+
+<div class="note warn">
+  <div class="nh">⚠ The two loops are not interchangeable</div>
+  <p>It is tempting to read <code>denoise_cached</code> as "the same thing, but faster". It is not the same
+  thing. In <code>denoise</code> the references are modulated at the current timestep and attend to the canvas as
+  it evolves; in <code>denoise_cached</code> they are modulated once at <em>t</em>&nbsp;=&nbsp;0 and their keys
+  and values never change. The two produce different numbers, which is why the repository ships a separate
+  checkpoint, <code>flux.2-klein-9b-kv</code>, for this path — and why the script chooses between them with
+  <span class="mono">model_info.get("use_kv_cache") and ref_tokens is not None</span> rather than offering a
+  flag.</p>
+</div>
+
+<div class="note idea">
+  <div class="nh">✦ Why step 0 is allowed to be expensive <span class="spec">inference</span></div>
+  <p>The first step of the cached loop is <em>more</em> work than a step of the plain loop: it processes the
+  references, the canvas and the text, and it stores K and V for every block on the way. The saving only starts
+  at step 1. With four steps that is one expensive step and three cheap ones — which is why the published
+  speedups are modest at four steps (1.78× with one reference) and why the trick is worth much more at fifty.
+  The measured numbers, from the repository's own benchmark document, are 1.78× and 2.66× at 512², and 1.21× and
+  1.85× at 1440², where the canvas is big enough that the references matter less.</p>
+</div>
+</section>
+
+<section id="denoisecfg">
+<h2><span class="secno">§ 16</span>denoise_cfg — the doubled loop</h2>
+<p class="section-intro">
+Forty-seven lines for the checkpoints that were not distilled: no guidance input, so guidance is performed from
+the outside, by running the unconditional and the conditional prompt through the network in one doubled batch and
+extrapolating between the two answers.
+</p>
+
+<!--CODE 364-410 title="sampling.py · denoise_cfg" hl="368,375,376,380,381,383,398,404,405,406,408,410"-->
+
+<!--TRACE-->
+<!--T 364-374|The same signature as <code>denoise</code>, but the comment on <code>txt</code> carries the whole protocol: the caller has already concatenated the empty prompt and the real one, so the text batch is twice the image batch before this function starts.-->
+<!--T 375-376|Doubling the image and its ids along the batch axis. Both halves are identical at this point — the difference between them is entirely in the text.-->
+<!--T 378-381|And the references, if there are any, doubled the same way, with their ids.-->
+<!--T 383|The same <code>zip</code> over the ladder.-->
+<!--T 384|The time tensor — now of size 2B, because <code>img.shape[0]</code> is the doubled batch.-->
+<!--T 386-390|References appended to each half of the batch, along the sequence axis, exactly as in <code>denoise</code>.-->
+<!--T 392-399|One call for both halves. <code>guidance=None</code> is passed explicitly: the network gets no dial, and the strength is applied outside it.-->
+<!--T 401-402|Strip the reference predictions from both halves.-->
+<!--T 404|Split the batch back into its two halves — unconditional first, because that is the order the caller concatenated them in.-->
+<!--T 405|The extrapolation of §6.2 and of <code>vanilla_guidance</code>, written inline.-->
+<!--T 406|And immediately duplicated again, so that the image tensor keeps the batch size the next iteration expects.-->
+<!--T 408|The same Euler step, applied to both halves — which are now identical, so the second one is redundant.-->
+<!--T 410|Returns the first half and discards the copy.-->
+<!--/TRACE-->
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 1120 400" role="img" aria-label="The doubled batch through one step of denoise_cfg. The image is duplicated, the text arrives already duplicated, one model call produces two predictions, they are combined by extrapolation, the result is duplicated again for the next iteration, and after the last step only one half is returned.">
+<defs><marker id="cf1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7d8da1"/></marker></defs>
+<text x="40" y="30" class="ttl">One step of denoise_cfg</text>
+
+<!-- inputs -->
+<rect x="40" y="60" width="200" height="40" rx="8" fill="#0e1622" stroke="#f6a93b" stroke-width="1.6"/>
+<text x="56" y="85" class="lbl-m" fill="#f6a93b">img · (1, N, 128)</text>
+<rect x="40" y="110" width="200" height="40" rx="8" fill="#0e1622" stroke="#35d6f0" stroke-width="1.6"/>
+<text x="56" y="135" class="lbl-m" fill="#35d6f0">ctx · (2, 512, D)</text>
+<text x="40" y="176" class="lbl-s" fill="#7d8da1">the text arrives already doubled:</text>
+<text x="40" y="194" class="lbl-s" fill="#7d8da1">row 0 = "", row 1 = your prompt</text>
+
+<!-- doubling -->
+<rect x="290" y="60" width="200" height="40" rx="8" fill="#0e1622" stroke="#f6a93b" stroke-width="1.6"/>
+<text x="306" y="85" class="lbl-m" fill="#f6a93b">img · (2, N, 128)</text>
+<path d="M244,80 L286,80" stroke="#7d8da1" stroke-width="1.6" marker-end="url(#cf1)"/>
+<text x="265" y="52" class="lbl-s" text-anchor="middle" fill="#7d8da1">cat</text>
+<path d="M244,130 L470,130 L470,104" stroke="#35d6f0" stroke-width="1.4" fill="none" opacity=".7"/>
+
+<!-- model -->
+<rect x="540" y="60" width="180" height="90" rx="10" fill="#0e1622" stroke="#f6a93b" stroke-width="1.8"/>
+<text x="556" y="88" class="lbl-m" fill="#f6a93b">model(...)</text>
+<text x="556" y="108" class="lbl-s" fill="#7d8da1">guidance = None</text>
+<text x="556" y="126" class="lbl-s" fill="#7d8da1">one call, two batches</text>
+<path d="M494,80 L536,80" stroke="#7d8da1" stroke-width="1.6" marker-end="url(#cf1)"/>
+
+<!-- pred -->
+<rect x="770" y="60" width="200" height="40" rx="8" fill="#0e1622" stroke="#ff7ab8" stroke-width="1.6"/>
+<text x="786" y="85" class="lbl-m" fill="#ff7ab8">pred · (2, N, 128)</text>
+<path d="M724,80 L766,80" stroke="#7d8da1" stroke-width="1.6" marker-end="url(#cf1)"/>
+
+<!-- combine -->
+<rect x="770" y="130" width="200" height="76" rx="8" fill="#0e1622" stroke="#ffd479" stroke-width="1.6"/>
+<text x="786" y="152" class="lbl-m" fill="#ffd479">chunk(2)</text>
+<text x="786" y="172" class="lbl-s" fill="#ffd479">u + w·(c − u)</text>
+<text x="786" y="192" class="lbl-s" fill="#7d8da1">→ (1, N, 128)</text>
+<path d="M870,104 L870,126" stroke="#7d8da1" stroke-width="1.6" marker-end="url(#cf1)"/>
+
+<!-- re-double -->
+<rect x="540" y="240" width="200" height="40" rx="8" fill="#0e1622" stroke="#ffd479" stroke-width="1.6"/>
+<text x="556" y="265" class="lbl-m" fill="#ffd479">pred · (2, N, 128)</text>
+<path d="M820,210 C760,240 760,258 744,258" stroke="#7d8da1" stroke-width="1.6" fill="none" marker-end="url(#cf1)"/>
+<text x="800" y="238" class="lbl-s" fill="#7d8da1">cat again, so the shapes match next time</text>
+
+<!-- euler -->
+<rect x="290" y="240" width="200" height="40" rx="8" fill="#0e1622" stroke="#5fe08a" stroke-width="1.6"/>
+<text x="306" y="265" class="lbl-m" fill="#5fe08a">img += (t_prev − t)·pred</text>
+<path d="M536,260 L494,260" stroke="#5fe08a" stroke-width="1.8" marker-end="url(#cf1)"/>
+
+<!-- loop back -->
+<path d="M290,260 C250,260 250,110 286,110" stroke="#5fe08a" stroke-width="1.4" fill="none" stroke-dasharray="6 4" opacity=".75"/>
+<text x="40" y="330" class="eq">after the last step: return img.chunk(2)[0] — both halves are identical, one is dropped</text>
+<text x="40" y="356" class="ax">cost per step: one call over 2N tokens. Same number of calls as denoise, twice the work in each.</text>
+</svg>
+</div>
+<figcaption><span class="figno">FIG 15</span><b>Guidance without a dial.</b> The batch is doubled once at the top
+of the function and stays doubled for the whole loop: two identical images, two different prompts, one call, two
+predictions, one extrapolation. The re-duplication on the way back is what keeps the shapes stable across
+iterations, and it means the second half of the batch is carried around, updated and then thrown away — a copy,
+not a computation.</figcaption>
+</figure>
+
+<h3>16.1 · Why the halves stay in step</h3>
+<p>After the combine, both halves of <code>img</code> hold the same numbers: line 406 duplicates the guided
+prediction, and line 408 adds it to both. From that point the two halves are identical, and they stay identical
+for the rest of the generation — the only thing that differs between them is the text they are paired with, which
+the network sees but the image does not.</p>
+
+<p>So the second half is redundant state. It costs a tensor copy per step and a doubled batch in the
+<em>next</em> call, which is not redundant at all: that call needs both halves, because guidance is a difference
+between two predictions and neither one can be computed without running its prompt. The alternative — keeping one
+image and duplicating it inside the loop — would allocate the same doubled tensor every step instead of once.
+<span class="spec">inference</span></p>
+
+<div class="note beginner">
+  <div class="nh">▸ The order of the halves is a contract, and it is written in a comment</div>
+  <p><code>pred_uncond, pred_cond = pred.chunk(2)</code> assumes the unconditional prediction is in row 0. Nothing
+  in this function enforces that; what enforces it is the caller, which builds
+  <span class="mono">ctx = torch.cat([ctx_empty, ctx_prompt], dim=0)</span> — empty first. Swap the two there and
+  every generation would be extrapolated in the wrong direction, away from the prompt, with no error and no
+  exception. The comment on line 368 exists to stop exactly that.</p>
+</div>
+</section>

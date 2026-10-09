@@ -18,11 +18,32 @@ CSS = """
 .lbl-mb{font-size:11px;fill:#35d6f0;font-weight:600}
 .ttl{font-size:14px;fill:#e8eef6;font-weight:800}
 .mono{}
-.ax{font-size:11px;fill:#8fa3b8}
-.axb{font-size:11.5px;fill:#e8eef6;font-weight:700}
+.ax{font-size:12.5px;fill:#b3c1d1}
+.axb{font-size:13px;fill:#e8eef6;font-weight:700}
 .big{font-size:17px;fill:#e8eef6;font-weight:800}
-.eq{font-size:12px;fill:#ffd479}
+.eq{font-size:11.6px;fill:#7d8da1}
 """
+
+# resvg does not apply the <style> class rules here, so mirror them as presentation
+# attributes (only where the element does not carry its own).
+CLASS = {
+    "lbl": ("#b3c1d1", "12.5", ""), "lbl-b": ("#e8eef6", "13", "700"),
+    "lbl-s": ("#7d8da1", "10.5", ""), "lbl-m": ("#7d8da1", "10.5", ""),
+    "lbl-mb": ("#35d6f0", "11", "600"), "ttl": ("#e8eef6", "14", "800"),
+    "ax": ("#b3c1d1", "12.5", ""), "axb": ("#e8eef6", "13", "700"),
+    "big": ("#e8eef6", "17", "800"), "eq": ("#7d8da1", "11.6", ""),
+}
+
+
+def _attrs(m):
+    tag = m.group(0)
+    cm = re.search(r'class="([^"]+)"', tag)
+    fill, size, weight = CLASS.get(cm.group(1).split()[0] if cm else "lbl", CLASS["lbl"])
+    for attr, val in (("fill", fill), ("font-size", size), ("font-weight", weight)):
+        if val and f"{attr}=" not in tag:
+            tag = tag[:-1].rstrip() + f' {attr}="{val}">'
+    return tag
+
 
 src = pathlib.Path(sys.argv[1]).read_text()
 outdir = pathlib.Path(sys.argv[2] if len(sys.argv) > 2 else "qa"); outdir.mkdir(parents=True, exist_ok=True)
@@ -47,6 +68,7 @@ for i, s in enumerate(svgs):
         mono = bool(re.search(r'class="[^"]*(?:lbl-m|lbl-mb|eq|mono)[^"]*"', tag))
         fam = "DejaVu Sans Mono" if mono else "DejaVu Sans"
         return tag[:-1].rstrip() + f' font-family="{fam}">'
+    s = re.sub(r"<text\b[^>]*>", _attrs, s)
     s = re.sub(r"<text\b[^>]*>", _fam, s)
     idx = s.index(">") + 1
     s = s[:idx] + f"<style>{CSS}</style>" + s[idx:]

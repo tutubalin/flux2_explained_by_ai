@@ -1,0 +1,157 @@
+<section id="euler">
+<h2><span class="secno">§ 3</span>One line of arithmetic: the Euler step</h2>
+<p class="section-intro">
+Fifty network calls produce fifty predictions. The image is what you get by adding them up — and "adding them
+up" is a single line, repeated verbatim in all three loops of this file. It is the only place where the
+schedule of §2 touches a pixel.
+</p>
+
+<div class="mathbox">
+<span class="mm">img</span> <span class="op">=</span> <span class="mm">img</span> <span class="op">+</span> (<span class="mm">t_prev</span> <span class="op">−</span> <span class="mm">t_curr</span>) <span class="op">·</span> <span class="mm">pred</span>
+<span class="op" style="padding-left:2em">(</span><span class="mm">t_prev</span> <span class="op">−</span> <span class="mm">t_curr</span><span class="op">)</span> <span class="op">&lt;</span> 0, always
+</div>
+
+<p>Three facts make this line readable. First, <code>pred</code> is the network's estimate of the
+<em>velocity</em> — the direction from the clean image toward the noise, <span class="mono">v ≈ x₁ − x₀</span>,
+which is what a rectified-flow model is trained to output. Second, the ladder of §2 descends, so
+<span class="mono">t_prev − t_curr</span> is negative and the product points <em>against</em> the velocity:
+toward the image. Third, the size of that negative number is the stride, and it is the whole contribution of
+the schedule.</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 1120 330" role="img" aria-label="The geometry of one Euler step. The velocity arrow spans the whole path from image to noise. At t = 0.763 the step moves the state backwards along the same line by 0.183 of that length, landing at t = 0.580.">
+<defs><marker id="eA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#f6a93b"/></marker>
+<marker id="eP" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#ff7ab8"/></marker></defs>
+<text x="40" y="32" class="ttl">One step of the eight-step schedule, drawn to scale</text>
+
+<!-- the velocity, drawn at full path length -->
+<line x1="80" y1="96" x2="1040" y2="96" stroke="#f6a93b" stroke-width="2.6" marker-end="url(#eA)"/>
+<text x="560" y="80" class="axb" text-anchor="middle" fill="#f6a93b">pred = v ≈ x₁ − x₀ — the full length of the path</text>
+
+<!-- the path itself -->
+<line x1="80" y1="190" x2="1040" y2="190" stroke="#2e4054" stroke-width="2"/>
+<circle cx="80" cy="190" r="8" fill="#f6a93b"/><circle cx="1040" cy="190" r="8" fill="#7d8da1"/>
+<text x="80" y="232" class="axb" text-anchor="middle">t = 0</text>
+<text x="1040" y="232" class="axb" text-anchor="middle">t = 1</text>
+
+<!-- current state and the hop -->
+<circle cx="767" cy="190" r="10" fill="#0c1119" stroke="#ff7ab8" stroke-width="3"/>
+<text x="767" y="166" class="ax" text-anchor="middle">x at t = 0.763</text>
+<line x1="757" y1="190" x2="612" y2="190" stroke="#ff7ab8" stroke-width="4" marker-end="url(#eP)"/>
+<circle cx="602" cy="190" r="10" fill="#0c1119" stroke="#ffd479" stroke-width="3"/>
+<text x="602" y="166" class="ax" text-anchor="middle">x at t = 0.580</text>
+<line x1="767" y1="200" x2="767" y2="256" stroke="#ff7ab8" stroke-width="1.2" stroke-dasharray="4 3"/>
+<line x1="602" y1="200" x2="602" y2="256" stroke="#ffd479" stroke-width="1.2" stroke-dasharray="4 3"/>
+<text x="684" y="276" class="eq" text-anchor="middle">img = img + (0.580 − 0.763)·pred  =  img − 0.183·pred</text>
+<text x="684" y="300" class="ax" text-anchor="middle" fill="#7d8da1">0.183 of the path length, because the path is straight and v is constant along it</text>
+</svg>
+</div>
+<figcaption><span class="figno">FIG 6</span><b>The step, to scale.</b> The amber arrow is what the network
+returns: a velocity whose natural length is the entire distance from image to noise. The pink arrow is what the
+loop does with it — scales it by the stride and adds it, moving backwards. On a perfectly straight path this is
+exact, not approximate: the drawing is to scale because for a straight path the state at time <em>t</em> really
+is a fraction <em>t</em> of the way along.</figcaption>
+</figure>
+
+<div class="note proof">
+  <div class="nh">◆ Why one step would be enough on a straight path</div>
+  <p>Suppose the path really is the straight line <span class="mono">x(t) = (1−t)·x₀ + t·x₁</span>, so the
+  velocity is the constant <span class="mono">v = x₁ − x₀</span>. Start at noise, <em>t</em>&nbsp;=&nbsp;1, and
+  take one step with <span class="mono">t_prev − t_curr = 0 − 1 = −1</span>:</p>
+  <div class="mathblk">
+  <span class="mm">x</span><sub>1</sub> <span class="op">+</span> (−1)·(<span class="mm">x</span><sub>1</sub> <span class="op">−</span> <span class="mm">x</span><sub>0</sub>)
+  <span class="op">=</span> <span class="mm">x</span><sub>1</sub> <span class="op">−</span> <span class="mm">x</span><sub>1</sub> <span class="op">+</span> <span class="mm">x</span><sub>0</sub>
+  <span class="op">=</span> <span class="mm">x</span><sub>0</sub>
+  </div>
+  <p>Exactly the image, in one call. Every extra step exists for one reason only: the learned velocity field is
+  not perfectly straight and not perfectly predicted, so the sampler re-asks along the way and corrects. This is
+  also why the strides of §2 must sum to −1 — the loop has to travel the whole path, no more.
+  <b style="color:var(--ref)">VERIFIED</b>: for the 4-, 8-, 28- and 50-step ladders the sum of
+  <span class="mono">t_prev − t_curr</span> is −1.0000000 in every case.</p>
+</div>
+
+<h3>3.1 · The same line, three times</h3>
+<p>There is no solver abstraction, no step function, no scheduler object. Each of the three loops ends with its
+own copy of the update, written out in full:</p>
+
+<div class="tbl-wrap">
+<table class="data">
+<thead><tr><th style="width:22%">Loop</th><th style="width:12%">Line</th><th>What surrounds it</th></tr></thead>
+<tbody>
+<tr><td><code>denoise</code></td><td class="m">305</td>
+    <td><code>img = img + (t_prev - t_curr) * pred</code> — after one call that may have carried reference tokens,
+    whose predictions were just thrown away (§14).</td></tr>
+<tr><td><code>denoise_cached</code></td><td class="m">353</td>
+    <td>The same line, reached either from <code>forward_kv_extract</code> (step 0) or
+    <code>forward_kv_cached</code> (every step after) — the arithmetic does not care which (§15).</td></tr>
+<tr><td><code>denoise_cfg</code></td><td class="m">408</td>
+    <td>The same line, but <code>pred</code> has already been combined from two halves of a doubled batch
+    (§16).</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>That triplication is a deliberate trade: the three loops differ in <em>what they feed the model</em> and
+<em>what they do with the answer</em>, and each is short enough to read top to bottom in thirty seconds. There
+is no shared base class to go and look at.</p>
+
+<h3>3.2 · The time the model is told, and the time the model receives</h3>
+<p>One detail of this line's neighbourhood matters more than it looks. The stride
+<span class="mono">t_prev − t_curr</span> is computed from Python floats and keeps full precision. But the time
+handed <em>to the network</em> is cast first:</p>
+
+<div class="mathbox">
+<span class="mm">t_vec</span> <span class="op">=</span> torch.full((B,), <span class="mm">t_curr</span>, dtype=<span class="mm">img</span>.dtype)
+<span class="op" style="padding-left:1.6em">and img.dtype is bfloat16</span>
+</div>
+
+<p>bfloat16 carries an 8-bit significand, so between 0.5 and 1.0 the representable times are spaced
+<span class="mono">2<sup>−8</sup> = 0.00390625</span> apart. Near <em>t</em>&nbsp;=&nbsp;1 the schedule's strides
+are much finer than that — at 2048×2048 with 50 steps the first stride is 0.0008 — so several consecutive rungs
+of the ladder land on the <em>same</em> bfloat16 number.</p>
+
+<div class="note warn">
+  <div class="nh">⚠ At 4 megapixels the model cannot tell the first few steps apart</div>
+  <p><b style="color:var(--ref)">VERIFIED</b> by rounding each queried time to bfloat16 exactly as
+  <code>torch.full</code> would:</p>
+  <div class="tbl-wrap" style="margin:12px 0 4px">
+  <table class="data">
+  <thead><tr><th>Schedule</th><th class="num">times queried</th><th class="num">distinct after the bf16 cast</th><th>Longest run of identical values</th></tr></thead>
+  <tbody>
+  <tr><td>4 steps · 1024²</td><td class="num">4</td><td class="num">4</td><td class="m">none</td></tr>
+  <tr><td>8 steps · 1024²</td><td class="num">8</td><td class="num">8</td><td class="m">none</td></tr>
+  <tr><td>50 steps · 1024²</td><td class="num">50</td><td class="num">48</td><td class="m">2 (0.9973 and 0.9945 → 0.99609375)</td></tr>
+  <tr><td>50 steps · 2048²</td><td class="num">50</td><td class="num">34</td><td class="m">4 (0.99748 … 0.99657 → 0.99609375)</td></tr>
+  </tbody>
+  </table>
+  </div>
+  <p>At 2048² the first three calls all arrive as <em>t</em>&nbsp;=&nbsp;1.0 exactly, so the timestep embedding —
+  and with it every modulation the network applies — is identical for those three steps. Only the image differs.
+  Whether that costs quality is not something this file can answer; it is a consequence of running the loop in
+  bfloat16, and it is invisible unless you look for it. <span class="spec">inference</span></p>
+</div>
+
+<h3>3.3 · What the step does not do</h3>
+<div class="tbl-wrap">
+<table class="data">
+<thead><tr><th style="width:34%">Not here</th><th>Consequence</th></tr></thead>
+<tbody>
+<tr><td><strong>No clipping or renormalising</strong></td>
+    <td>The latent is never projected back onto a plausible range. Nothing stops an over-guided run from
+    drifting; the guard is the guidance value itself (§6).</td></tr>
+<tr><td><strong>No added noise</strong></td>
+    <td>The trajectory is deterministic — an ODE solve, not an SDE. The only randomness in a generation is the
+    initial <code>randn</code>.</td></tr>
+<tr><td><strong>No solver memory</strong></td>
+    <td>Previous predictions are never reused (no Heun, no DPM-Solver multistep). Each step is a fresh
+    first-order estimate, which is what makes the KV-cache path of §15 possible: nothing about the solver state
+    has to be kept consistent between two different call shapes.</td></tr>
+<tr><td><strong>No partial-image tricks</strong></td>
+    <td>No inpainting mask, no latent blending, no img2img start at <em>t</em>&nbsp;&lt;&nbsp;1 — although
+    starting the ladder lower would be all it took, since the loop only ever reads
+    <code>timesteps</code>.</td></tr>
+</tbody>
+</table>
+</div>
+</section>

@@ -1,0 +1,111 @@
+<div id="wrap">
+<aside id="toc">
+  <div class="brand">
+    <div class="brand-mark">F2</div>
+    <div>
+      <div class="brand-name">FLUX.2 sampling.py</div>
+      <div class="brand-sub">EVERY LINE, EXPLAINED</div>
+    </div>
+  </div>
+  <nav>
+    <div class="toc-h">Part 1 · Pure theory</div>
+    <a href="#outside">1 · The loop around the network</a>
+    <a href="#schedule">2 · The schedule: which times to ask about</a>
+    <a class="sub" href="#s-naive">2.1 · The obvious ladder</a>
+    <a class="sub" href="#s-shift">2.2 · Bending the ladder</a>
+    <a class="sub" href="#s-mu">2.3 · Where the bend comes from</a>
+    <a class="sub" href="#s-ladders">2.4 · What the ladders look like</a>
+    <a href="#euler">3 · One line of arithmetic: the Euler step</a>
+    <a href="#addresses">4 · Addresses: four numbers per token</a>
+    <a href="#refprep">5 · Reference images: from JPEG to tokens</a>
+    <a href="#guided">6 · Two ways to be guided</a>
+    <a href="#cacheloop">7 · Caching at the loop level</a>
+
+    <div class="toc-h">Part 2 · Code overview</div>
+    <a href="#smap">8 · The file at a glance</a>
+
+    <div class="toc-h">Part 3 · The small parts</div>
+    <a href="#posmach">9 · The position machinery</a>
+    <a class="sub" href="#p-compress">9.1 · compress_time</a>
+    <a class="sub" href="#p-scatter">9.2 · scatter_ids</a>
+    <a class="sub" href="#p-prc">9.3 · prc_txt and prc_img</a>
+    <a class="sub" href="#p-wrappers">9.4 · The two wrappers</a>
+    <a href="#imgprep">10 · The image-preparation chain</a>
+    <a class="sub" href="#p-rgb">10.1 · to_rgb and cap_min_pixels</a>
+    <a class="sub" href="#p-cap">10.2 · cap_pixels</a>
+    <a class="sub" href="#p-crop">10.3 · center_crop_to_multiple_of_x</a>
+    <a class="sub" href="#p-prep">10.4 · default_prep</a>
+    <a class="sub" href="#p-concat">10.5 · concatenate_images</a>
+    <a href="#unused">11 · vanilla_guidance — the function nobody calls</a>
+
+    <div class="toc-h">Part 4 · The big pieces</div>
+    <a href="#schedcode">12 · The schedule, in code</a>
+    <a class="sub" href="#p-shift">12.1 · generalized_time_snr_shift</a>
+    <a class="sub" href="#p-getsched">12.2 · get_schedule</a>
+    <a class="sub" href="#p-mu">12.3 · compute_empirical_mu</a>
+    <a href="#encoderefs">13 · encode_image_refs</a>
+    <a href="#denoise">14 · denoise — the plain loop</a>
+    <a href="#denoisecached">15 · denoise_cached — the two-phase loop</a>
+    <a href="#denoisecfg">16 · denoise_cfg — the doubled loop</a>
+
+    <div class="toc-h">Part 5 · Zooming back out</div>
+    <a href="#endtoend">17 · From the command line to a PNG</a>
+    <a href="#sdesign">18 · Why it looks like this</a>
+    <a href="#scheatsheet">19 · Complete cheat sheet</a>
+    <a href="#srefs">20 · References</a>
+  </nav>
+</aside>
+
+<main>
+<header class="hero">
+  <div class="kicker">A complete walkthrough · black-forest-labs/flux2 · src/flux2/sampling.py</div>
+  <h1 class="title">FLUX.2, <span class="mono">sampling.py</span>,<br>every single line.</h1>
+  <p class="lede">
+    <code>model.py</code> is <strong>one function call</strong>: give it tokens, a time and a prompt, get back a
+    direction. This is the 442-line file that lives around that call — it decides <strong>how many times</strong>
+    to make it, <strong>at which times</strong>, <strong>what to put next to the noise</strong>, and
+    <strong>what to do with the answers</strong>. Nothing here has a single trainable parameter, and yet every
+    choice in this file changes the picture you get.
+  </p>
+  <p class="lede" style="font-size:16.5px">
+    It is the companion to <a href="index.html"><strong>FLUX.2 <span class="mono">model.py</span>, every line
+    explained</strong></a>, and it is written to be read on its own: Part 1 explains the sampler from zero with
+    pictures and no source code at all, and Parts 3 and 4 then walk through all 442 lines.
+  </p>
+
+  <div class="statgrid">
+    <div class="stat a"><div class="n">442</div><div class="l">lines of Python</div></div>
+    <div class="stat b"><div class="n">21</div><div class="l">top-level functions</div></div>
+    <div class="stat c"><div class="n">0</div><div class="l">classes</div></div>
+    <div class="stat d"><div class="n">3</div><div class="l">denoising loops</div></div>
+    <div class="stat e"><div class="n">0</div><div class="l">trainable parameters</div></div>
+    <div class="stat a"><div class="n">1</div><div class="l">function nothing ever calls</div></div>
+  </div>
+
+  <div class="note proof" style="margin-top:26px">
+    <div class="nh">◆ How this article was checked</div>
+    <p>Every claim marked <b style="color:var(--ref)">VERIFIED</b> came from <em>running</em> the code. The file
+    reproduced here is byte-identical to the upstream source — its git blob hash is
+    <code>1b581083d2bd603ef3eb79605ee5321fc36bff01</code>, matching
+    <code>black-forest-labs/flux2@main</code>. Every schedule printed in this article was produced by calling
+    <code>get_schedule</code> and <code>compute_empirical_mu</code> themselves; the pixel budgets, crops and token
+    counts were produced by calling <code>cap_pixels</code> and
+    <code>center_crop_to_multiple_of_x</code>; and the claim that the timestep shift is a translation in logit
+    space was checked to 10<sup>−12</sup> at sixteen points. The script is
+    <code>src/ref/verify_sampling.py</code> in this repository, and it runs on every build.</p>
+    <p>Six more checks run on every build, because this page quotes real source line numbers all the way
+    through, and any one of them stops the build. <code>qa_trace.py</code> verifies that every line-by-line
+    annotation points at lines containing the identifiers it talks about; <code>qa_coverage.py</code> verifies
+    that all 348 non-blank lines of the file are shown somewhere; <code>qa_linerefs.py</code> checks every place
+    where the prose cites a line number against what really sits on that line; <code>qa_xrefs.py</code> resolves
+    every "see §12.3" and "FIG 7"; <code>qa_order.py</code> fails if any chapter tells the reader they have
+    already met something a later chapter explains; and <code>verify_sampling.py</code> re-derives every number
+    quoted here from the source and then looks for it in the finished page. The same six gates build
+    <a href="index.html">the model.py article</a> — the two pages share one stylesheet, one builder and one
+    checker suite.</p>
+    <p>One convention to know: numbers and structure are checked against the code, but the file carries almost
+    no comments, so a statement about <em>why</em> the authors chose something is marked
+    <span class="spec">inference</span>. The page carries <!--SPECCOUNT--> of these badges, this one included —
+    everything else in it is in the source or in the published papers listed in §20.</p>
+  </div>
+</header>
