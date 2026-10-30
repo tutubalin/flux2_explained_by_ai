@@ -1,0 +1,564 @@
+<section id="rope">
+<h2><span class="secno">§ 8</span>Position: the four-axis rotary embedding</h2>
+<p class="section-intro">
+§6 ended on attention's blind spot: a dot product cannot see order. Feed the same tokens shuffled and
+the scores shuffle with them — nothing in the mechanism knows which token came first, or which patch
+sits next to which. Everything spatial about an image, and everything sequential about a sentence, must
+be injected deliberately, into q and k, <em>before</em> attention runs. FLUX.2 does it with
+<strong>RoPE</strong>, extended to four axes at once.
+</p>
+
+<h3>8.1 · RoPE in one paragraph — and three pictures</h3>
+<p>Attention scores are dot products: <code>score = ⟨q, k⟩</code>. And a dot product is blind to order —
+shuffle the tokens and the scores shuffle with them, without ever changing value. Position therefore
+has to be baked into <code>q</code> and <code>k</code> themselves, and there are two classic ways to do
+that. You can <em>add</em> a position vector to each token — but then content and position occupy the
+same directions and the model must learn to untangle them. Or you can <em>rotate</em> each vector by an
+angle that depends on its position. That second idea is RoPE — Rotary Position Embedding
+(<a href="#refs">Su et al., 2021</a>) — and it is the better choice for one beautiful reason: rotating
+a vector changes where it points without changing what it is.</p>
+
+<div class="mathbox">
+<span class="mm">R(p·ω)</span> <span class="op">=</span>
+<span class="mbrack">[</span><span class="mat"><span>cos pω</span><span>−sin pω</span><span>sin pω</span><span>cos pω</span></span><span class="mbrack">]</span>
+<span class="op" style="padding-left:1.6em">a 2×2 rotation matrix (rows: cos, −sin / sin, cos), applied to q and k in one plane</span>
+</div>
+
+<p>Two facts about rotations then do all the work. <b>Rotations preserve length</b>, so a rotated token
+keeps exactly the same "loudness" — position can never amplify or silence content. And <b>rotations
+compose by adding angles</b>: turn by <em>a</em>, then by <em>b</em>, and you have turned by
+<em>a + b</em>; the transpose of a rotation is simply the same rotation run backwards,
+<span class="mm">Rᵀ = R(−θ)</span>. Feed those two facts into the attention score and the absolute
+positions cancel out of the equation:</p>
+
+<div class="mathbox">
+<span class="mm">⟨R<sub>p</sub> q, R<sub>p′</sub> k⟩</span> <span class="op">=</span>
+<span class="mm">qᵀ R<sub>p</sub>ᵀ R<sub>p′</sub> k</span> <span class="op">=</span>
+<span class="mm">qᵀ R<sub>(p′−p)</sub> k</span>
+<span class="op" style="padding-left:1.6em">← one rotation, by the gap</span><br>
+<span class="op">so the score depends on p′ − p and on the two tokens' content — never on where either one sits</span>
+</div>
+
+<p>That line is the whole trick, and it is worth reading twice. The model never tells attention
+"you are at position 4096"; it turns each vector by an angle proportional to 4096, and lets the
+<em>difference</em> of two turns carry the only information the score needs: <b>how far apart these two
+tokens are</b>. Zero learned parameters, no maximum sequence length, nothing to look up in a table.</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 1040 320" role="img" aria-label="Two panels: a query and key rotated by their positions, and the same pair shifted by seven positions; the angle between the vectors, and hence the attention score, is identical in both.">
+<text x="40" y="28" class="ttl">What survives is the gap, not the position</text>
+
+<rect x="40" y="44" width="460" height="232" rx="12" fill="#0e1622" stroke="#2e4054"/>
+<rect x="540" y="44" width="460" height="232" rx="12" fill="#0e1622" stroke="#2e4054"/>
+<text x="60" y="70" class="axb">tokens at p = 3 and p = 11</text>
+<text x="560" y="70" class="axb">the same pair, shifted +7</text>
+
+<circle cx="210" cy="160" r="72" fill="none" stroke="#2e4054" stroke-width="1.4"/>
+<line x1="210" y1="160" x2="256.3" y2="104.8" stroke="#f6a93b" stroke-width="2.6" marker-end="url(#arA)"/>
+<line x1="210" y1="160" x2="154.8" y2="113.7" stroke="#35d6f0" stroke-width="2" marker-end="url(#arC)"/>
+<path d="M235.7,129.4 A40,40 0 0 0 179.4,134.3" fill="none" stroke="#ff7ab8" stroke-width="1.6" stroke-dasharray="4 3"/>
+<text x="262" y="100" class="eq">q at p = 3</text>
+<text x="148" y="110" class="eq" text-anchor="end">k at p = 11</text>
+<text x="210" y="252" class="ax" text-anchor="middle">gap = 8 → relative angle 8·ω + (α−β)</text>
+<text x="210" y="268" class="eq" text-anchor="middle">the score sees only this angle</text>
+
+<text x="520" y="170" class="big" text-anchor="middle">=</text>
+
+<circle cx="710" cy="160" r="72" fill="none" stroke="#2e4054" stroke-width="1.4"/>
+<line x1="710" y1="160" x2="707.5" y2="88.0" stroke="#f6a93b" stroke-width="2.6" marker-end="url(#arA)"/>
+<line x1="710" y1="160" x2="638.0" y2="162.5" stroke="#35d6f0" stroke-width="2" marker-end="url(#arC)"/>
+<path d="M708.6,120.0 A40,40 0 0 0 670.0,161.4" fill="none" stroke="#ff7ab8" stroke-width="1.6" stroke-dasharray="4 3"/>
+<text x="718" y="84" class="eq">q at p = 10</text>
+<text x="630" y="178" class="eq" text-anchor="end">k at p = 18</text>
+<text x="710" y="252" class="ax" text-anchor="middle">gap = 8 → the same relative angle</text>
+<text x="710" y="268" class="eq" text-anchor="middle">so the score is unchanged, exactly</text>
+
+<text x="40" y="306" class="ax">both vectors spun by the same extra 7·ω — the angle between them, and therefore the attention score, is untouched</text>
+</svg>
+</div>
+<figcaption><span class="figno">FIG 13</span><b>The relative-angle trick.</b> Left: a query at position 3 and a key at
+position 11, each rotated by its own position times ω. Right: the same pair moved seven positions along —
+both vectors spin by the same extra angle, so the angle <em>between</em> them never changes, and neither
+does the attention score. Absolute position cancels out of the equation; distance stays in it.</figcaption>
+</figure>
+
+<p>One plane, though, would not be enough. A head pairs its 128 dimensions into 64 rotation planes.
+In FLUX.2 those planes come in four groups of 16 — one group per position axis (§8.2) — and within a
+group the planes run at speeds <span class="mm">ωⱼ = θ^(−2j/32)</span>, j = 0…15: a geometric ladder
+from <span class="mm">ω₀ = 1</span> (a full turn every 6.28 positions on that axis) down to
+<span class="mm">ω₁₅ = 1/θ^(30/32) ≈ 0.0008</span> (barely moving at all). The score is the sum of 64
+such contributions, one per plane: <span class="mm">cos((p′−p)·ω + φ)</span>. A fast plane is a minute hand: exquisitely precise about
+small gaps, but it returns to the same angle every period, so gap 0 and gap 6.28 look identical to it —
+it <em>aliases</em>. A slow plane is an hour hand: never ambiguous, far too coarse to tell neighbours
+apart. Summed together, the ladder gives every gap its own fingerprint.</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 1040 320" role="img" aria-label="Three cosine curves over position gap: a fast plane oscillates and aliases, a slow plane is nearly flat, and only their sum across 64 planes identifies each gap uniquely.">
+<text x="40" y="28" class="ttl">One plane aliases — the ladder of 64 does not</text>
+
+<rect x="520" y="44" width="10" height="10" fill="#f6a93b"/>
+<text x="536" y="53" class="eq">plane 0 · period 6.3</text>
+<rect x="690" y="44" width="10" height="10" fill="#b18cff"/>
+<text x="706" y="53" class="eq">plane 3 · period 26</text>
+<rect x="860" y="44" width="10" height="10" fill="#35d6f0"/>
+<text x="876" y="53" class="eq">plane 7 · period 175</text>
+
+<line x1="80" y1="140" x2="1000" y2="140" stroke="#22303f" stroke-dasharray="4 4"/>
+<line x1="80" y1="214" x2="1000" y2="214" stroke="#2e4054"/>
+<text x="72" y="84" class="eq" text-anchor="end">+1</text>
+<text x="72" y="144" class="eq" text-anchor="end">0</text>
+<text x="72" y="204" class="eq" text-anchor="end">−1</text>
+<text x="80" y="230" class="eq" text-anchor="middle">0</text>
+<text x="310" y="230" class="eq" text-anchor="middle">16</text>
+<text x="540" y="230" class="eq" text-anchor="middle">32</text>
+<text x="770" y="230" class="eq" text-anchor="middle">48</text>
+<text x="1000" y="230" class="eq" text-anchor="middle">64</text>
+<text x="540" y="254" class="ax" text-anchor="middle">position gap  p′ − p</text>
+
+<polyline points="80.0,80.0 87.2,87.3 94.4,107.6 101.6,135.8 108.8,165.0 115.9,188.1 123.1,199.4 130.3,196.2 137.5,179.2 144.7,152.6 151.9,123.0 159.1,97.5 166.2,82.4 173.4,81.4 180.6,94.8 187.8,119.2 195.0,148.7 202.2,176.1 209.4,194.7 216.6,199.8 223.8,190.3 230.9,168.5 238.1,139.7 245.3,111.0 252.5,89.4 259.7,80.1 266.9,85.6 274.1,104.3 281.2,131.8 288.4,161.3 295.6,185.6 302.8,198.7 310.0,197.5 317.2,182.1 324.4,156.5 331.6,126.8 338.8,100.4 345.9,83.6 353.1,80.7 360.3,92.3 367.5,115.5 374.7,144.8 381.9,172.9 389.1,192.9 396.2,200.0 403.4,192.4 410.6,172.0 417.8,143.7 425.0,114.5 432.2,91.6 439.4,80.5 446.6,84.0 453.8,101.2 460.9,127.9 468.1,157.5 475.3,182.9 482.5,197.8 489.7,198.5 496.9,184.9 504.1,160.3 511.2,130.7 518.4,103.5 525.6,85.1 532.8,80.2 540.0,89.9 547.2,111.9 554.4,140.8 561.6,169.5 568.8,190.9 575.9,199.9 583.1,194.2 590.3,175.3 597.5,147.7 604.7,118.2 611.9,94.1 619.1,81.2 626.2,82.7 633.4,98.2 640.6,124.0 647.8,153.7 655.0,180.0 662.2,196.6 669.4,199.2 676.6,187.4 683.8,164.0 690.9,134.7 698.1,106.7 705.3,86.8 712.5,80.0 719.7,87.9 726.9,108.5 734.1,136.8 741.2,165.9 748.4,188.7 755.6,199.5 762.8,195.8 770.0,178.4 777.2,151.6 784.4,122.0 791.6,96.7 798.8,82.1 805.9,81.6 813.1,95.5 820.3,120.2 827.5,149.8 834.7,177.0 841.9,195.1 849.1,199.7 856.2,189.8 863.4,167.6 870.6,138.7 877.8,110.1 885.0,88.8 892.2,80.1 899.4,86.0 906.6,105.2 913.8,132.8 920.9,162.3 928.1,186.3 935.3,198.9 942.5,197.1 949.7,181.4 956.9,155.5 964.1,125.8 971.2,99.6 978.4,83.3 985.6,80.8 992.8,92.9 1000.0,116.5" fill="none" stroke="#f6a93b" stroke-width="1.5" opacity=".85"/>
+<polyline points="80.0,80.0 87.2,80.4 94.4,81.7 101.6,83.9 108.8,86.8 115.9,90.5 123.1,94.9 130.3,100.0 137.5,105.7 144.7,111.8 151.9,118.4 159.1,125.3 166.2,132.3 173.4,139.5 180.6,146.7 187.8,153.8 195.0,160.7 202.2,167.3 209.4,173.6 216.6,179.3 223.8,184.4 230.9,188.9 238.1,192.8 245.3,195.8 252.5,198.0 259.7,199.4 266.9,200.0 274.1,199.7 281.2,198.5 288.4,196.5 295.6,193.6 302.8,190.0 310.0,185.7 317.2,180.7 324.4,175.1 331.6,169.0 338.8,162.5 345.9,155.6 353.1,148.6 360.3,141.4 367.5,134.2 374.7,127.1 381.9,120.1 389.1,113.5 396.2,107.2 403.4,101.4 410.6,96.2 417.8,91.6 425.0,87.7 432.2,84.5 439.4,82.2 446.6,80.7 453.8,80.0 460.9,80.2 468.1,81.3 475.3,83.2 482.5,86.0 489.7,89.5 496.9,93.7 504.1,98.7 511.2,104.2 518.4,110.2 525.6,116.7 532.8,123.5 540.0,130.5 547.2,137.7 554.4,144.9 561.6,152.0 568.8,159.0 575.9,165.7 583.1,172.0 590.3,177.8 597.5,183.2 604.7,187.8 611.9,191.8 619.1,195.1 626.2,197.5 633.4,199.2 640.6,199.9 647.8,199.8 655.0,198.9 662.2,197.1 669.4,194.4 676.6,191.0 683.8,186.8 690.9,182.0 698.1,176.6 705.3,170.6 712.5,164.2 719.7,157.4 726.9,150.4 734.1,143.3 741.2,136.0 748.4,128.9 755.6,121.9 762.8,115.2 770.0,108.8 777.2,102.9 784.4,97.5 791.6,92.7 798.8,88.6 805.9,85.3 813.1,82.7 820.3,81.0 827.5,80.1 834.7,80.1 841.9,81.0 849.1,82.7 856.2,85.2 863.4,88.5 870.6,92.6 877.8,97.3 885.0,102.7 892.2,108.6 899.4,115.0 906.6,121.7 913.8,128.7 920.9,135.8 928.1,143.0 935.3,150.2 942.5,157.2 949.7,164.0 956.9,170.4 964.1,176.4 971.2,181.8 978.4,186.7 985.6,190.9 992.8,194.3 1000.0,197.0" fill="none" stroke="#b18cff" stroke-width="2"/>
+<polyline points="80.0,80.0 87.2,80.0 94.4,80.0 101.6,80.1 108.8,80.2 115.9,80.2 123.1,80.3 130.3,80.5 137.5,80.6 144.7,80.8 151.9,81.0 159.1,81.2 166.2,81.4 173.4,81.6 180.6,81.9 187.8,82.2 195.0,82.5 202.2,82.8 209.4,83.1 216.6,83.5 223.8,83.8 230.9,84.2 238.1,84.6 245.3,85.1 252.5,85.5 259.7,86.0 266.9,86.4 274.1,86.9 281.2,87.4 288.4,88.0 295.6,88.5 302.8,89.1 310.0,89.7 317.2,90.3 324.4,90.9 331.6,91.5 338.8,92.1 345.9,92.8 353.1,93.5 360.3,94.2 367.5,94.9 374.7,95.6 381.9,96.3 389.1,97.1 396.2,97.8 403.4,98.6 410.6,99.4 417.8,100.2 425.0,101.0 432.2,101.8 439.4,102.7 446.6,103.5 453.8,104.4 460.9,105.2 468.1,106.1 475.3,107.0 482.5,107.9 489.7,108.8 496.9,109.8 504.1,110.7 511.2,111.7 518.4,112.6 525.6,113.6 532.8,114.5 540.0,115.5 547.2,116.5 554.4,117.5 561.6,118.5 568.8,119.5 575.9,120.5 583.1,121.6 590.3,122.6 597.5,123.6 604.7,124.7 611.9,125.7 619.1,126.8 626.2,127.8 633.4,128.9 640.6,129.9 647.8,131.0 655.0,132.1 662.2,133.1 669.4,134.2 676.6,135.3 683.8,136.4 690.9,137.4 698.1,138.5 705.3,139.6 712.5,140.7 719.7,141.8 726.9,142.8 734.1,143.9 741.2,145.0 748.4,146.1 755.6,147.1 762.8,148.2 770.0,149.3 777.2,150.3 784.4,151.4 791.6,152.5 798.8,153.5 805.9,154.6 813.1,155.6 820.3,156.6 827.5,157.7 834.7,158.7 841.9,159.7 849.1,160.7 856.2,161.8 863.4,162.8 870.6,163.7 877.8,164.7 885.0,165.7 892.2,166.7 899.4,167.6 906.6,168.6 913.8,169.5 920.9,170.5 928.1,171.4 935.3,172.3 942.5,173.2 949.7,174.1 956.9,175.0 964.1,175.9 971.2,176.7 978.4,177.6 985.6,178.4 992.8,179.2 1000.0,180.0" fill="none" stroke="#35d6f0" stroke-width="2.2"/>
+
+<text x="80" y="282" class="ax">fast plane 0 repeats every 6.3 positions: gap 0 and gap 6.3 give it the same value — precise but ambiguous</text>
+<text x="80" y="302" class="ax">slow plane 7 barely moves: unambiguous but coarse. Attention sums all 64 planes — and only the sum is unique per gap</text>
+</svg>
+</div>
+<figcaption><span class="figno">FIG 14</span><b>Why one plane is not enough.</b> Every plane contributes
+cos(gap·ωᵢ) to the attention score. The fast plane oscillates and aliases — every peak looks like every
+other. The slow plane never repeats but cannot resolve neighbours. The geometric ladder of 64 speeds
+between those extremes gives each gap a distinct summed fingerprint: no learned parameters, no length
+limit.</figcaption>
+</figure>
+
+<p>For an image model this property is not a luxury, it is the product. FLUX.2 has to accept resolutions
+it has never seen — anything from 512² up to 4 megapixels — and a purely <em>relative</em> position code
+extrapolates to new sequence lengths in a way that absolute position tables famously do not.</p>
+
+<div class="note proof">
+<div class="nh">◆ Verified · the property holds in this exact implementation</div>
+<p>I rotated a fixed query/key pair with <code>apply_rope</code> at several position pairs and measured
+the dot product. Pairs with the same gap give the same score, agreeing to within 1×10⁻⁶ — pure float32
+round-off:</p>
+<p style="font-family:var(--mono);font-size:13.4px;color:var(--gold)">
+gap = 2 : (p=0, p=2) → 4.919082 &nbsp; (p=5, p=7) → 4.919081 &nbsp; (p=13, p=15) → 4.919082<br>
+gap = 3 : (p=0, p=3) → 6.703997 &nbsp; (p=5, p=8) → 6.703996
+</p>
+<p>I also confirmed each produced matrix is a genuine rotation: <code>RᵀR = I</code> to 6×10⁻⁸ and
+<code>det R = +1.000000</code>, and that <code>apply_rope</code> leaves every vector's norm unchanged.</p>
+</div>
+
+<h3>8.2 · How 64 rotations fill one head's 128 numbers</h3>
+<p>The paragraph above said "rotate the query and the key". This is what that means mechanically, because
+it is the part that is easiest to imagine wrongly: nothing is multiplied by a big matrix, and no dimension
+is ever mixed with any other.</p>
+<p><strong>Step one: pair the dimensions up.</strong> A head is 128 numbers. RoPE treats them as 64
+<em>adjacent pairs</em> — (x₀, x₁), (x₂, x₃), and so on up to (x₁₂₆, x₁₂₇). Each pair is a point in a
+two-dimensional plane, and each plane is independent of all the others.</p>
+<p><strong>Step two: give every plane an angle.</strong> Plane <em>i</em> turns by
+<span class="shape">θᵢ = position × ωᵢ</span>, where the rates form a ladder
+<span class="shape">ωᵢ = θ<sub>base</sub><sup>−2i/dim</sup></span> with θ<sub>base</sub> = 2000 — the same
+geometric spread of fast and slow as the clock wall of §7, and for the same reason. Fast planes distinguish
+neighbouring positions; slow ones carry the coarse distance.</p>
+<p><strong>Step three: rotate each pair with its own 2 × 2 matrix.</strong></p>
+<div class="note math">
+<div class="nh">Σ One plane of RoPE</div>
+<p><span class="mbrack">[</span><span class="mat"><span>x₀′</span><span>x₁′</span></span><span class="mbrack">]</span>
+<span class="op">=</span>
+<span class="mbrack">[</span><span class="mat"><span>cos θᵢ</span><span>−sin θᵢ</span><span>sin θᵢ</span><span>cos θᵢ</span></span><span class="mbrack">]</span>
+<span class="mbrack">[</span><span class="mat"><span>x₀</span><span>x₁</span></span><span class="mbrack">]</span></p>
+<p style="margin-top:8px"><span class="shape">a rotation: it preserves the pair's length, changes only its angle, and touches no other plane</span></p>
+</div>
+<p>Sixty-four of those, one per plane, is the whole operation. Written as a single linear map it would be a
+128 × 128 block-diagonal matrix — 64 little blocks down the diagonal and zeros everywhere else — and
+<em>that matrix is never built</em>. The code multiplies the pairs in place: it reshapes the head from
+(…, 128) to (…, 64, 2), applies the two rows of each 2 × 2 block, and reshapes back. No 16 384-element
+matrix, no matrix product, just four multiplications and two additions per pair.</p>
+<figure>
+<div class="fig">
+<svg viewBox="0 0 1560 500" role="img" aria-label="A bar of 128 cells representing one attention head, grouped into 64 adjacent pairs and coloured in four bands of 32 by which position axis owns them: t, h, w and l. Below, a zoom shows one pair as a two dimensional point multiplied by a two by two rotation matrix, giving the same point turned by an angle theta, and a circle showing that the length is preserved.">
+<defs><marker id="rpA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7d8da1"/></marker></defs>
+<text x="40" y="34" class="ttl">One head's 128 numbers, as 64 independently rotating pairs</text>
+<text x="40" y="60" class="ax" fill="#a9b8c9">the four colour bands are the four position axes: axes_dim = [32, 32, 32, 32] splits the head exactly</text>
+<rect x="60" y="118" width="8" height="34" rx="2" fill="#5fe08a" opacity=".55"/>
+<rect x="69" y="118" width="8" height="34" rx="2" fill="#5fe08a" opacity=".55"/>
+<rect x="78" y="118" width="8" height="34" rx="2" fill="#5fe08a" opacity=".55"/>
+<rect x="87" y="118" width="8" height="34" rx="2" fill="#5fe08a" opacity=".55"/>
+<rect x="96" y="118" width="8" height="34" rx="2" fill="#5fe08a" opacity=".55"/>
+<rect x="105" y="118" width="8" height="34" rx="2" fill="#5fe08a" opacity=".55"/>
+<rect x="114" y="118" width="8" height="34" rx="2" fill="#5fe08a" opacity=".55"/>
+<rect x="123" y="118" width="8" height="34" rx="2" fill="#5fe08a" opacity=".55"/>
+<rect x="132" y="118" width="8" height="34" rx="2" fill="#5fe08a" opacity=".55"/>
+<rect x="141" y="118" width="8" height="34" rx="2" fill="#5fe08a" opacity=".55"/>
+<rect x="150" y="118" width="8" height="34" rx="2" fill="#5fe08a" opacity=".55"/>
+<rect x="159" y="118" width="8" height="34" rx="2" fill="#5fe08a" opacity=".55"/>
+<rect x="168" y="118" width="8" height="34" rx="2" fill="#5fe08a" opacity=".55"/>
+<rect x="177" y="118" width="8" height="34" rx="2" fill="#5fe08a" opacity=".55"/>
+<rect x="186" y="118" width="8" height="34" rx="2" fill="#5fe08a" opacity=".55"/>
+<rect x="195" y="118" width="8" height="34" rx="2" fill="#5fe08a" opacity=".55"/>
+<rect x="204" y="118" width="8" height="34" rx="2" fill="#5fe08a" opacity=".55"/>
+<rect x="213" y="118" width="8" height="34" rx="2" fill="#5fe08a" opacity=".55"/>
+<rect x="222" y="118" width="8" height="34" rx="2" fill="#5fe08a" opacity=".55"/>
+<rect x="231" y="118" width="8" height="34" rx="2" fill="#5fe08a" opacity=".55"/>
+<rect x="240" y="118" width="8" height="34" rx="2" fill="#5fe08a" opacity=".55"/>
+<rect x="249" y="118" width="8" height="34" rx="2" fill="#5fe08a" opacity=".55"/>
+<rect x="258" y="118" width="8" height="34" rx="2" fill="#5fe08a" opacity=".55"/>
+<rect x="267" y="118" width="8" height="34" rx="2" fill="#5fe08a" opacity=".55"/>
+<rect x="276" y="118" width="8" height="34" rx="2" fill="#5fe08a" opacity=".55"/>
+<rect x="285" y="118" width="8" height="34" rx="2" fill="#5fe08a" opacity=".55"/>
+<rect x="294" y="118" width="8" height="34" rx="2" fill="#5fe08a" opacity=".55"/>
+<rect x="303" y="118" width="8" height="34" rx="2" fill="#5fe08a" opacity=".55"/>
+<rect x="312" y="118" width="8" height="34" rx="2" fill="#5fe08a" opacity=".55"/>
+<rect x="321" y="118" width="8" height="34" rx="2" fill="#5fe08a" opacity=".55"/>
+<rect x="330" y="118" width="8" height="34" rx="2" fill="#5fe08a" opacity=".55"/>
+<rect x="339" y="118" width="8" height="34" rx="2" fill="#5fe08a" opacity=".55"/>
+<rect x="348" y="118" width="8" height="34" rx="2" fill="#f6a93b" opacity=".55"/>
+<rect x="357" y="118" width="8" height="34" rx="2" fill="#f6a93b" opacity=".55"/>
+<rect x="366" y="118" width="8" height="34" rx="2" fill="#f6a93b" opacity=".55"/>
+<rect x="375" y="118" width="8" height="34" rx="2" fill="#f6a93b" opacity=".55"/>
+<rect x="384" y="118" width="8" height="34" rx="2" fill="#f6a93b" opacity=".55"/>
+<rect x="393" y="118" width="8" height="34" rx="2" fill="#f6a93b" opacity=".55"/>
+<rect x="402" y="118" width="8" height="34" rx="2" fill="#f6a93b" opacity=".55"/>
+<rect x="411" y="118" width="8" height="34" rx="2" fill="#f6a93b" opacity=".55"/>
+<rect x="420" y="118" width="8" height="34" rx="2" fill="#f6a93b" opacity=".55"/>
+<rect x="429" y="118" width="8" height="34" rx="2" fill="#f6a93b" opacity=".55"/>
+<rect x="438" y="118" width="8" height="34" rx="2" fill="#f6a93b" opacity=".55"/>
+<rect x="447" y="118" width="8" height="34" rx="2" fill="#f6a93b" opacity=".55"/>
+<rect x="456" y="118" width="8" height="34" rx="2" fill="#f6a93b" opacity=".55"/>
+<rect x="465" y="118" width="8" height="34" rx="2" fill="#f6a93b" opacity=".55"/>
+<rect x="474" y="118" width="8" height="34" rx="2" fill="#f6a93b" opacity=".55"/>
+<rect x="483" y="118" width="8" height="34" rx="2" fill="#f6a93b" opacity=".55"/>
+<rect x="492" y="118" width="8" height="34" rx="2" fill="#f6a93b" opacity=".55"/>
+<rect x="501" y="118" width="8" height="34" rx="2" fill="#f6a93b" opacity=".55"/>
+<rect x="510" y="118" width="8" height="34" rx="2" fill="#f6a93b" opacity=".55"/>
+<rect x="519" y="118" width="8" height="34" rx="2" fill="#f6a93b" opacity=".55"/>
+<rect x="528" y="118" width="8" height="34" rx="2" fill="#f6a93b" opacity=".55"/>
+<rect x="537" y="118" width="8" height="34" rx="2" fill="#f6a93b" opacity=".55"/>
+<rect x="546" y="118" width="8" height="34" rx="2" fill="#f6a93b" opacity=".55"/>
+<rect x="555" y="118" width="8" height="34" rx="2" fill="#f6a93b" opacity=".55"/>
+<rect x="564" y="118" width="8" height="34" rx="2" fill="#f6a93b" opacity=".55"/>
+<rect x="573" y="118" width="8" height="34" rx="2" fill="#f6a93b" opacity=".55"/>
+<rect x="582" y="118" width="8" height="34" rx="2" fill="#f6a93b" opacity=".55"/>
+<rect x="591" y="118" width="8" height="34" rx="2" fill="#f6a93b" opacity=".55"/>
+<rect x="600" y="118" width="8" height="34" rx="2" fill="#f6a93b" opacity=".55"/>
+<rect x="609" y="118" width="8" height="34" rx="2" fill="#f6a93b" opacity=".55"/>
+<rect x="618" y="118" width="8" height="34" rx="2" fill="#f6a93b" opacity=".55"/>
+<rect x="627" y="118" width="8" height="34" rx="2" fill="#f6a93b" opacity=".55"/>
+<rect x="636" y="118" width="8" height="34" rx="2" fill="#b18cff" opacity=".55"/>
+<rect x="645" y="118" width="8" height="34" rx="2" fill="#b18cff" opacity=".55"/>
+<rect x="654" y="118" width="8" height="34" rx="2" fill="#b18cff" opacity=".55"/>
+<rect x="663" y="118" width="8" height="34" rx="2" fill="#b18cff" opacity=".55"/>
+<rect x="672" y="118" width="8" height="34" rx="2" fill="#b18cff" opacity=".55"/>
+<rect x="681" y="118" width="8" height="34" rx="2" fill="#b18cff" opacity=".55"/>
+<rect x="690" y="118" width="8" height="34" rx="2" fill="#b18cff" opacity=".55"/>
+<rect x="699" y="118" width="8" height="34" rx="2" fill="#b18cff" opacity=".55"/>
+<rect x="708" y="118" width="8" height="34" rx="2" fill="#b18cff" opacity=".55"/>
+<rect x="717" y="118" width="8" height="34" rx="2" fill="#b18cff" opacity=".55"/>
+<rect x="726" y="118" width="8" height="34" rx="2" fill="#b18cff" opacity=".55"/>
+<rect x="735" y="118" width="8" height="34" rx="2" fill="#b18cff" opacity=".55"/>
+<rect x="744" y="118" width="8" height="34" rx="2" fill="#b18cff" opacity=".55"/>
+<rect x="753" y="118" width="8" height="34" rx="2" fill="#b18cff" opacity=".55"/>
+<rect x="762" y="118" width="8" height="34" rx="2" fill="#b18cff" opacity=".55"/>
+<rect x="771" y="118" width="8" height="34" rx="2" fill="#b18cff" opacity=".55"/>
+<rect x="780" y="118" width="8" height="34" rx="2" fill="#b18cff" opacity=".55"/>
+<rect x="789" y="118" width="8" height="34" rx="2" fill="#b18cff" opacity=".55"/>
+<rect x="798" y="118" width="8" height="34" rx="2" fill="#b18cff" opacity=".55"/>
+<rect x="807" y="118" width="8" height="34" rx="2" fill="#b18cff" opacity=".55"/>
+<rect x="816" y="118" width="8" height="34" rx="2" fill="#b18cff" opacity=".55"/>
+<rect x="825" y="118" width="8" height="34" rx="2" fill="#b18cff" opacity=".55"/>
+<rect x="834" y="118" width="8" height="34" rx="2" fill="#b18cff" opacity=".55"/>
+<rect x="843" y="118" width="8" height="34" rx="2" fill="#b18cff" opacity=".55"/>
+<rect x="852" y="118" width="8" height="34" rx="2" fill="#b18cff" opacity=".55"/>
+<rect x="861" y="118" width="8" height="34" rx="2" fill="#b18cff" opacity=".55"/>
+<rect x="870" y="118" width="8" height="34" rx="2" fill="#b18cff" opacity=".55"/>
+<rect x="879" y="118" width="8" height="34" rx="2" fill="#b18cff" opacity=".55"/>
+<rect x="888" y="118" width="8" height="34" rx="2" fill="#b18cff" opacity=".55"/>
+<rect x="897" y="118" width="8" height="34" rx="2" fill="#b18cff" opacity=".55"/>
+<rect x="906" y="118" width="8" height="34" rx="2" fill="#b18cff" opacity=".55"/>
+<rect x="915" y="118" width="8" height="34" rx="2" fill="#b18cff" opacity=".55"/>
+<rect x="924" y="118" width="8" height="34" rx="2" fill="#35d6f0" opacity=".55"/>
+<rect x="933" y="118" width="8" height="34" rx="2" fill="#35d6f0" opacity=".55"/>
+<rect x="942" y="118" width="8" height="34" rx="2" fill="#35d6f0" opacity=".55"/>
+<rect x="951" y="118" width="8" height="34" rx="2" fill="#35d6f0" opacity=".55"/>
+<rect x="960" y="118" width="8" height="34" rx="2" fill="#35d6f0" opacity=".55"/>
+<rect x="969" y="118" width="8" height="34" rx="2" fill="#35d6f0" opacity=".55"/>
+<rect x="978" y="118" width="8" height="34" rx="2" fill="#35d6f0" opacity=".55"/>
+<rect x="987" y="118" width="8" height="34" rx="2" fill="#35d6f0" opacity=".55"/>
+<rect x="996" y="118" width="8" height="34" rx="2" fill="#35d6f0" opacity=".55"/>
+<rect x="1005" y="118" width="8" height="34" rx="2" fill="#35d6f0" opacity=".55"/>
+<rect x="1014" y="118" width="8" height="34" rx="2" fill="#35d6f0" opacity=".55"/>
+<rect x="1023" y="118" width="8" height="34" rx="2" fill="#35d6f0" opacity=".55"/>
+<rect x="1032" y="118" width="8" height="34" rx="2" fill="#35d6f0" opacity=".55"/>
+<rect x="1041" y="118" width="8" height="34" rx="2" fill="#35d6f0" opacity=".55"/>
+<rect x="1050" y="118" width="8" height="34" rx="2" fill="#35d6f0" opacity=".55"/>
+<rect x="1059" y="118" width="8" height="34" rx="2" fill="#35d6f0" opacity=".55"/>
+<rect x="1068" y="118" width="8" height="34" rx="2" fill="#35d6f0" opacity=".55"/>
+<rect x="1077" y="118" width="8" height="34" rx="2" fill="#35d6f0" opacity=".55"/>
+<rect x="1086" y="118" width="8" height="34" rx="2" fill="#35d6f0" opacity=".55"/>
+<rect x="1095" y="118" width="8" height="34" rx="2" fill="#35d6f0" opacity=".55"/>
+<rect x="1104" y="118" width="8" height="34" rx="2" fill="#35d6f0" opacity=".55"/>
+<rect x="1113" y="118" width="8" height="34" rx="2" fill="#35d6f0" opacity=".55"/>
+<rect x="1122" y="118" width="8" height="34" rx="2" fill="#35d6f0" opacity=".55"/>
+<rect x="1131" y="118" width="8" height="34" rx="2" fill="#35d6f0" opacity=".55"/>
+<rect x="1140" y="118" width="8" height="34" rx="2" fill="#35d6f0" opacity=".55"/>
+<rect x="1149" y="118" width="8" height="34" rx="2" fill="#35d6f0" opacity=".55"/>
+<rect x="1158" y="118" width="8" height="34" rx="2" fill="#35d6f0" opacity=".55"/>
+<rect x="1167" y="118" width="8" height="34" rx="2" fill="#35d6f0" opacity=".55"/>
+<rect x="1176" y="118" width="8" height="34" rx="2" fill="#35d6f0" opacity=".55"/>
+<rect x="1185" y="118" width="8" height="34" rx="2" fill="#35d6f0" opacity=".55"/>
+<rect x="1194" y="118" width="8" height="34" rx="2" fill="#35d6f0" opacity=".55"/>
+<rect x="1203" y="118" width="8" height="34" rx="2" fill="#35d6f0" opacity=".55"/>
+<path d="M60,158 L60,163 L77,163 L77,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M78,158 L78,163 L95,163 L95,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M96,158 L96,163 L113,163 L113,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M114,158 L114,163 L131,163 L131,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M132,158 L132,163 L149,163 L149,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M150,158 L150,163 L167,163 L167,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M168,158 L168,163 L185,163 L185,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M186,158 L186,163 L203,163 L203,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M204,158 L204,163 L221,163 L221,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M222,158 L222,163 L239,163 L239,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M240,158 L240,163 L257,163 L257,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M258,158 L258,163 L275,163 L275,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M276,158 L276,163 L293,163 L293,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M294,158 L294,163 L311,163 L311,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M312,158 L312,163 L329,163 L329,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M330,158 L330,163 L347,163 L347,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M348,158 L348,163 L365,163 L365,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M366,158 L366,163 L383,163 L383,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M384,158 L384,163 L401,163 L401,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M402,158 L402,163 L419,163 L419,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M420,158 L420,163 L437,163 L437,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M438,158 L438,163 L455,163 L455,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M456,158 L456,163 L473,163 L473,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M474,158 L474,163 L491,163 L491,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M492,158 L492,163 L509,163 L509,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M510,158 L510,163 L527,163 L527,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M528,158 L528,163 L545,163 L545,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M546,158 L546,163 L563,163 L563,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M564,158 L564,163 L581,163 L581,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M582,158 L582,163 L599,163 L599,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M600,158 L600,163 L617,163 L617,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M618,158 L618,163 L635,163 L635,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M636,158 L636,163 L653,163 L653,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M654,158 L654,163 L671,163 L671,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M672,158 L672,163 L689,163 L689,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M690,158 L690,163 L707,163 L707,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M708,158 L708,163 L725,163 L725,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M726,158 L726,163 L743,163 L743,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M744,158 L744,163 L761,163 L761,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M762,158 L762,163 L779,163 L779,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M780,158 L780,163 L797,163 L797,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M798,158 L798,163 L815,163 L815,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M816,158 L816,163 L833,163 L833,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M834,158 L834,163 L851,163 L851,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M852,158 L852,163 L869,163 L869,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M870,158 L870,163 L887,163 L887,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M888,158 L888,163 L905,163 L905,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M906,158 L906,163 L923,163 L923,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M924,158 L924,163 L941,163 L941,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M942,158 L942,163 L959,163 L959,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M960,158 L960,163 L977,163 L977,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M978,158 L978,163 L995,163 L995,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M996,158 L996,163 L1013,163 L1013,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M1014,158 L1014,163 L1031,163 L1031,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M1032,158 L1032,163 L1049,163 L1049,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M1050,158 L1050,163 L1067,163 L1067,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M1068,158 L1068,163 L1085,163 L1085,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M1086,158 L1086,163 L1103,163 L1103,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M1104,158 L1104,163 L1121,163 L1121,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M1122,158 L1122,163 L1139,163 L1139,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M1140,158 L1140,163 L1157,163 L1157,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M1158,158 L1158,163 L1175,163 L1175,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M1176,158 L1176,163 L1193,163 L1193,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<path d="M1194,158 L1194,163 L1211,163 L1211,158" stroke="#7d8da1" stroke-width="1" fill="none" opacity=".7"/>
+<text x="204" y="102" class="axb" text-anchor="middle" fill="#5fe08a">axis t</text>
+<text x="204" y="184" class="eq" text-anchor="middle">32 numbers = 16 planes</text>
+<line x1="60" y1="112" x2="60" y2="158" stroke="#2e4054" stroke-width="1.4"/>
+<text x="492" y="102" class="axb" text-anchor="middle" fill="#f6a93b">axis h</text>
+<text x="492" y="184" class="eq" text-anchor="middle">32 numbers = 16 planes</text>
+<line x1="348" y1="112" x2="348" y2="158" stroke="#2e4054" stroke-width="1.4"/>
+<text x="780" y="102" class="axb" text-anchor="middle" fill="#b18cff">axis w</text>
+<text x="780" y="184" class="eq" text-anchor="middle">32 numbers = 16 planes</text>
+<line x1="636" y1="112" x2="636" y2="158" stroke="#2e4054" stroke-width="1.4"/>
+<text x="1068" y="102" class="axb" text-anchor="middle" fill="#35d6f0">axis l</text>
+<text x="1068" y="184" class="eq" text-anchor="middle">32 numbers = 16 planes</text>
+<line x1="924" y1="112" x2="924" y2="158" stroke="#2e4054" stroke-width="1.4"/>
+<text x="636" y="206" class="eq" text-anchor="middle" fill="#a9b8c9">64 pairs · 128 numbers · one head</text>
+<rect x="120" y="300" width="1320" height="150" rx="14" fill="#0e1622" stroke="#2e4054"/>
+<text x="146" y="330" class="axb">Zoom in on one pair — say numbers 34 and 35, which belong to axis h</text>
+<rect x="160" y="362" width="44" height="44" rx="6" fill="rgba(246,169,59,.2)" stroke="#f6a93b"/>
+<text x="182" y="390" class="eq" text-anchor="middle">x₀</text>
+<rect x="212" y="362" width="44" height="44" rx="6" fill="rgba(246,169,59,.2)" stroke="#f6a93b"/>
+<text x="234" y="390" class="eq" text-anchor="middle">x₁</text>
+<text x="208" y="428" class="eq" text-anchor="middle" fill="#a9b8c9">a point in 2-D</text>
+<path d="M270,384 L326,384" stroke="#7d8da1" stroke-width="1.8" fill="none" marker-end="url(#rpA)"/>
+<path d="M346,352 L336,352 L336,416 L346,416" stroke="#ffd479" stroke-width="2" fill="none"/>
+<path d="M476,352 L486,352 L486,416 L476,416" stroke="#ffd479" stroke-width="2" fill="none"/>
+<text x="378" y="376" class="eq" text-anchor="middle">cos θ</text>
+<text x="446" y="376" class="eq" text-anchor="middle">−sin θ</text>
+<text x="378" y="408" class="eq" text-anchor="middle">sin θ</text>
+<text x="446" y="408" class="eq" text-anchor="middle">cos θ</text>
+<text x="411" y="434" class="eq" text-anchor="middle" fill="#ffd479">one 2 × 2 rotation, θ = h · ω₁</text>
+<path d="M502,384 L558,384" stroke="#7d8da1" stroke-width="1.8" fill="none" marker-end="url(#rpA)"/>
+<rect x="572" y="362" width="44" height="44" rx="6" fill="rgba(246,169,59,.35)" stroke="#f6a93b"/>
+<text x="594" y="390" class="eq" text-anchor="middle">x₀′</text>
+<rect x="624" y="362" width="44" height="44" rx="6" fill="rgba(246,169,59,.35)" stroke="#f6a93b"/>
+<text x="646" y="390" class="eq" text-anchor="middle">x₁′</text>
+<text x="620" y="428" class="eq" text-anchor="middle" fill="#a9b8c9">the same point, turned</text>
+<circle cx="780" cy="384" r="48" fill="none" stroke="#5fe08a" stroke-opacity=".5" stroke-width="1.8"/>
+<line x1="780" y1="384" x2="820" y2="359" stroke="#7d8da1" stroke-width="2"/>
+<line x1="780" y1="384" x2="808" y2="345" stroke="#f6a93b" stroke-width="2.4"/>
+<circle cx="820" cy="359" r="4" fill="#7d8da1"/>
+<circle cx="808" cy="345" r="4.5" fill="#f6a93b"/>
+<text x="780" y="452" class="eq" text-anchor="middle" fill="#a9b8c9">length preserved, angle shifted</text>
+<text x="900" y="356" class="eq">Every one of the 64 pairs gets its own rotation, with its own θ.</text>
+<text x="900" y="378" class="eq">Pairs 0–15 turn by t·ωᵢ, 16–31 by h·ωᵢ, 32–47 by w·ωᵢ, 48–63 by l·ωᵢ.</text>
+<text x="900" y="400" class="eq">Within each axis the 16 rates are the ladder ωᵢ = 2000^(−2i/32), fast to slow.</text>
+<text x="900" y="426" class="eq" fill="#ffd479">Stacked, the 64 rotations would be one 128 × 128 matrix — which is never built.</text>
+<text x="40" y="486" class="ax">16 planes × 4 axes = 64 planes = 128 numbers. This is why __init__ refuses to build a model whose axes_dim does not sum to head_dim.</text>
+</svg>
+</div>
+<figcaption><span class="figno">FIG 15</span><b>Where the 128 numbers go.</b> RoPE does not mix a head's
+dimensions; it pairs them up — (x₀,x₁), (x₂,x₃), …, (x₁₂₆,x₁₂₇) — and rotates each pair in its own plane
+by an angle proportional to the token's position on the axis that owns it. Thirty-two numbers per axis
+means sixteen planes per axis, and sixteen planes times four axes is exactly the head width, which is what
+the <code>sum(axes_dim) == hidden_size // num_heads</code> guard in §15.1 is protecting.</figcaption>
+</figure>
+<p><strong>Step four, FLUX.2's part: decide which axis owns which planes.</strong> A language model has one
+position, so all 64 planes would use it. FLUX.2 has four coordinates per token, and it splits the head
+between them: <code>axes_dim = [32, 32, 32, 32]</code> gives 32 numbers — 16 planes — to <code>t</code>,
+32 to <code>h</code>, 32 to <code>w</code> and 32 to <code>l</code>. So planes 0–15 turn by the token's
+t-coordinate, planes 16–31 by its row, 32–47 by its column, 48–63 by its text position, each with its own
+16-rung ladder of rates.</p>
+<p>That is the whole of the four-axis trick: not a new kind of rotation, just an <em>allocation</em> of the
+64 planes that were already there. And it explains the guard in <code>__init__</code> — if the four
+allocations did not add up to exactly the head width, some plane would have no axis or two axes would fight
+over one, and the geometry would stop meaning anything.</p>
+<div class="note idea">
+<div class="nh">💡 Why rotations, and not just adding a position vector</div>
+<p>The older trick is to <em>add</em> a position embedding to each token. That changes the token's length
+and its direction, so what the network knows about the token and where it sits get entangled — and the
+attention score between two tokens depends on both positions separately, not on the distance between them.
+A rotation leaves the length untouched and has the property that matters: rotating a query by θ₁ and a key
+by θ₂ makes their dot product depend on <strong>θ₁ − θ₂</strong> alone. Distance falls out of the
+arithmetic, which is what FIG 13 showed and what §8.1 promised.</p>
+</div>
+<p class="dim">The shapes, if you want them before Part 3: <code>rope()</code> takes one axis's positions
+(B, L) and its 32 dimensions and returns (B, L, 16, 2, 2) — sixteen 2 × 2 blocks, in float32;
+<code>EmbedND</code> concatenates the four axes into (B, 1, L, 64, 2, 2); <code>apply_rope</code> reshapes
+a head to (B, heads, L, 64, 1, 2) and multiplies. All three are walked through line by line in §16.4–§16.6.</p>
+
+<h3>8.3 · FLUX.2's twist: four positions per token</h3>
+<p>A language model needs one position number per token. FLUX.2 needs <em>four</em>, because its tokens
+live in a 3-D volume of images stacked over a "time" axis, plus a separate index for text. Every token
+therefore arrives with a coordinate vector <code>ids</code> of shape
+<span class="shape">(B, L, 4)</span>:</p>
+
+<div class="tbl-wrap">
+<table class="data">
+<thead><tr><th>axis</th><th>index</th><th>meaning</th><th>example values</th><th>RoPE dims it owns</th></tr></thead>
+<tbody>
+<tr><td><strong style="color:var(--vec)">t</strong></td><td class="m">ids[..., 0]</td><td>which image in the stack — separates references from each other and from the canvas</td><td class="m">0 for canvas &amp; text · 10, 20, 30… for refs</td><td class="m">0 – 31</td></tr>
+<tr><td><strong style="color:var(--img)">h</strong></td><td class="m">ids[..., 1]</td><td>row in the latent grid</td><td class="m">0 … 63 at 1 MP</td><td class="m">32 – 63</td></tr>
+<tr><td><strong style="color:var(--ref)">w</strong></td><td class="m">ids[..., 2]</td><td>column in the latent grid</td><td class="m">0 … 63 at 1 MP</td><td class="m">64 – 95</td></tr>
+<tr><td><strong style="color:var(--txt)">l</strong></td><td class="m">ids[..., 3]</td><td>position within the text sequence (dummy 0 for images)</td><td class="m">0 … 511</td><td class="m">96 – 127</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>That is exactly what <code>axes_dim = [32, 32, 32, 32]</code> means: <strong>each of the four axes
+gets 32 of the 128 head dimensions</strong>, i.e. 16 rotation planes each, 64 planes in total. It is also
+why <code>Flux2.__init__</code> refuses to start unless <code>sum(axes_dim) == hidden_size //
+num_heads</code> — the planes have to tile the head exactly.</p>
+
+<div class="note idea">
+<div class="nh">💡 Why references sit at t = 10, 20, 30 …</div>
+<p>The canvas and the text both live at <em>t = 0</em>. Each reference image is pushed ten units further
+along the <em>t</em> axis. Because RoPE makes attention scores depend on coordinate <em>differences</em>,
+a reference at t = 20 is "far away" from the canvas at t = 0 in exactly the same mathematical sense
+that token 20 is far from token 0 in a sentence. The model therefore knows, from geometry alone, that
+these tokens are a <em>different image</em>, not a distant part of the canvas — and it can still reach
+them, because attention is global. One coordinate, doing the job that a special "segment embedding"
+would do in older architectures.</p>
+</div>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 1040 400" role="img" aria-label="The 128 head dimensions split into four axes of 32 dimensions each, 16 rotation planes per axis; zoom of one plane showing the rotation.">
+<text x="40" y="32" class="ttl">One attention head = 128 dimensions = 64 rotation planes, dealt out to 4 axes</text>
+
+<!-- the dim bar -->
+<rect x="60" y="66" width="230" height="58" rx="6" fill="rgba(95,224,138,.12)" stroke="#5fe08a" stroke-opacity=".6"/>
+<rect x="290" y="66" width="230" height="58" rx="6" fill="rgba(246,169,59,.12)" stroke="#f6a93b" stroke-opacity=".6"/>
+<rect x="520" y="66" width="230" height="58" rx="6" fill="rgba(177,140,255,.12)" stroke="#b18cff" stroke-opacity=".6"/>
+<rect x="750" y="66" width="230" height="58" rx="6" fill="rgba(53,214,240,.12)" stroke="#35d6f0" stroke-opacity=".6"/>
+<text x="175" y="92" class="axb" text-anchor="middle" fill="#5fe08a">axis t</text>
+<text x="175" y="110" class="eq" text-anchor="middle">dims 0–31</text>
+<text x="405" y="92" class="axb" text-anchor="middle" fill="#f6a93b">axis h (row)</text>
+<text x="405" y="110" class="eq" text-anchor="middle">dims 32–63</text>
+<text x="635" y="92" class="axb" text-anchor="middle" fill="#b18cff">axis w (col)</text>
+<text x="635" y="110" class="eq" text-anchor="middle">dims 64–95</text>
+<text x="865" y="92" class="axb" text-anchor="middle" fill="#35d6f0">axis l (text idx)</text>
+<text x="865" y="110" class="eq" text-anchor="middle">dims 96–127</text>
+
+<text x="60" y="150" class="ax">each axis contributes 16 independent rotation planes → 4 × 16 = 64 planes = 128 dims = head_dim</text>
+
+<!-- zoom into one plane -->
+<path d="M405,124 L405,182" stroke="#f6a93b" stroke-width="1.3" stroke-dasharray="4 3"/>
+<rect x="60" y="186" width="430" height="180" rx="12" fill="#0a0e16" stroke="#2e4054"/>
+<text x="80" y="214" class="axb" fill="#f6a93b">zoom: one rotation plane (2 dimensions)</text>
+
+<circle cx="200" cy="290" r="62" fill="none" stroke="#2e4054" stroke-width="1.4"/>
+<line x1="200" y1="290" x2="252" y2="262" stroke="#7d8da1" stroke-width="2" marker-end="url(#ar)"/>
+<line x1="200" y1="290" x2="222" y2="232" stroke="#f6a93b" stroke-width="2.6" marker-end="url(#arA)"/>
+<path d="M252,262 A60,60 0 0 0 222,232" fill="none" stroke="#f6a93b" stroke-width="1.4" stroke-dasharray="3 3"/>
+<text x="268" y="272" class="ax">q before</text>
+<text x="232" y="222" class="axb" fill="#f6a93b">q rotated by p·ω</text>
+<text x="200" y="378" class="eq" text-anchor="middle">angle = position × ω_i</text>
+
+<text x="520" y="214" class="axb">the frequency ladder ω_i</text>
+<text x="520" y="242" class="ax">Plane 0 of an axis rotates fast:</text>
+<text x="520" y="262" class="eq">ω₀ = 1 / 2000⁰ = 1.000000</text>
+<text x="520" y="290" class="ax">Plane 15 rotates ~1200× slower:</text>
+<text x="520" y="310" class="eq">ω₁₅ = 1 / 2000^(30/32) = 0.000804</text>
+<text x="520" y="342" class="ax">Fast planes resolve fine detail (adjacent pixels);</text>
+<text x="520" y="360" class="ax">slow planes resolve coarse layout (far-apart regions).</text>
+</svg>
+</div>
+<figcaption><span class="figno">FIG 16</span><b>How 128 dimensions become a 4-D coordinate system.</b> The mixed ladder of
+fast and slow frequencies is the same idea as the wheels on an odometer: the fast wheel tells you the
+last digit, the slow wheel tells you how far you have really travelled. Stacking four such odometers —
+one per axis — gives every token an unambiguous address in (image, row, column, text-slot) space.</figcaption>
+</figure>
+
+<div class="widget" id="ropeWidget">
+  <div class="w-head"><span class="w-title">Play with a rotation plane</span><span class="w-badge">interactive</span></div>
+  <div class="ctrl-row">
+    <label>position p</label>
+    <input type="range" id="rwP" min="0" max="64" step="1" value="0">
+    <span class="val" id="rwPv">0</span>
+  </div>
+  <div class="ctrl-row">
+    <label>plane index i</label>
+    <input type="range" id="rwI" min="0" max="15" step="1" value="0">
+    <span class="val" id="rwIv">0 (ω = 1.000)</span>
+  </div>
+  <svg viewBox="0 0 640 260" id="rwSvg" role="img" aria-label="Interactive rotary embedding visualiser">
+    <circle cx="150" cy="130" r="86" fill="none" stroke="#2e4054" stroke-width="1.4"/>
+    <line x1="64" y1="130" x2="236" y2="130" stroke="#1a2532"/>
+    <line x1="150" y1="44" x2="150" y2="216" stroke="#1a2532"/>
+    <line id="rwBase" x1="150" y1="130" x2="236" y2="130" stroke="#7d8da1" stroke-width="2"/>
+    <line id="rwVec" x1="150" y1="130" x2="236" y2="130" stroke="#f6a93b" stroke-width="3"/>
+    <circle id="rwDot" cx="236" cy="130" r="5" fill="#f6a93b"/>
+    <text x="160" y="246" class="ax" text-anchor="middle">unit vector in plane i, rotated by p·ω_i</text>
+    <text x="330" y="60" class="axb">what attention "sees"</text>
+    <text x="330" y="88" class="ax">angle at p:</text><text x="470" y="88" class="eq" id="rwA1">0.000 rad</text>
+    <text x="330" y="114" class="ax">turns made:</text><text x="470" y="114" class="eq" id="rwA2">0.00</text>
+    <text x="330" y="148" class="axb">try this</text>
+    <text x="330" y="174" class="ax" id="rwTip">Plane 0 turns fully every ~6 positions.</text>
+    <text x="330" y="206" class="ax" id="rwTip2">Plane 15 barely moves across the image.</text>
+  </svg>
+</div>
+</section>

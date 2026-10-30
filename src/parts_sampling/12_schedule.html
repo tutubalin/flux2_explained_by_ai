@@ -1,0 +1,393 @@
+<section id="schedule">
+<h2><span class="secno">§ 2</span>The schedule: which times to ask about</h2>
+<p class="section-intro">
+A generation cannot visit every moment between pure noise and a finished image — it can afford four visits, or
+fifty. <em>Which</em> four? FLUX.2's answer is the most consequential number-crunching in this file: three small
+functions, eleven hard-coded constants, and a ladder of times that is deliberately, strongly uneven.
+</p>
+
+<h3 id="s-naive">2.1 · The obvious ladder, and why it is not used</h3>
+<p>The obvious choice is evenly spaced: eight steps means <em>t</em> = 1.000, 0.875, 0.750, 0.625, 0.500, 0.375,
+0.250, 0.125, and then 0. Every step covers exactly one eighth of the way. FLUX.2 does not do this. With the same
+eight steps, at 1024×1024, it asks about:</p>
+
+<div class="mathbox">
+<span class="mm">t</span> <span class="op">=</span> 1.000, <span class="mm">0.985</span>, <span class="mm">0.967</span>, <span class="mm">0.942</span>, <span class="mm">0.906</span>, <span class="mm">0.853</span>, <span class="mm">0.763</span>, <span class="mm">0.580</span> <span class="op">→</span> 0
+</div>
+
+<p>Four of the eight calls happen while the image is still more than 94&nbsp;% noise, and the very last step
+crosses <strong>58&nbsp;% of the entire range in one go</strong> — from <em>t</em>&nbsp;=&nbsp;0.580 straight to
+<em>t</em>&nbsp;=&nbsp;0. That looks wasteful until you notice what the two schedules are spending their steps
+on. The even ladder spends half its calls in the <em>late</em> phase, where the picture is already formed and
+each call only refines texture. The bent ladder spends nearly all of them in the <em>early</em> phase, where
+composition, lighting and shapes are decided — and then trusts one long stride to finish the job.</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 1120 320" role="img" aria-label="Two rows of ticks on the same t axis from 0 to 1. The top row is evenly spaced. The bottom row is the FLUX.2 schedule for eight steps, with ticks crowded near t = 1 and one very wide gap at the end.">
+<text x="40" y="34" class="ttl">Eight steps, two ways to spend them</text>
+
+<!-- axis -->
+<line x1="80" y1="170" x2="1040" y2="170" stroke="#2e4054" stroke-width="2"/>
+<text x="80" y="140" class="axb" text-anchor="middle">t = 0</text>
+<text x="1040" y="140" class="axb" text-anchor="middle">t = 1</text>
+<text x="80" y="156" class="ax" text-anchor="middle" fill="#7d8da1">image</text>
+<text x="1040" y="156" class="ax" text-anchor="middle" fill="#7d8da1">noise</text>
+
+<!-- row A: even -->
+<text x="80" y="100" class="axb" fill="#7d8da1">evenly spaced — every stride is exactly Δt = 0.125</text>
+<g stroke="#7d8da1" stroke-width="2">
+<line x1="80" y1="150" x2="80" y2="170"/><line x1="200" y1="150" x2="200" y2="170"/>
+<line x1="320" y1="150" x2="320" y2="170"/><line x1="440" y1="150" x2="440" y2="170"/>
+<line x1="560" y1="150" x2="560" y2="170"/><line x1="680" y1="150" x2="680" y2="170"/>
+<line x1="800" y1="150" x2="800" y2="170"/><line x1="920" y1="150" x2="920" y2="170"/>
+<line x1="1040" y1="150" x2="1040" y2="170"/></g>
+
+<!-- row B: shifted -->
+<g stroke="#ffd479" stroke-width="2.4">
+<line x1="80" y1="170" x2="80" y2="192"/><line x1="636.6" y1="170" x2="636.6" y2="192"/>
+<line x1="812.5" y1="170" x2="812.5" y2="192"/><line x1="898.9" y1="170" x2="898.9" y2="192"/>
+<line x1="949.9" y1="170" x2="949.9" y2="192"/><line x1="983.8" y1="170" x2="983.8" y2="192"/>
+<line x1="1007.9" y1="170" x2="1007.9" y2="192"/><line x1="1026.0" y1="170" x2="1026.0" y2="192"/>
+<line x1="1040" y1="170" x2="1040" y2="192"/></g>
+<text x="80" y="214" class="axb" fill="#ffd479">FLUX.2 at 1024×1024 with 8 steps — the same count, shifted by μ = 2.27</text>
+
+<!-- brace over the crowded end -->
+<path d="M983,232 L983,240 L1040,240 L1040,232" stroke="#ffd479" stroke-width="1.4" fill="none"/>
+<text x="1040" y="262" class="ax" text-anchor="end" fill="#ffd479">four of the eight calls land above t = 0.94</text>
+<path d="M80,232 L80,240 L636,240 L636,232" stroke="#ff7ab8" stroke-width="1.4" fill="none"/>
+<text x="640" y="290" class="ax" text-anchor="end" fill="#ff7ab8">the final stride alone covers 58 % of the whole range</text>
+</svg>
+</div>
+<figcaption><span class="figno">FIG 2</span><b>Eight steps, spent two different ways.</b> Both rows ask the
+network eight times. The top row spreads the questions evenly; the bottom row — what FLUX.2 actually does at
+1024×1024 — crowds them at the noisy end and finishes with one enormous stride. Nothing else in the sampler
+differs between the two: the same <code>denoise</code> loop, the same model, the same arithmetic.</figcaption>
+</figure>
+
+<h3 id="s-shift">2.2 · Bending the ladder: one number, applied to all of it</h3>
+<p>The bending is done by a single formula, and it is worth understanding it exactly, because it is the only
+place where "how many steps" and "how big the image" reach the pixels. Take any time <em>t</em> between 0 and 1
+and map it to a new time <em>t′</em>:</p>
+
+<div class="mathbox">
+<span class="mm">t′</span> <span class="op">=</span>
+<span class="frac"><span class="top">e<sup>μ</sup></span><span class="bot">e<sup>μ</sup> <span class="op">+</span> (<span class="frac"><span class="top">1</span><span class="bot"><span class="mm">t</span></span></span> <span class="op">−</span> 1)<sup>σ</sup></span></span>
+<span class="op" style="padding-left:1.6em">with σ = 1 in FLUX.2, so the exponent does nothing</span>
+</div>
+
+<p>Read literally, this is a signal-to-noise ratio being rescaled: <span class="mono">(1/t − 1)</span> is the
+ratio of noise to signal at time <em>t</em>, and dividing it by <span class="mono">e<sup>μ</sup></span> makes
+every moment look <em>noisier</em> than it was. But there is a much better way to see it.</p>
+
+<div class="note math">
+  <div class="nh">∑ The shift is a slide along the logit axis</div>
+  <p>Define the logit of a time as <span class="mono">logit(t) = ln(t / (1 − t))</span> — the logarithm of the
+  signal-to-noise ratio. It runs from −∞ at <em>t</em>&nbsp;=&nbsp;0 through 0 at <em>t</em>&nbsp;=&nbsp;0.5 to
+  +∞ at <em>t</em>&nbsp;=&nbsp;1. Now rewrite the formula with σ = 1:</p>
+  <div class="mathblk">
+  <span class="mm">t′</span> <span class="op">=</span>
+  <span class="frac"><span class="top">e<sup>μ</sup>·<span class="mm">t</span></span><span class="bot">e<sup>μ</sup>·<span class="mm">t</span> <span class="op">+</span> (1 <span class="op">−</span> <span class="mm">t</span>)</span></span>
+  <span class="op" style="padding-left:1.4em">⇒</span>
+  <span class="frac"><span class="top"><span class="mm">t′</span></span><span class="bot">1 <span class="op">−</span> <span class="mm">t′</span></span></span>
+  <span class="op">=</span> e<sup>μ</sup>·<span class="frac"><span class="top"><span class="mm">t</span></span><span class="bot">1 <span class="op">−</span> <span class="mm">t</span></span></span>
+  <span class="op" style="padding-left:1.4em">⇒</span>
+  <span class="mm">logit(t′)</span> <span class="op">=</span> <span class="mm">logit(t)</span> <span class="op">+</span> <span class="mm">μ</span>
+  </div>
+  <p>That is the whole trick: <strong>the shift adds a constant to the logit of every timestep</strong>. With the
+  general σ it is the affine map <span class="mono">logit(t′) = σ·logit(t) + μ</span> — a stretch and a slide.
+  The two ends are fixed points (±∞ + μ = ±∞), which is why <em>t</em>&nbsp;=&nbsp;1 and <em>t</em>&nbsp;=&nbsp;0
+  survive any shift, and why μ can be large without breaking the ladder. <b style="color:var(--ref)">VERIFIED</b>
+  to 10<sup>−12</sup> at sixteen (t, μ, σ) combinations by <code>src/ref/verify_sampling.py</code>.</p>
+</div>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 1120 380" role="img" aria-label="Left: the curve of shifted time against original time for mu = 2.27, bowing above the identity line. Right: the same operation drawn on the logit axis, where every rung of the ladder slides right by exactly mu.">
+<defs><marker id="sh1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#ffd479"/></marker></defs>
+<text x="40" y="30" class="ttl">The same operation, seen twice</text>
+
+<!-- left panel -->
+<rect x="30" y="46" width="500" height="290" rx="12" fill="#0e1622" stroke="#2e4054"/>
+<text x="52" y="72" class="axb">in time space: a bow, not a slide</text>
+<line x1="60" y1="300" x2="500" y2="300" stroke="#2e4054" stroke-width="1.6"/>
+<line x1="60" y1="300" x2="60" y2="60" stroke="#2e4054" stroke-width="1.6"/>
+<text x="60" y="320" class="ax" text-anchor="middle">t = 0</text>
+<text x="500" y="320" class="ax" text-anchor="middle">t = 1</text>
+<text x="46" y="66" class="ax" text-anchor="end">t′</text>
+<path d="M60,300 L500,60" stroke="#7d8da1" stroke-width="1.4" stroke-dasharray="5 4" fill="none"/>
+<text x="250" y="168" class="lbl-s" fill="#7d8da1">μ = 0 (no shift)</text>
+<path d="M60.0,300.0 L71.0,252.4 L82.0,219.1 L93.0,194.6 L104.0,175.8 L115.0,160.8 L126.0,148.7 L137.0,138.7 L148.0,130.3 L159.0,123.1 L170.0,116.9 L181.0,111.5 L192.0,106.7 L203.0,102.5 L214.0,98.7 L225.0,95.3 L236.0,92.3 L247.0,89.5 L258.0,87.0 L269.0,84.6 L280.0,82.5 L291.0,80.6 L302.0,78.7 L313.0,77.1 L324.0,75.5 L335.0,74.0 L346.0,72.7 L357.0,71.4 L368.0,70.2 L379.0,69.1 L390.0,68.0 L401.0,67.0 L412.0,66.1 L423.0,65.2 L434.0,64.3 L445.0,63.5 L456.0,62.7 L467.0,62.0 L478.0,61.3 L489.0,60.6 L500.0,60.0" stroke="#ffd479" stroke-width="2.4" fill="none"/>
+<text x="150" y="252" class="lbl-s" fill="#ffd479">μ = 2.27</text>
+<circle cx="493.6" cy="60.4" r="4" fill="#ff7ab8"/><circle cx="435.3" cy="64.2" r="4" fill="#ff7ab8"/>
+<circle cx="315.1" cy="76.8" r="4" fill="#ff7ab8"/><circle cx="170.0" cy="116.9" r="4" fill="#ff7ab8"/>
+<text x="52" y="356" class="eq">every interior time moves up; both ends stay put</text>
+
+<!-- right panel -->
+<rect x="550" y="46" width="540" height="290" rx="12" fill="#0e1622" stroke="#2e4054"/>
+<text x="572" y="72" class="axb">in logit space: a rigid slide by μ</text>
+<line x1="560" y1="220" x2="1080" y2="220" stroke="#2e4054" stroke-width="1.6"/>
+<g stroke="#2e4054" stroke-width="1.2">
+<line x1="612" y1="214" x2="612" y2="226"/><line x1="716" y1="214" x2="716" y2="226"/>
+<line x1="820" y1="214" x2="820" y2="226"/><line x1="924" y1="214" x2="924" y2="226"/>
+<line x1="1028" y1="214" x2="1028" y2="226"/></g>
+<text x="612" y="244" class="lbl-s" text-anchor="middle">−4</text>
+<text x="716" y="244" class="lbl-s" text-anchor="middle">−2</text>
+<text x="820" y="244" class="lbl-s" text-anchor="middle">0</text>
+<text x="924" y="244" class="lbl-s" text-anchor="middle">+2</text>
+<text x="1028" y="244" class="lbl-s" text-anchor="middle">+4</text>
+<text x="820" y="266" class="ax" text-anchor="middle">logit(t) = ln( t / (1 − t) )</text>
+<g stroke="#7d8da1" stroke-width="2">
+<line x1="719" y1="196" x2="719" y2="220"/><line x1="763" y1="196" x2="763" y2="220"/>
+<line x1="793" y1="196" x2="793" y2="220"/><line x1="820" y1="196" x2="820" y2="220"/>
+<line x1="847" y1="196" x2="847" y2="220"/><line x1="877" y1="196" x2="877" y2="220"/>
+<line x1="921" y1="196" x2="921" y2="220"/></g>
+<g stroke="#ffd479" stroke-width="2.4">
+<line x1="837" y1="220" x2="837" y2="244"/><line x1="881" y1="220" x2="881" y2="244"/>
+<line x1="911" y1="220" x2="911" y2="244"/><line x1="938" y1="220" x2="938" y2="244"/>
+<line x1="965" y1="220" x2="965" y2="244"/><line x1="995" y1="220" x2="995" y2="244"/>
+<line x1="1039" y1="220" x2="1039" y2="244"/></g>
+<g stroke="#ffd479" stroke-width="1.3" opacity=".75" marker-end="url(#sh1)">
+<line x1="723" y1="184" x2="831" y2="184"/><line x1="767" y1="176" x2="875" y2="176"/>
+<line x1="797" y1="184" x2="905" y2="184"/><line x1="824" y1="176" x2="932" y2="176"/>
+<line x1="851" y1="184" x2="959" y2="184"/><line x1="881" y1="176" x2="989" y2="176"/>
+<line x1="925" y1="184" x2="1033" y2="184"/></g>
+<text x="572" y="120" class="lbl-s" fill="#7d8da1">grey = the even ladder's rungs</text>
+<text x="572" y="138" class="lbl-s" fill="#ffd479">gold = after the shift, each moved right by 2.27</text>
+<text x="572" y="300" class="eq">t = 0.875 → 0.985 · t = 0.500 → 0.906 · t = 0.125 → 0.580</text>
+</svg>
+</div>
+<figcaption><span class="figno">FIG 3</span><b>Why "shift" is the right word.</b> On the left, the map
+<em>t</em>&nbsp;→&nbsp;<em>t′</em> for μ&nbsp;=&nbsp;2.27 bows above the diagonal: interior times are pushed toward
+noise and the ends are fixed. On the right, the same map on the logit axis, where it is nothing but a translation
+— every rung of the ladder moves right by exactly μ, which is why the crowded end of FIG 2 stays crowded and the
+rung nearest <em>t</em>&nbsp;=&nbsp;1 can never quite reach it.</figcaption>
+</figure>
+
+<div class="note beginner">
+  <div class="nh">▸ What "noisier" buys you</div>
+  <p>The published reason for shifting is resolution. At a fixed <em>t</em>, a bigger image hides its noise
+  better: with four times as many latent cells, averaging over neighbours recovers more of the original signal,
+  so the same <em>t</em> is an <em>easier</em> problem. If you keep the ladder fixed while the canvas grows, the
+  model spends its steps on questions it has already answered. Shifting by a larger μ at larger resolutions
+  restores the difficulty — which is exactly the dependence on <code>image_seq_len</code> that
+  <code>compute_empirical_mu</code> implements (§2.3). This argument and the shift itself come from the
+  Stable Diffusion 3 paper (<a href="#srefs">Esser et al., 2024</a>, §5.2).</p>
+</div>
+
+<h3 id="s-mu">2.3 · Where the bend comes from: two fitted lines</h3>
+<p>So the shift is one number μ. Where does μ come from? Not from a config file and not from a formula derived
+from first principles — from <strong>two straight lines fitted to measurements</strong>, plus a linear
+interpolation between them. Call <em>L</em> the number of image tokens in the canvas (4 096 at 1024×1024) and
+<em>N</em> the number of steps:</p>
+
+<div class="mathbox">
+<span class="mm">m</span><sub>10</sub>(<span class="mm">L</span>) <span class="op">=</span> 8.73809524·10<sup>−5</sup>·<span class="mm">L</span> <span class="op">+</span> 1.89833333
+<span class="op" style="padding-left:1.6em">the μ that suits a 10-step run</span><br>
+<span class="mm">m</span><sub>200</sub>(<span class="mm">L</span>) <span class="op">=</span> 1.6927·10<sup>−4</sup>·<span class="mm">L</span> <span class="op">+</span> 0.45666666
+<span class="op" style="padding-left:1.6em">the μ that suits a 200-step run</span>
+</div>
+
+<p>For a canvas of <em>L</em>&nbsp;≤&nbsp;4 300 tokens the code interpolates between those two anchors on the
+step count, and it does it so that both ends come out exactly right: with
+<span class="mono">a = (m₂₀₀ − m₁₀) / 190</span> and <span class="mono">b = m₂₀₀ − 200a</span>, the value
+<span class="mono">μ = a·N + b</span> equals <em>m</em><sub>10</sub> at <em>N</em>&nbsp;=&nbsp;10 and
+<em>m</em><sub>200</sub> at <em>N</em>&nbsp;=&nbsp;200. For a canvas above 4 300 tokens it skips the
+interpolation entirely and returns <em>m</em><sub>200</sub>(<em>L</em>), whatever the step count.</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 1120 400" role="img" aria-label="Two straight lines rising with the token count: m10 starting at 1.90 and m200 starting at 0.46. Between them, the mu values FLUX.2 actually uses, marked for 4, 8, 28 and 50 steps at 4096 tokens, and a vertical dashed knee at 4300 tokens above which only the lower line is used.">
+<text x="40" y="30" class="ttl">μ as a function of canvas size and step count</text>
+<line x1="80" y1="330" x2="1000" y2="330" stroke="#2e4054" stroke-width="1.8"/>
+<line x1="80" y1="330" x2="80" y2="46" stroke="#2e4054" stroke-width="1.8"/>
+<g stroke="#22303f" stroke-width="1">
+<line x1="80" y1="242" x2="1000" y2="242"/><line x1="80" y1="154" x2="1000" y2="154"/>
+<line x1="80" y1="66" x2="1000" y2="66"/></g>
+<text x="70" y="334" class="lbl-s" text-anchor="end">0</text>
+<text x="70" y="246" class="lbl-s" text-anchor="end">1</text>
+<text x="70" y="158" class="lbl-s" text-anchor="end">2</text>
+<text x="70" y="70" class="lbl-s" text-anchor="end">3</text>
+<text x="34" y="190" class="ax" text-anchor="middle" transform="rotate(-90 34 190)">μ</text>
+<g stroke="#22303f" stroke-width="1">
+<line x1="186" y1="330" x2="186" y2="336"/><line x1="308" y1="330" x2="308" y2="336"/>
+<line x1="504" y1="330" x2="504" y2="336"/><line x1="715" y1="330" x2="715" y2="336"/>
+<line x1="947" y1="330" x2="947" y2="336"/></g>
+<text x="186" y="352" class="lbl-s" text-anchor="middle">2 000</text>
+<text x="308" y="352" class="lbl-s" text-anchor="middle">4 300</text>
+<text x="504" y="352" class="lbl-s" text-anchor="middle">8 000</text>
+<text x="715" y="352" class="lbl-s" text-anchor="middle">12 000</text>
+<text x="947" y="352" class="lbl-s" text-anchor="middle">16 384</text>
+<text x="540" y="378" class="ax" text-anchor="middle">image tokens in the canvas, L (512² = 1 024 · 1024² = 4 096 · 2048² = 16 384)</text>
+
+<path d="M80,163 L980,32" stroke="#35d6f0" stroke-width="2.4" fill="none"/>
+<path d="M80,290 L980,37" stroke="#b18cff" stroke-width="2.4" fill="none"/>
+<text x="640" y="76" class="axb" fill="#35d6f0">m₁₀ — fitted for 10 steps</text>
+<text x="640" y="120" class="axb" fill="#b18cff">m₂₀₀ — fitted for 200 steps</text>
+
+<line x1="308" y1="46" x2="308" y2="330" stroke="#ffd479" stroke-width="1.5" stroke-dasharray="6 5"/>
+<text x="316" y="60" class="lbl-s" fill="#ffd479">the knee at L = 4 300</text>
+<text x="316" y="78" class="lbl-s" fill="#7d8da1">above it, only m₂₀₀ is used</text>
+
+<!-- operating points at L=4096 -->
+<circle cx="297" cy="128" r="5" fill="#ffd479"/><circle cx="297" cy="130" r="5" fill="none" stroke="#ffd479" stroke-width="1.4"/>
+<circle cx="297" cy="141" r="5" fill="#ffd479"/><circle cx="297" cy="152" r="5" fill="#ffd479"/>
+<line x1="297" y1="128" x2="297" y2="152" stroke="#ffd479" stroke-width="1.6"/>
+<text x="288" y="112" class="lbl-s" text-anchor="end" fill="#ffd479">4 096 tokens, N = 4 → 2.29</text>
+<text x="288" y="176" class="lbl-s" text-anchor="end" fill="#ffd479">4 096 tokens, N = 50 → 2.02</text>
+<circle cx="134" cy="151" r="5" fill="#5fe08a"/>
+<text x="146" y="146" class="lbl-s" fill="#5fe08a">1 024 tokens, N = 4 → 2.03</text>
+<circle cx="947" cy="46" r="5" fill="#ff7ab8"/>
+<text x="938" y="66" class="lbl-s" text-anchor="end" fill="#ff7ab8">16 384 tokens → 3.23 at any N</text>
+<circle cx="509" cy="169" r="5" fill="#ff7ab8"/>
+<text x="521" y="166" class="lbl-s" fill="#ff7ab8">8 100 tokens → 1.83</text>
+</svg>
+</div>
+<figcaption><span class="figno">FIG 4</span><b>Eleven constants, two lines, one knee.</b> The cyan line is the
+shift that suits a 10-step run at each canvas size, the violet one the shift that suits a 200-step run. Between
+them FLUX.2 interpolates linearly on the step count, so fewer steps means a bigger μ — the gold markers at
+4 096 tokens run from 2.29 (4 steps) down to 2.02 (50 steps). Above 4 300 tokens the interpolation is abandoned
+and only the violet line is used, which is why the pink markers sit on it and no longer depend on the step
+count.</figcaption>
+</figure>
+
+<p>Two things about this are worth stopping for.</p>
+<p><strong>Fewer steps means a stronger shift.</strong> Both fitted lines rise with <em>L</em>, but the 10-step
+line rises more slowly and starts higher, so in the whole supported range
+<em>m</em><sub>10</sub>&nbsp;&gt;&nbsp;<em>m</em><sub>200</sub> and the slope
+<span class="mono">a = (m₂₀₀ − m₁₀)/190</span> is <em>negative</em>: μ falls as the step count grows. A model
+with only four chances puts them all high up in the noise; a model with fifty can afford to spend the last
+twenty on detail. (The two lines would only cross at <em>L</em>&nbsp;≈&nbsp;17 605 tokens, well past the
+16 384 tokens of a 4-megapixel canvas, so this ordering never reverses in practice.)</p>
+
+<div class="note warn">
+  <div class="nh">⚠ The schedule is not continuous in resolution</div>
+  <p>At the knee, μ jumps. Ask for a 1040×1040 image and the canvas is 65×65 = <strong>4 225</strong> tokens, so
+  a 4-step run interpolates and gets μ&nbsp;=&nbsp;<strong>2.3021</strong>. Ask for 1056×1056 — 1.5&nbsp;% more
+  pixels — and the canvas is 66×66 = <strong>4 356</strong> tokens, past the knee, so the same 4-step run gets
+  μ&nbsp;=&nbsp;<strong>1.1940</strong>. The bend is nearly halved by a rounding boundary, and the ladder changes
+  shape with it — <span class="mono">[1.000, 0.908, 0.767, 0.524, 0]</span> instead of
+  <span class="mono">[1.000, 0.968, 0.909, 0.769, 0]</span>, i.e. the model is suddenly asked about
+  <em>t</em>&nbsp;=&nbsp;0.524 where a moment ago it was asked about 0.769. Nothing in the file guards against
+  this; a 50-step run over the same two sizes moves μ from 2.0368 to 1.1940 and its final stride from 0.135 to
+  0.063. <b style="color:var(--ref)">VERIFIED</b> by calling <code>compute_empirical_mu</code> and
+  <code>get_schedule</code> at 4 225 and 4 356 tokens.</p>
+</div>
+
+<div class="note idea">
+  <div class="nh">✦ What the constants were fitted to <span class="spec">inference</span></div>
+  <p>The function is named <code>compute_empirical_mu</code> and its eight decimals are unmistakably measured
+  rather than derived, but the repository does not say what was measured. The shape of the two lines suggests a
+  sweep over canvas sizes and step counts, scoring the samples and keeping the μ that looked best at each end of
+  the step range — the same recipe FLUX.1 used, where μ was interpolated between two sequence lengths. The knee
+  at 4 300 tokens then reads as "above roughly one megapixel, the step count stopped mattering in the
+  measurements". Treat that reading as a guess; the numbers themselves are not guesses.</p>
+</div>
+
+<h3 id="s-ladders">2.4 · What the real ladders look like</h3>
+<p>Calling <code>get_schedule</code> with the settings the checkpoints actually ship with gives these ladders.
+Every value below was produced by the real function, not by hand.</p>
+
+<div class="tbl-wrap">
+<table class="data">
+<thead><tr><th>Checkpoint and canvas</th><th class="num">tokens</th><th class="num">steps</th><th class="num">μ</th><th>The ladder of times the model is called at</th></tr></thead>
+<tbody>
+<tr><td>klein-4B / 9B · 512×512</td><td class="num">1 024</td><td class="num">4</td><td class="num">2.0307</td>
+    <td class="m">1.000 · 0.958 · 0.884 · 0.717 → 0</td></tr>
+<tr><td>klein-4B / 9B · 1024×1024</td><td class="num">4 096</td><td class="num">4</td><td class="num">2.2912</td>
+    <td class="m">1.000 · 0.967 · 0.908 · 0.767 → 0</td></tr>
+<tr><td>klein · 2048×2048</td><td class="num">16 384</td><td class="num">4</td><td class="num">3.2300</td>
+    <td class="m">1.000 · 0.987 · 0.962 · 0.894 → 0</td></tr>
+<tr><td>dev · 1024×1024</td><td class="num">4 096</td><td class="num">8</td><td class="num">2.2679</td>
+    <td class="m">1.000 · 0.985 · 0.967 · 0.942 · 0.906 · 0.853 · 0.763 · 0.580 → 0</td></tr>
+<tr><td>dev · 1024×1024</td><td class="num">4 096</td><td class="num">50</td><td class="num">2.0234</td>
+    <td class="m">1.0000 · 0.9973 · 0.9945 · 0.9916 · … · 0.2396 · 0.1337 → 0</td></tr>
+<tr><td>dev · 1440×1440</td><td class="num">8 100</td><td class="num">50</td><td class="num">1.8278</td>
+    <td class="m">1.0000 · 0.9967 · 0.9933 · … · 0.2058 · 0.1126 → 0</td></tr>
+<tr><td>dev · 2048×2048</td><td class="num">16 384</td><td class="num">50</td><td class="num">3.2300</td>
+    <td class="m">1.0000 · 0.9992 · 0.9984 · … · 0.5130 · 0.3403 → 0</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>Read down the last column and three habits of this sampler become visible.</p>
+<p><strong>The first call is always at exactly t = 1.</strong> The ladder starts at pure noise and the shift
+leaves 1 alone, so the network's first question is always "here is Gaussian noise, which way?" — a case it was
+trained on.</p>
+<p><strong>The model is never called at t = 0.</strong> The zero at the end of every ladder is a
+<em>destination</em>, not a query: the loop pairs each time with the next one and calls the network at the first
+of the pair, so the last entry is only ever used as a stride length. This is why the final step is so long, and
+why "asking the model what a finished image looks like" never happens.</p>
+<p><strong>Resolution moves the whole ladder, not just its length.</strong> At 50 steps and 1024² the model gets
+39 of its 50 calls above <em>t</em>&nbsp;=&nbsp;0.7; at 2048² it gets 46. The last stride grows from 0.1337 to
+0.3403 — the higher the resolution, the more of the descent is left to one final jump.</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 1120 400" role="img" aria-label="Left: eight vertical bars showing the size of each stride in the 8-step schedule, rising from 0.015 to 0.580. Right: histograms of where the 50 query times fall for 1024 squared and 2048 squared canvases, both piling up in the top band.">
+<text x="40" y="30" class="ttl">Where the steps go</text>
+
+<!-- panel A -->
+<rect x="30" y="46" width="500" height="300" rx="12" fill="#0e1622" stroke="#2e4054"/>
+<text x="52" y="72" class="axb">stride size, 8 steps at 1024²</text>
+<line x1="60" y1="320" x2="510" y2="320" stroke="#2e4054" stroke-width="1.6"/>
+<g fill="#ff7ab8">
+<rect x="70" y="314.3" width="38" height="5.7" rx="2"/>
+<rect x="125" y="312.8" width="38" height="7.2" rx="2"/>
+<rect x="180" y="310.5" width="38" height="9.5" rx="2"/>
+<rect x="235" y="306.7" width="38" height="13.3" rx="2"/>
+<rect x="290" y="299.9" width="38" height="20.1" rx="2"/>
+<rect x="345" y="285.8" width="38" height="34.2" rx="2"/>
+<rect x="400" y="250.5" width="38" height="69.5" rx="2"/>
+<rect x="455" y="99.6" width="38" height="220.4" rx="2" fill="#ffd479"/>
+</g>
+<g class="lbl-s" fill="#7d8da1">
+<text x="89" y="336" text-anchor="middle">1</text><text x="144" y="336" text-anchor="middle">2</text>
+<text x="199" y="336" text-anchor="middle">3</text><text x="254" y="336" text-anchor="middle">4</text>
+<text x="309" y="336" text-anchor="middle">5</text><text x="364" y="336" text-anchor="middle">6</text>
+<text x="419" y="336" text-anchor="middle">7</text><text x="474" y="336" text-anchor="middle">8</text></g>
+<text x="474" y="90" class="lbl-s" text-anchor="middle" fill="#ffd479">0.580</text>
+<text x="89" y="306" class="lbl-s" text-anchor="middle" fill="#7d8da1">0.015</text>
+<text x="52" y="360" class="eq">the eight strides sum to exactly −1.000</text>
+
+<!-- panel B -->
+<rect x="550" y="46" width="540" height="300" rx="12" fill="#0e1622" stroke="#2e4054"/>
+<text x="572" y="72" class="axb">50 steps: how many calls fall in each band of t</text>
+<line x1="600" y1="320" x2="1070" y2="320" stroke="#2e4054" stroke-width="1.6"/>
+<g fill="#ffd479">
+<rect x="640" y="320" width="18" height="0"/><rect x="682" y="314.6" width="18" height="5.4"/>
+<rect x="724" y="314.6" width="18" height="5.4"/><rect x="766" y="309.2" width="18" height="10.8"/>
+<rect x="808" y="314.6" width="18" height="5.4"/><rect x="850" y="303.8" width="18" height="16.2"/>
+<rect x="892" y="303.8" width="18" height="16.2"/><rect x="934" y="287.6" width="18" height="32.4"/>
+<rect x="976" y="266" width="18" height="54"/><rect x="1018" y="195.8" width="18" height="124.2"/>
+</g>
+<g fill="#b18cff">
+<rect x="660" y="320" width="18" height="0"/><rect x="702" y="320" width="18" height="0"/>
+<rect x="744" y="320" width="18" height="0"/><rect x="786" y="314.6" width="18" height="5.4"/>
+<rect x="828" y="320" width="18" height="0"/><rect x="870" y="314.6" width="18" height="5.4"/>
+<rect x="912" y="309.2" width="18" height="10.8"/><rect x="954" y="309.2" width="18" height="10.8"/>
+<rect x="996" y="282.2" width="18" height="37.8"/><rect x="1038" y="120.2" width="18" height="199.8"/>
+</g>
+<text x="600" y="336" class="lbl-s">t → 0</text>
+<text x="1070" y="336" class="lbl-s" text-anchor="end">t = 1</text>
+<rect x="572" y="94" width="12" height="12" rx="3" fill="#ffd479"/>
+<text x="592" y="105" class="lbl-s" fill="#ffd479">1024² · μ = 2.02 · 23 calls above 0.9</text>
+<rect x="572" y="114" width="12" height="12" rx="3" fill="#b18cff"/>
+<text x="592" y="125" class="lbl-s" fill="#b18cff">2048² · μ = 3.23 · 37 calls above 0.9</text>
+<text x="572" y="360" class="eq">39 of 50 calls sit above t = 0.7 at 1024²; 46 of 50 at 2048²</text>
+</svg>
+</div>
+<figcaption><span class="figno">FIG 5</span><b>The same information as a picture.</b> Left: the eight strides of
+the 8-step schedule, drawn to scale — the last one is 39 times the first. Right: for two 50-step runs, how many
+of the fifty query times land in each tenth of the range. Both pile up at the noisy end, and the larger canvas
+piles up harder, which is the resolution argument of §2.2 showing up in the actual numbers.</figcaption>
+</figure>
+
+<div class="note idea">
+  <div class="nh">✦ Reference images do not change the schedule</div>
+  <p>The step count and the canvas size are the only inputs to <code>get_schedule</code>, and the canvas size it
+  is given is the token count of the <em>noise</em> — four reference photographs add 16 384 tokens to every call
+  and leave the ladder untouched. The schedule is chosen by the picture you want, never by the pictures you
+  brought along.</p>
+</div>
+</section>

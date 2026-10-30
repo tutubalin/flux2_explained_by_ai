@@ -1,0 +1,398 @@
+<section id="conditioning">
+<h2><span class="secno">§ 9</span><span class="sig">Time and guidance</span> — how one float steers 32 billion weights</h2>
+<p class="section-intro">
+§6 built attention out of nothing and §8 built positions out of nothing, because every block in this
+file is wired around both. This section does the same for the third thing every block needs and the
+file never stops to define: <em>how the network is told what to draw, and how noisy its input is</em>.
+Nothing here is in <code>model.py</code> as a single named object — it is a mechanism spread over one
+function, one small class and one three-line class (§16.1, §16.3, §16.9) and consumed in all 56 blocks.
+Understand it once here and those three classes become trivial.
+</p>
+
+<h3>9.1 · One set of weights, fifty different jobs</h3>
+<p>Recall the loop from §1: generating one image means calling <em>the same network</em> many times —
+50 times for FLUX.2-dev, 4 for the klein models — with a timestep <code>t</code> that walks down from
+1 to 0. Those calls cannot want the same thing.</p>
+<div class="tbl-wrap">
+<table class="data">
+<thead><tr><th style="width:130px">the call at</th><th style="width:290px">what the input looks like</th><th>what a useful output looks like</th></tr></thead>
+<tbody>
+<tr><td class="num">t = 0.98</td><td>almost pure Gaussian noise — no objects, no layout</td><td>a coarse global arrangement: where the subject is, how big, what the lighting does. Fine detail is meaningless here; there is nothing yet to refine.</td></tr>
+<tr><td class="num">t = 0.50</td><td>a blurry but recognisable image</td><td>shape and texture decisions: edges placed, materials chosen</td></tr>
+<tr><td class="num">t = 0.05</td><td>nearly the finished image</td><td>a small correction — sharpen here, fix a colour there. A coarse global decision now would destroy the picture.</td></tr>
+</tbody>
+</table>
+</div>
+<p>So one fixed function has to behave like a <em>different</em> function at every step. There are only
+three ways to arrange that:</p>
+<ol>
+<li><strong>Build one network per step.</strong> 50 copies of a 32-billion-parameter model. Absurd, and
+it could not generalise to a step count chosen at run time.</li>
+<li><strong>Hand <code>t</code> to the network as another input token</strong> and let attention find it.
+Possible — but a single token among 16 896 is a weak, indirect signal, and every block would have to
+spend attention capacity re-discovering it.</li>
+<li><strong>Keep one set of weights and let <code>t</code> re-tune them on the fly.</strong> No weight is
+ever changed; instead each layer's normalisation is shifted, scaled and gated by numbers derived from
+<code>t</code>. One network, fifty behaviours, almost no extra parameters.</li>
+</ol>
+<p>FLUX.2 does the third. The mechanism is called <strong>adaptive layer normalisation</strong> (adaLN),
+and the rest of this section builds it from the ground up.</p>
+
+<h3>9.2 · Three ways to tell a network something</h3>
+<p>Before the mechanics, one distinction explains the whole design. A diffusion transformer has to be
+told several different things, and FLUX.2 tells them through <em>different channels</em>:</p>
+<div class="tbl-wrap">
+<table class="data">
+<thead><tr><th style="width:180px">what must be injected</th><th style="width:120px">its size</th><th style="width:200px">channel used</th><th>where you have already met it</th></tr></thead>
+<tbody>
+<tr><td>the prompt</td><td>512 tokens × 15 360 numbers</td><td><strong>tokens in the sequence</strong>, attending jointly with the image</td><td><code>txt_in</code> at L70; the joint attention of §6 and §19; the merge at L153–154 (§20.2)</td></tr>
+<tr><td>reference images</td><td>up to 16 384 tokens × 128</td><td><strong>tokens too</strong> — but sealed off from the canvas</td><td>§4.4, and the router that isolates them (§17)</td></tr>
+<tr><td>the timestep <code>t</code></td><td>one float</td><td><strong>modulation</strong>: shift, scale and gate on every norm</td><td>this section; code at §16.1, §16.3, §16.9</td></tr>
+<tr><td>the guidance strength <code>g</code> (§9.3)</td><td>one float (dev only)</td><td><strong>the same modulation channel</strong>, added to <code>t</code>'s vector</td><td>L74, L200–203; §15 (<code>use_guidance_embed</code>)</td></tr>
+</tbody>
+</table>
+</div>
+<div class="note idea">
+<div class="nh">💡 The rule behind the split</div>
+<p><strong>Content goes into the sequence; settings go into the modulation.</strong> A prompt is content:
+different image regions need to look at <em>different words</em>, and only attention can route one token
+to another (§6). A timestep is a setting: it has to apply to <em>every token in every layer at once</em>,
+uniformly. Broadcasting one scalar through attention would be slow and lossy; handing it to each layer's
+normalisation reaches all 16 896 tokens in one multiplication. The guidance value is a setting for the
+same reason — it says "push harder towards the prompt", not "look at this".</p>
+</div>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 1560 480" role="img" aria-label="Two lanes entering the transformer. The upper lane is content: the prompt, the reference images and the canvas, which become rows of one sequence that attention routes between. The lower lane is settings: the timestep and the guidance value, which become one condition vector and travel along a bus that touches every block.">
+<defs><marker id="twA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7d8da1"/></marker>
+<marker id="twC" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#35d6f0"/></marker>
+<marker id="twV" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5fe08a"/></marker></defs>
+<text x="40" y="34" class="ttl">Two lanes into the same network: what it looks at, and what it obeys</text>
+
+<text x="60" y="80" class="axb" fill="#35d6f0">CONTENT — becomes rows of the sequence</text>
+<rect x="60" y="92" width="330" height="52" rx="9" fill="#121a26" stroke="#35d6f0" stroke-opacity=".55"/>
+<text x="225" y="114" class="eq" text-anchor="middle" fill="#35d6f0">the prompt · 512 rows</text>
+<text x="225" y="132" class="eq" text-anchor="middle" fill="#a9b8c9">what to draw</text>
+<rect x="60" y="152" width="330" height="52" rx="9" fill="#121a26" stroke="#b18cff" stroke-opacity=".55"/>
+<text x="225" y="174" class="eq" text-anchor="middle" fill="#b18cff">reference images · up to 16 384 rows</text>
+<text x="225" y="192" class="eq" text-anchor="middle" fill="#a9b8c9">what it should look like</text>
+<rect x="60" y="212" width="330" height="52" rx="9" fill="#121a26" stroke="#f6a93b" stroke-opacity=".55"/>
+<text x="225" y="234" class="eq" text-anchor="middle" fill="#f6a93b">the canvas · 4 096 rows</text>
+<text x="225" y="252" class="eq" text-anchor="middle" fill="#a9b8c9">what is being drawn</text>
+
+<rect x="620" y="92" width="560" height="200" rx="15" fill="#0e1622" stroke="#f6a93b" stroke-opacity=".55"/>
+<text x="900" y="112" class="axb" text-anchor="middle" fill="#f6a93b">the transformer · one sequence, 56 blocks</text>
+<rect x="640" y="118" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="678" y="118" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="716" y="118" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="754" y="118" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="792" y="118" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="830" y="118" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="868" y="118" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="906" y="118" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="944" y="118" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="982" y="118" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1020" y="118" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1058" y="118" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1096" y="118" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1134" y="118" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="640" y="158" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="678" y="158" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="716" y="158" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="754" y="158" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="792" y="158" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="830" y="158" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="868" y="158" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="906" y="158" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="944" y="158" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="982" y="158" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1020" y="158" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1058" y="158" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1096" y="158" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1134" y="158" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="640" y="198" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="678" y="198" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="716" y="198" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="754" y="198" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="792" y="198" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="830" y="198" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="868" y="198" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="906" y="198" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="944" y="198" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="982" y="198" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1020" y="198" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1058" y="198" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1096" y="198" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1134" y="198" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="640" y="238" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="678" y="238" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="716" y="238" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="754" y="238" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="792" y="238" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="830" y="238" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="868" y="238" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="906" y="238" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="944" y="238" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="982" y="238" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1020" y="238" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1058" y="238" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1096" y="238" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+<rect x="1134" y="238" width="32" height="32" rx="5" fill="#182231" stroke="#f6a93b" stroke-opacity=".45"/>
+
+<path d="M392,118 L500,150 L618,168" stroke="#35d6f0" stroke-width="1.9" fill="none" marker-end="url(#twC)"/>
+<path d="M392,178 L618,190" stroke="#b18cff" stroke-width="1.9" fill="none" marker-end="url(#twA)"/>
+<path d="M392,238 L500,222 L618,212" stroke="#f6a93b" stroke-width="1.9" fill="none" marker-end="url(#twA)"/>
+<text x="500" y="132" class="eq" text-anchor="middle" fill="#a9b8c9">attention routes</text>
+<text x="500" y="252" class="eq" text-anchor="middle" fill="#a9b8c9">each row to each other row</text>
+
+<text x="60" y="336" class="axb" fill="#5fe08a">SETTINGS — become dials on every block</text>
+<rect x="60" y="348" width="160" height="52" rx="9" fill="#121a26" stroke="#5fe08a" stroke-opacity=".55"/>
+<text x="140" y="370" class="eq" text-anchor="middle" fill="#5fe08a">t</text>
+<text x="140" y="388" class="eq" text-anchor="middle" fill="#a9b8c9">one float</text>
+<rect x="60" y="408" width="160" height="52" rx="9" fill="#121a26" stroke="#5fe08a" stroke-opacity=".35" stroke-dasharray="5 4"/>
+<text x="140" y="430" class="eq" text-anchor="middle" fill="#5fe08a">g</text>
+<text x="140" y="448" class="eq" text-anchor="middle" fill="#a9b8c9">one float, dev only</text>
+<rect x="270" y="376" width="230" height="56" rx="10" fill="#121a26" stroke="#5fe08a" stroke-opacity=".6"/>
+<text x="385" y="400" class="eq" text-anchor="middle" fill="#5fe08a">§7 fingerprint + §9 MLP</text>
+<text x="385" y="418" class="eq" text-anchor="middle">→ vec, 6 144 numbers</text>
+<path d="M222,374 L268,392" stroke="#5fe08a" stroke-width="1.8" fill="none" marker-end="url(#twV)"/>
+<path d="M222,434 L268,416" stroke="#5fe08a" stroke-width="1.8" fill="none" marker-end="url(#twV)"/>
+<rect x="620" y="376" width="560" height="56" rx="12" fill="rgba(95,224,138,.1)" stroke="#5fe08a" stroke-opacity=".55"/>
+<text x="900" y="400" class="axb" text-anchor="middle" fill="#5fe08a">the modulation bus (§11)</text>
+<text x="900" y="418" class="eq" text-anchor="middle">shift, scale and gate for all 56 blocks at once</text>
+<path d="M502,404 L618,404" stroke="#5fe08a" stroke-width="2" fill="none" marker-end="url(#twV)"/>
+<path d="M700,374 L700,296" stroke="#5fe08a" stroke-width="1.6" fill="none" stroke-dasharray="5 4" marker-end="url(#twV)"/>
+<path d="M900,374 L900,296" stroke="#5fe08a" stroke-width="1.6" fill="none" stroke-dasharray="5 4" marker-end="url(#twV)"/>
+<path d="M1100,374 L1100,296" stroke="#5fe08a" stroke-width="1.6" fill="none" stroke-dasharray="5 4" marker-end="url(#twV)"/>
+
+<path d="M1182,192 L1268,192" stroke="#7d8da1" stroke-width="2.2" fill="none" marker-end="url(#twA)"/>
+<rect x="1272" y="150" width="250" height="84" rx="12" fill="#121a26" stroke="#2e4054"/>
+<text x="1397" y="180" class="axb" text-anchor="middle">velocity</text>
+<text x="1397" y="202" class="eq" text-anchor="middle">for the canvas rows only</text>
+<text x="1397" y="220" class="eq" text-anchor="middle" fill="#a9b8c9">→ one step of §1</text>
+<text x="1272" y="300" class="eq" fill="#a9b8c9">content is looked at;</text>
+<text x="1272" y="320" class="eq" fill="#a9b8c9">settings are obeyed.</text>
+</svg>
+</div>
+<figcaption><span class="figno">FIG 17</span><b>The two channels.</b> Content arrives as rows and is
+handled by attention, which is the only mechanism in the network that can treat one token differently from
+another. Settings arrive as one vector and are handled by modulation, which is the only mechanism that can
+reach every block at once. Neither could do the other's job: a timestep cannot be "looked at" usefully by
+16 896 rows, and a prompt cannot be broadcast uniformly without losing the point of having one.</figcaption>
+</figure>
+
+<h3>9.3 · The other setting: what "guidance" actually is</h3>
+<p>The loop above passes the model four things — noisy latents, their position ids, the timestep, the
+text — and for some checkpoints a fifth: <code>guidance</code>. It is one number, and the file never
+explains it, so here it is. It matters twice: it is the second "setting" that §9 routes into the network,
+and it is a config field in §15 (<code>use_guidance_embed</code>).</p>
+<p><strong>The problem.</strong> A model trained to follow a prompt follows it politely. It produces
+something consistent with the words but hedged — washed out, under-committed, averaging over everything
+the prompt could have meant. <em>Classifier-free guidance</em> (Ho &amp; Salimans, 2022 — §26) is the
+classic fix: run the network <strong>twice</strong> per step, once with the prompt and once with an empty
+one, and extrapolate past the conditional prediction.</p>
+<div class="note math">
+<div class="nh">Σ Classifier-free guidance, one step</div>
+<p><span class="mathblk">v = v_uncond + w · (v_cond − v_uncond)</span></p>
+<p style="margin-top:6px"><span class="shape">w = 1 → the plain conditional prediction · w &gt; 1 → step further along "what the prompt changes" · w = 0 → ignore the prompt</span></p>
+</div>
+<p>The bracket is exactly <em>what the prompt changes</em>, so multiplying it by w &gt; 1 amplifies only
+that. It works — and it doubles the cost: 100 network evaluations for a 50-step image.</p>
+<p><strong>What FLUX.2 does instead.</strong> <code>use_guidance_embed</code> says whether the model takes
+<code>w</code> as an <em>input</em>. Where it does, the value is fingerprinted and embedded exactly like
+the timestep and added to the same condition vector (§9.4), so a <em>single</em> pass approximates what the
+two-pass extrapolation would have produced — the model was trained to reproduce it, which is what
+"guidance distillation" means. The dev configuration sets <code>use_guidance_embed=True</code> and
+<code>util.py</code> drives it with <code>guidance=4.0</code> over 50 steps. Both klein configurations set
+it to <code>False</code>: those networks have no guidance input at all, and <code>util.py</code>
+accordingly runs them with <code>guidance=1.0</code> — no amplification — in 4 steps.</p>
+<p><code>sampling.py</code> still carries the two-pass version as its own entry point
+(<code>denoise_cfg</code>): it duplicates the batch, passes <code>guidance=None</code> to the model, and
+combines the two predictions outside the network. Same idea, no distilled input, twice the compute.</p>
+<div class="note warn">
+<div class="nh">⚠ Do not confuse the two</div>
+<p>A <em>distilled</em> guidance value — this file's <code>guidance_in</code> — is one scalar fed into one
+forward pass. <em>True</em> classifier-free guidance is two forward passes combined afterwards. Nothing in
+<code>model.py</code> ever does the second: the file only sees the scalar.</p>
+</div>
+
+<h3>9.4 · From one float to 56 blocks' worth of dials</h3>
+<p>Now the pipeline that produces those dials. It has four stages, and each one exists because the
+previous one is not enough.</p>
+<p><strong>Stage 1 — the fingerprint.</strong> §7 built this one: <code>t</code> is multiplied by 1000 and
+read against 128 geometrically spaced frequencies, each reading taken twice — a cosine and a sine — which
+gives 256 numbers between −1 and 1. No parameters, nothing learned, smooth in <code>t</code>, and no two
+times in [0, 1] share a fingerprint. The fastest reading completes 159 cycles over a whole run and the
+slowest 1.7 % of one; that spread of scales is the entire trick, and it is what turns one float into
+something a 6144-wide matrix can actually work with.</p>
+<p><strong>Stage 2 — a fixed code becomes a learned meaning.</strong> The fingerprint is a deterministic
+function of <code>t</code>: no parameters, nothing learned. What it <em>means</em> to be at t = 0.62 is
+something the model has to discover, so the fingerprint goes through the smallest possible learned
+transform — two linear layers with a nonlinearity between them, 256 → 6144 → 6144 (§16.3). The
+nonlinearity is <strong>SiLU</strong>, <span class="shape">silu(x) = x · σ(x)</span> — a smooth, self-gated
+ramp that is near zero for very negative inputs and near <code>x</code> for positive ones. §16.2 turns that
+same function into a <em>gate</em> for the MLPs; here it is just the kink that lets two linear layers
+express more than one. Its output is the
+<strong>condition vector</strong>, <code>vec</code>, and it is the only form in which the timestep ever
+reaches the blocks.</p>
+<p><strong>Stage 3 — the guidance value takes the same road and is added.</strong> If the configuration has
+<code>use_guidance_embed</code> (§15, true for dev only — and §9.3 explains what the value <em>means</em>),
+the guidance scalar is fingerprinted and MLP'd through its <em>own</em> copy of the same class, and the two
+vectors are summed (L200–203):</p>
+<div class="note math">
+<div class="nh">Σ Two settings, one channel</div>
+<p><span class="mathblk">vec = time_in(fingerprint(t)) + guidance_in(fingerprint(g))</span></p>
+<p style="margin-top:6px"><span class="shape">(B, 6144) + (B, 6144) → (B, 6144)</span></p>
+</div>
+<p>Adding, rather than concatenating, means the two settings share every downstream matrix: there is one
+condition channel and the network learns to disentangle them. It also means guidance cannot be routed
+somewhere the timestep does not go — the two dials are fused from this point on.</p>
+<p><strong>Stage 4 — three matrices turn one vector into everybody's dials.</strong> <code>vec</code> is
+fed to <em>three</em> <code>Modulation</code> modules (§16.9). Each one applies SiLU and then a single
+bias-free linear layer, and splits the result into vectors of 6144:</p>
+<div class="tbl-wrap">
+<table class="data">
+<thead><tr><th style="width:290px">module (built at L98–108)</th><th style="width:170px">its matrix</th><th style="width:90px">vectors</th><th>who consumes them</th></tr></thead>
+<tbody>
+<tr><td><code>double_stream_modulation_img</code></td><td>6144 → 36 864</td><td class="num">6</td><td>the <strong>image</strong> stream of all 8 double blocks: (shift, scale, gate) for its attention, then (shift, scale, gate) for its MLP</td></tr>
+<tr><td><code>double_stream_modulation_txt</code></td><td>6144 → 36 864</td><td class="num">6</td><td>the <strong>text</strong> stream of the same 8 blocks, same two triples</td></tr>
+<tr><td><code>single_stream_modulation</code></td><td>6144 → 18 432</td><td class="num">3</td><td>all 48 single blocks — one triple, because after the merge there is one stream and one fused sub-layer</td></tr>
+</tbody>
+</table>
+</div>
+<p>That is the naming trap in <code>__init__</code>: <code>double=True</code> does <em>not</em> mean "one
+triple per stream in a two-stream block". Each of the two <code>double=True</code> modules serves
+<strong>one</strong> stream and emits <strong>two</strong> triples — one for attention, one for the MLP.
+Six vectors, one stream.</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 1560 640" role="img" aria-label="Conditioning pipeline: the timestep and the optional guidance value are each turned into a 256-number sinusoidal fingerprint, each fingerprint runs through an MLPEmbedder to become a 6144-wide vector, the two vectors are added into vec, and vec feeds three Modulation matrices which emit six, six and three dial vectors consumed by the eight double blocks' image stream, the eight double blocks' text stream, and the forty-eight single blocks.">
+<defs><marker id="cndA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7d8da1"/></marker>
+<marker id="cndV" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5fe08a"/></marker></defs>
+<text x="40" y="30" class="ttl">From one float to 56 blocks' worth of dials — computed three times per step, not 56 times</text>
+
+<!-- stage 1: the scalars -->
+<rect x="40" y="80" width="150" height="86" rx="10" fill="#121a26" stroke="#5fe08a" stroke-opacity=".6"/>
+<text x="115" y="104" class="axb" text-anchor="middle" fill="#5fe08a">timestep t</text>
+<text x="115" y="124" class="eq" text-anchor="middle">(B,)</text>
+<text x="115" y="146" class="eq" text-anchor="middle">1.0 → 0.0</text>
+<rect x="40" y="200" width="150" height="86" rx="10" fill="#121a26" stroke="#5fe08a" stroke-opacity=".35" stroke-dasharray="5 4"/>
+<text x="115" y="224" class="axb" text-anchor="middle" fill="#5fe08a">guidance g</text>
+<text x="115" y="244" class="eq" text-anchor="middle">(B,)</text>
+<text x="115" y="266" class="eq" text-anchor="middle">dev only (§15)</text>
+
+<!-- stage 2: fingerprints -->
+<rect x="240" y="80" width="230" height="86" rx="10" fill="#121a26" stroke="#2e4054"/>
+<text x="355" y="104" class="axb" text-anchor="middle">timestep_embedding</text>
+<text x="355" y="124" class="eq" text-anchor="middle">128 cos + 128 sin (§16.1)</text>
+<text x="355" y="146" class="eq" text-anchor="middle">→ (B, 256), no parameters</text>
+<rect x="240" y="200" width="230" height="86" rx="10" fill="#121a26" stroke="#2e4054"/>
+<text x="355" y="224" class="axb" text-anchor="middle">timestep_embedding</text>
+<text x="355" y="244" class="eq" text-anchor="middle">the same fixed code</text>
+<text x="355" y="266" class="eq" text-anchor="middle">→ (B, 256)</text>
+<path d="M190,123 L238,123" stroke="#5fe08a" stroke-width="1.8" fill="none" marker-end="url(#cndV)"/>
+<path d="M190,243 L238,243" stroke="#5fe08a" stroke-width="1.8" fill="none" marker-end="url(#cndV)"/>
+
+<!-- stage 3: MLPEmbedders -->
+<rect x="520" y="80" width="230" height="86" rx="10" fill="#121a26" stroke="#2e4054"/>
+<text x="635" y="104" class="axb" text-anchor="middle">time_in: MLPEmbedder</text>
+<text x="635" y="124" class="eq" text-anchor="middle">256 → 6144 → 6144 (§16.3)</text>
+<text x="635" y="146" class="eq" text-anchor="middle">→ (B, 6144) learned</text>
+<rect x="520" y="200" width="230" height="86" rx="10" fill="#121a26" stroke="#2e4054"/>
+<text x="635" y="224" class="axb" text-anchor="middle">guidance_in: same class</text>
+<text x="635" y="244" class="eq" text-anchor="middle">256 → 6144 → 6144</text>
+<text x="635" y="266" class="eq" text-anchor="middle">→ (B, 6144) learned</text>
+<path d="M470,123 L518,123" stroke="#7d8da1" stroke-width="1.8" fill="none" marker-end="url(#cndA)"/>
+<path d="M470,243 L518,243" stroke="#7d8da1" stroke-width="1.8" fill="none" marker-end="url(#cndA)"/>
+
+<!-- sum -->
+<circle cx="820" cy="180" r="26" fill="#121a26" stroke="#5fe08a" stroke-width="1.6"/>
+<text x="820" y="188" class="big" text-anchor="middle" fill="#5fe08a">+</text>
+<path d="M750,140 L795,168" stroke="#7d8da1" stroke-width="1.8" fill="none" marker-end="url(#cndA)"/>
+<path d="M750,226 L795,194" stroke="#7d8da1" stroke-width="1.8" fill="none" marker-end="url(#cndA)"/>
+<text x="820" y="240" class="eq" text-anchor="middle">L200–203</text>
+
+<!-- vec -->
+<rect x="880" y="130" width="180" height="100" rx="10" fill="#121a26" stroke="#5fe08a" stroke-opacity=".7"/>
+<text x="970" y="158" class="axb" text-anchor="middle" fill="#5fe08a">vec</text>
+<text x="970" y="180" class="eq" text-anchor="middle">(B, 6144)</text>
+<text x="970" y="202" class="eq" text-anchor="middle">the condition</text>
+<text x="970" y="218" class="eq" text-anchor="middle">channel</text>
+<path d="M846,180 L878,180" stroke="#5fe08a" stroke-width="1.8" fill="none" marker-end="url(#cndV)"/>
+
+<!-- stage 4: three modulations -->
+<rect x="1110" y="60" width="250" height="92" rx="10" fill="#121a26" stroke="#f6a93b" stroke-opacity=".6"/>
+<text x="1235" y="84" class="eq" text-anchor="middle" fill="#f6a93b">double_stream_modulation_img</text>
+<text x="1235" y="104" class="eq" text-anchor="middle">SiLU → Linear 6144 → 36 864</text>
+<text x="1235" y="126" class="eq" text-anchor="middle">chunk(6) → 6 × (B, 1, 6144)</text>
+<text x="1235" y="144" class="eq" text-anchor="middle">two triples, image stream</text>
+<rect x="1110" y="170" width="250" height="92" rx="10" fill="#121a26" stroke="#35d6f0" stroke-opacity=".6"/>
+<text x="1235" y="194" class="eq" text-anchor="middle" fill="#35d6f0">double_stream_modulation_txt</text>
+<text x="1235" y="214" class="eq" text-anchor="middle">SiLU → Linear 6144 → 36 864</text>
+<text x="1235" y="236" class="eq" text-anchor="middle">chunk(6) → 6 × (B, 1, 6144)</text>
+<text x="1235" y="254" class="eq" text-anchor="middle">two triples, text stream</text>
+<rect x="1110" y="280" width="250" height="92" rx="10" fill="#121a26" stroke="#7ea6ff" stroke-opacity=".6"/>
+<text x="1235" y="304" class="eq" text-anchor="middle" fill="#7ea6ff">single_stream_modulation</text>
+<text x="1235" y="324" class="eq" text-anchor="middle">SiLU → Linear 6144 → 18 432</text>
+<text x="1235" y="346" class="eq" text-anchor="middle">chunk(3) → 3 × (B, 1, 6144)</text>
+<text x="1235" y="364" class="eq" text-anchor="middle">one triple, merged stream</text>
+<path d="M1060,160 L1108,110" stroke="#7d8da1" stroke-width="1.8" fill="none" marker-end="url(#cndA)"/>
+<path d="M1060,180 L1108,214" stroke="#7d8da1" stroke-width="1.8" fill="none" marker-end="url(#cndA)"/>
+<path d="M1060,200 L1108,320" stroke="#7d8da1" stroke-width="1.8" fill="none" marker-end="url(#cndA)"/>
+
+<!-- consumers -->
+<rect x="1400" y="60" width="130" height="92" rx="10" fill="rgba(246,169,59,.09)" stroke="#f6a93b" stroke-opacity=".5"/>
+<text x="1465" y="90" class="eq" text-anchor="middle" fill="#f6a93b">8 × double</text>
+<text x="1465" y="110" class="eq" text-anchor="middle" fill="#f6a93b">blocks</text>
+<text x="1465" y="132" class="eq" text-anchor="middle">image side</text>
+<rect x="1400" y="170" width="130" height="92" rx="10" fill="rgba(53,214,240,.09)" stroke="#35d6f0" stroke-opacity=".5"/>
+<text x="1465" y="200" class="eq" text-anchor="middle" fill="#35d6f0">8 × double</text>
+<text x="1465" y="220" class="eq" text-anchor="middle" fill="#35d6f0">blocks</text>
+<text x="1465" y="242" class="eq" text-anchor="middle">text side</text>
+<rect x="1400" y="280" width="130" height="92" rx="10" fill="rgba(126,166,255,.09)" stroke="#7ea6ff" stroke-opacity=".5"/>
+<text x="1465" y="310" class="eq" text-anchor="middle" fill="#7ea6ff">48 × single</text>
+<text x="1465" y="330" class="eq" text-anchor="middle" fill="#7ea6ff">blocks</text>
+<text x="1465" y="352" class="eq" text-anchor="middle">after the merge</text>
+<path d="M1360,106 L1398,106" stroke="#f6a93b" stroke-width="1.8" fill="none" marker-end="url(#cndA)"/>
+<path d="M1360,216 L1398,216" stroke="#35d6f0" stroke-width="1.8" fill="none" marker-end="url(#cndA)"/>
+<path d="M1360,326 L1398,326" stroke="#7ea6ff" stroke-width="1.8" fill="none" marker-end="url(#cndA)"/>
+
+<!-- what the dials do -->
+<rect x="40" y="420" width="1490" height="180" rx="14" fill="#0e1622" stroke="#2e4054"/>
+<text x="66" y="450" class="axb">What a dial does once it arrives at a block</text>
+<text x="66" y="480" class="eq">x_mod = (1 + scale) ⊙ norm(x) + shift        shift and scale re-tune the block's input</text>
+<text x="66" y="504" class="eq">x     = x + gate ⊙ sublayer(x_mod)            gate decides how much of the output survives</text>
+<text x="66" y="534" class="eq">x is (B, L, 6144) — every dial is (B, 1, 6144), so one value per channel reaches all L tokens</text>
+<text x="66" y="562" class="eq">that broadcast is the whole economy: 3 matrix products per step steer 16 896 tokens × 56 blocks</text>
+<text x="66" y="586" class="eq" fill="#b18cff">exception: reference tokens need t = 0 while the canvas is at t — see the splice in §21</text>
+</svg>
+</div>
+<figcaption><span class="figno">FIG 18</span><b>The conditioning channel.</b> Two scalars enter at the left,
+become 256-number fingerprints, become learned 6144-vectors, are summed into <code>vec</code>, and are
+then turned by three bias-free matrices into 15 dial vectors — six for the double blocks' image stream,
+six for their text stream, three for the single blocks. Every block in the network is steered by those
+15 vectors; none of them is per-block, and none of them is per-token.</figcaption>
+</figure>
+
+<div class="note beginner">
+<div class="nh">◇ If you have never seen conditioning done this way</div>
+<p>The one-sentence version: <em>the timestep does not enter the network as data, it enters as a
+setting</em>. A tiny side-network reads <code>t</code> and produces a handful of numbers per block; those
+numbers are multiplied and added into the activations at every normalisation point, so the same weights
+compute a different function at every step. Compare it with the two alternatives you may know from other
+models: a U-Net adds a time embedding to its feature maps (FiLM-style, the same family of idea), and a
+cross-attention model inserts the condition as extra keys and values (which is what FLUX.2 does for the
+<em>prompt</em>, not for the timestep).</p>
+</div>
+
+<p>That is the whole of this chapter's job: two settings in, one vector out. What fifteen dial vectors
+then <em>do</em> to 56 blocks — why they attach at the layer norms, what the third dial is for, and what
+sharing them costs — is §11, which picks up exactly here.</p>
+
+<p class="dim">Used later: §16.1 <code>timestep_embedding</code> is stage 1, §16.3 <code>MLPEmbedder</code> is
+stage 2, §16.9 <code>Modulation</code> is stage 4 — all three are short once this is understood. §18 and §19
+show the dials being consumed, line by line. §20.1 lists the three modules as they are built. §21 is the
+splice. §24 has the design-trade row.</p>
+</section>

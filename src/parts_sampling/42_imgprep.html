@@ -1,0 +1,190 @@
+<section id="imgprep">
+<h2><span class="secno">§ 10</span>The image-preparation chain</h2>
+<p class="section-intro">
+138 lines whose job is to make sure that whatever the user handed over — a PNG with transparency, a panorama, a
+40-megapixel scan — arrives at the autoencoder as a three-channel tensor whose sides are multiples of sixteen.
+Five of the six functions here are four to fifteen lines long, and one of them is the only place in the file that
+ever says no.
+</p>
+
+<h3 id="p-rgb">10.1 · to_rgb and cap_min_pixels — normalise, then refuse</h3>
+
+<!--CODE 195-214 title="sampling.py · cap_min_pixels and to_rgb" hl="197,199,200,201,202,207,214"-->
+
+<!--TRACE-->
+<!--T 195|The gatekeeper. Two defaults, never overridden by any caller in the repository: a maximum aspect ratio of 8 and a minimum side of 64 pixels.-->
+<!--T 196-197|Like every helper in this chain it accepts either one image or a list, and recurses on the list — the same three-line pattern six times in this file.-->
+<!--T 199-200|Refuses anything thinner than 64 pixels on either side. The message mixes English and German ("underschritten"), and reports height before width.-->
+<!--T 201-202|Refuses anything more extreme than 8:1 in either orientation — both <code>w / h</code> and <code>h / w</code> are tested, so a panorama and a letterbox are caught by the same line.-->
+<!--T 203|If neither check fires, the image is returned untouched. Despite its name this function caps nothing: it validates.-->
+<!--T 206|The simplest function in the file.-->
+<!--T 207-213|The list branch, written over six lines where the others use one.-->
+<!--T 214|<code>convert("RGB")</code> does the real work: it drops an alpha channel, expands a palette image, and turns greyscale into three equal channels, so that everything downstream sees exactly three.-->
+<!--/TRACE-->
+
+<p>64 pixels is not an arbitrary floor. The autoencoder downsamples by 8 and the patchifier folds 2×2, so a side
+of 64 becomes a 4×4 grid of tokens — the smallest canvas that still has an interior. Below that the model would
+be asked about a picture with essentially no spatial structure. The 8:1 aspect limit is the same concern in the
+other direction: a 4000×400 strip is technically valid and semantically useless.</p>
+
+<div class="note idea">
+  <div class="nh">✦ Raising is better than deforming <span class="spec">inference</span></div>
+  <p>Both checks raise rather than repair. The file could have centre-cropped a 10:1 panorama down to 8:1, and it
+  already owns a function that does exactly that kind of crop — but a silent crop would change what the user
+  asked for, while an exception makes the caller decide. Every other function in this chain fixes what it can;
+  this one is the only one that reports instead.</p>
+</div>
+
+<h3 id="p-cap">10.2 · cap_pixels — the budget</h3>
+
+<!--CODE 178-192 title="sampling.py · cap_pixels" hl="181,182,184,188,189,192"-->
+
+<!--TRACE-->
+<!--T 178|The budget <code>k</code> is a plain positional argument in pixel <em>count</em>, not a side length — which is why the same function can serve three different limits in this repository.-->
+<!--T 179-180|The list branch.-->
+<!--T 181-182|PIL's <code>size</code> is (width, height), the opposite of every tensor convention in the file; the unpacking here gets it right.-->
+<!--T 184-185|If the image already fits the budget it is returned as it is — no resampling, so no quality loss at all.-->
+<!--T 187-188|The scale factor is the square root of the pixel ratio, because area scales with the square of the side.-->
+<!--T 189-190|Both sides are multiplied by it and truncated with <code>int()</code>, which rounds <em>down</em> — so the result can come in slightly under the budget but never over it.-->
+<!--T 192|One resize with LANCZOS, the highest-quality resampling filter PIL offers: this is a downscale of a photograph the model is supposed to recognise, so aliasing would be visible in the output.-->
+<!--/TRACE-->
+
+<div class="tbl-wrap">
+<table class="data">
+<thead><tr><th style="width:26%">Caller</th><th class="num">Budget k</th><th>Pixels</th><th>What it is protecting</th></tr></thead>
+<tbody>
+<tr><td><code>encode_image_refs</code>, one photo</td><td class="num">2024²</td><td class="num">4 096 576</td>
+    <td>The token count of a single reference — and, through it, the attention cost of every step (§5.2).</td></tr>
+<tr><td><code>encode_image_refs</code>, two or more</td><td class="num">1024²</td><td class="num">1 048 576</td>
+    <td>The <em>total</em>, by holding each photo to a quarter of the single-photo budget.</td></tr>
+<tr><td><code>text_encoder.py</code></td><td class="num">768²</td><td class="num">589 824</td>
+    <td>Nothing to do with sampling: this is the size a vision-language model is shown when it rewrites the
+    prompt.</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>Worked example, verified by running the arithmetic of the function: a 3000×2000 photograph has 6 000 000
+pixels, so with a 1024² budget the scale is <span class="mono">sqrt(1 048 576 / 6 000 000) = 0.41805</span>, the
+new sides are <span class="mono">int(1254.14) = 1254</span> and <span class="mono">int(836.09) = 836</span>, and
+the result is 1254×836 = <strong>1 048 344</strong> pixels — 232 under the budget, still exactly 3:2, and about to
+lose six columns and four rows to the crop that follows, ending as 1248×832 = 4 056 tokens.</p>
+
+<h3 id="p-crop">10.3 · center_crop_to_multiple_of_x — making the grid come out whole</h3>
+
+<!--CODE 159-175 title="sampling.py · center_crop_to_multiple_of_x" hl="165,166,167,169,170,174"-->
+
+<!--TRACE-->
+<!--T 159-161|The multiple is an argument, and the only caller passes the default of 16 — the combined factor of the autoencoder's 8× downsample and the 2×2 patchify.-->
+<!--T 162-163|The list branch, delegating to itself.-->
+<!--T 165|(width, height) again, from PIL.-->
+<!--T 166-167|Floor to the nearest multiple: integer division then multiplication. Nothing is rounded up, so the crop never invents pixels.-->
+<!--T 169-172|The crop box. Half of each remainder goes to the left and top, and because integer division floors, an odd remainder leaves one more pixel on the right and bottom than on the left and top.-->
+<!--T 174-175|<code>crop</code> returns a new image; the original is untouched.-->
+<!--/TRACE-->
+
+<p>The asymmetry in the last point is small enough to be worth stating precisely, because it is the only place in
+the file where a picture is not treated symmetrically: with a remainder of 9 pixels on a side, 4 are removed from
+the left and 5 from the right. For the 2024² reference of §5 the remainder is 8, so it is exactly centred — four
+pixels off each side.</p>
+
+<h3 id="p-prep">10.4 · default_images_prep and default_prep — the chain assembled</h3>
+
+<!--CODE 217-237 title="sampling.py · default_images_prep and default_prep" hl="222,223,229,230,231,232,235,236"-->
+
+<!--TRACE-->
+<!--T 217-219|The last of the pixel-domain helpers: a PIL image in, a float tensor out.-->
+<!--T 220-221|The list branch.-->
+<!--T 222|<code>ToTensor</code> does three things at once: divides uint8 by 255, permutes (H, W, C) to (C, H, W), and copies into a fresh float32 tensor. A new transform object is constructed on every call.-->
+<!--T 223|Rescales [0, 1] to [−1, 1], the range the autoencoder was trained on. This is the last thing that happens to a reference image before it is encoded.-->
+<!--T 226-228|The chain, and the only function in this family that takes the budget from its caller: <code>limit_pixels</code> may be <code>None</code>, and <code>ensure_multiple</code> defaults to 16.-->
+<!--T 229|Colour first, so that the size checks see the image that will actually be encoded.-->
+<!--T 230|Then the refusal checks of §10.1 — before any expensive resampling.-->
+<!--T 231-234|The budget, applied only if there is one. In this repository the <code>None</code> branch is unreachable: the single caller of <code>default_prep</code> returns early when it has no images (§13).-->
+<!--T 235|Then the crop, which is why the cap can leave a size that is not a multiple of 16.-->
+<!--T 236-237|Then the tensor. The order of these five calls is the whole content of §5.1.-->
+<!--/TRACE-->
+
+<div class="note beginner">
+  <div class="nh">▸ Why the order cap → crop cannot be swapped</div>
+  <p>Cropping to a multiple of 16 first and then resizing would undo the crop: <code>cap_pixels</code> multiplies
+  the sides by an irrational scale factor and truncates, so its output is essentially never a multiple of 16.
+  Capping first and cropping second means the crop only ever has to remove the few pixels the cap left over — at
+  most 15 per side, and in the 2024² case exactly 8.</p>
+</div>
+
+<h3 id="p-concat">10.5 · concatenate_images — the one that is not part of sampling</h3>
+
+<!--CODE 413-442 title="sampling.py · concatenate_images" hl="421,425,428,429,433,438,439"-->
+
+<!--TRACE-->
+<!--T 413-415|A list of PIL images in, one PIL image out.-->
+<!--T 416-418|The docstring states the three properties: horizontal, centre-aligned, white background.-->
+<!--T 420-422|The degenerate case returns a <em>copy</em>, so callers can never hold a reference to the input.-->
+<!--T 424-425|Converts anything that is not already RGB — the same normalisation as <code>to_rgb</code>, written inline.-->
+<!--T 427-429|The canvas is the sum of the widths and the maximum of the heights.-->
+<!--T 431-433|White, because the result is going to be looked at by a language model that was trained on documents and photographs, not on black.-->
+<!--T 435-440|Each image is pasted at the running x offset and vertically centred, with the odd remainder going to the top.-->
+<!--T 442|The composed image.-->
+<!--/TRACE-->
+
+<p>Nothing in the sampling path calls this. Its only caller in the repository is
+<code>text_encoder.py</code>, which uses it when prompt upsampling is on: several reference photographs are
+pasted side by side into one image, capped to 768², and shown to a vision-language model that is asked to write a
+better prompt. That is why it lives here at all — this file is where the repository keeps its image utilities,
+whether or not the sampler uses them.</p>
+
+<div class="note idea">
+  <div class="nh">✦ Three pixel budgets, one function</div>
+  <p><code>cap_pixels</code> is the only function in the file that is called from outside the sampling path with a
+  different budget than the sampler uses: 2024² for one reference, 1024² for several, 768² for the language model.
+  Passing the budget as an argument rather than a module constant is what allows that, and it is the reason the
+  number 2024 lives in <code>encode_image_refs</code> instead of here.</p>
+</div>
+</section>
+
+<section id="unused">
+<h2><span class="secno">§ 11</span>vanilla_guidance — the function nothing calls</h2>
+<p class="section-intro">
+Four lines, wedged between two loops, implementing the textbook version of the arithmetic that
+<code>denoise_cfg</code> performs inline. It is correct, it is never used, and reading it tells you something
+about how this file grew.
+</p>
+
+<!--CODE 358-361 title="sampling.py · vanilla_guidance" hl="359,360"-->
+
+<!--TRACE-->
+<!--T 358|Takes a prediction whose batch holds both halves and a guidance strength, and returns the combined prediction at half the batch size.-->
+<!--T 359|Splits the batch in two: the first half is the unconditional prediction, the second the conditional one.-->
+<!--T 360|The extrapolation of §6.2 — identical algebra to the line inside <code>denoise_cfg</code>, with the two operands in the opposite order and the same names for the same things.-->
+<!--T 361|Returns the guided prediction.-->
+<!--/TRACE-->
+
+<p>Compare it with the two lines that <code>denoise_cfg</code> actually executes:</p>
+
+<div class="mathbox">
+vanilla_guidance: <span class="op" style="padding-left:.6em">x_u, x_c = x.chunk(2);</span> <span class="mm">x</span> <span class="op">=</span> x_u <span class="op">+</span> cfg_val·(x_c <span class="op">−</span> x_u)<br>
+denoise_cfg: <span class="op" style="padding-left:.6em">pred_uncond, pred_cond = pred.chunk(2);</span> <span class="mm">pred</span> <span class="op">=</span> pred_uncond <span class="op">+</span> guidance·(pred_cond <span class="op">−</span> pred_uncond)
+</div>
+
+<p>Same <code>chunk(2)</code>, same order of halves, same formula. The only differences are the variable names
+and that the loop's version does not need to return anything.</p>
+
+<div class="note proof">
+  <div class="nh">◆ Nothing in the repository calls it</div>
+  <p>Checked by grepping every Python file in <code>black-forest-labs/flux2</code>: <code>vanilla_guidance</code>
+  appears exactly once, on the line that defines it. <code>scripts/cli.py</code> imports eight names from this
+  module — <code>batched_prc_img</code>, <code>batched_prc_txt</code>, <code>denoise</code>,
+  <code>denoise_cached</code>, <code>denoise_cfg</code>, <code>encode_image_refs</code>,
+  <code>get_schedule</code>, <code>scatter_ids</code> — and <code>text_encoder.py</code> imports two more,
+  <code>cap_pixels</code> and <code>concatenate_images</code>. This one is in neither list, and no function in
+  this file calls it either.</p>
+</div>
+
+<p>What it is, then, is a reference implementation: the formula written down in the cleanest possible form, next
+to the loop that uses it, for anyone reading the file who wants to check that the inline version says what
+classifier-free guidance is supposed to say. <span class="spec">inference</span> It costs nothing to keep — four
+lines, no state — and it documents the convention that the <em>first</em> half of a doubled batch is the
+unconditional one, which is the single detail a reader would otherwise have to infer from the caller's
+<code>torch.cat([ctx_empty, ctx_prompt], dim=0)</code>.</p>
+</section>

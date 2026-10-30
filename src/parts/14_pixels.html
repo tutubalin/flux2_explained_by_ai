@@ -1,0 +1,308 @@
+<section id="tokens">
+<h2><span class="secno">§ 4</span>From pixels to tokens: what the model actually eats</h2>
+<p class="section-intro">
+<code>model.py</code> has no convolutions and no image logic. It receives images that have already been
+flattened into a list of vectors. To understand its shapes you must know exactly how that flattening
+happens.
+</p>
+
+<h3>4.1 · Three stages of compression</h3>
+<p>Two of the three stages happen inside the VAE, in <code>autoencoder.py</code>'s
+<code>encode()</code>: the convolutional 8× downsample to 32 channels, and the 2×2 patchify that folds
+four latent cells into one 128-number token. The third — flattening that 2-D grid of tokens into a plain
+sequence and attaching the position ids — is <code>sampling.py</code>'s <code>prc_img</code>, run just
+before the model is called:</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 1560 560" role="img" aria-label="Panel one: the whole 1024 by 1024 image as a dense pixel grid. Panel two: the same whole image after the VAE, as a 128 by 128 grid of latent cells of 32 numbers each. Panel three: the token grid magnified at its top left corner, four by four of the 64 by 64 tokens, with one token highlighted; a token is one 2 by 2 group of latent cells, so 4 times 32 equals 128 numbers, covering 16 by 16 pixels of the original.">
+<defs><marker id="pxA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7d8da1"/></marker>
+<marker id="pxG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#ffd479"/></marker></defs>
+<text x="40" y="34" class="ttl">One image, three grids — the picture never shrinks, only the number of cells it is cut into</text>
+<text x="40" y="60" class="ax" fill="#a9b8c9">panels 1 and 2 are the whole image at the same scale; panel 3 is its token grid, magnified at the top-left corner</text>
+
+<rect x="50" y="96" width="250" height="250" rx="6" fill="rgba(246,169,59,.05)" stroke="#f6a93b" stroke-opacity=".5"/>
+<line x1="57.8" y1="96" x2="57.8" y2="346" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="50" y1="103.8" x2="300" y2="103.8" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="65.6" y1="96" x2="65.6" y2="346" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="50" y1="111.6" x2="300" y2="111.6" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="73.4" y1="96" x2="73.4" y2="346" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="50" y1="119.4" x2="300" y2="119.4" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="81.2" y1="96" x2="81.2" y2="346" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="50" y1="127.2" x2="300" y2="127.2" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="89.1" y1="96" x2="89.1" y2="346" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="50" y1="135.1" x2="300" y2="135.1" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="96.9" y1="96" x2="96.9" y2="346" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="50" y1="142.9" x2="300" y2="142.9" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="104.7" y1="96" x2="104.7" y2="346" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="50" y1="150.7" x2="300" y2="150.7" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="112.5" y1="96" x2="112.5" y2="346" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="50" y1="158.5" x2="300" y2="158.5" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="120.3" y1="96" x2="120.3" y2="346" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="50" y1="166.3" x2="300" y2="166.3" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="128.1" y1="96" x2="128.1" y2="346" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="50" y1="174.1" x2="300" y2="174.1" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="135.9" y1="96" x2="135.9" y2="346" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="50" y1="181.9" x2="300" y2="181.9" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="143.8" y1="96" x2="143.8" y2="346" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="50" y1="189.8" x2="300" y2="189.8" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="151.6" y1="96" x2="151.6" y2="346" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="50" y1="197.6" x2="300" y2="197.6" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="159.4" y1="96" x2="159.4" y2="346" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="50" y1="205.4" x2="300" y2="205.4" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="167.2" y1="96" x2="167.2" y2="346" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="50" y1="213.2" x2="300" y2="213.2" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="175.0" y1="96" x2="175.0" y2="346" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="50" y1="221.0" x2="300" y2="221.0" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="182.8" y1="96" x2="182.8" y2="346" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="50" y1="228.8" x2="300" y2="228.8" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="190.6" y1="96" x2="190.6" y2="346" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="50" y1="236.6" x2="300" y2="236.6" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="198.4" y1="96" x2="198.4" y2="346" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="50" y1="244.4" x2="300" y2="244.4" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="206.2" y1="96" x2="206.2" y2="346" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="50" y1="252.2" x2="300" y2="252.2" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="214.1" y1="96" x2="214.1" y2="346" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="50" y1="260.1" x2="300" y2="260.1" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="221.9" y1="96" x2="221.9" y2="346" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="50" y1="267.9" x2="300" y2="267.9" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="229.7" y1="96" x2="229.7" y2="346" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="50" y1="275.7" x2="300" y2="275.7" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="237.5" y1="96" x2="237.5" y2="346" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="50" y1="283.5" x2="300" y2="283.5" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="245.3" y1="96" x2="245.3" y2="346" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="50" y1="291.3" x2="300" y2="291.3" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="253.1" y1="96" x2="253.1" y2="346" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="50" y1="299.1" x2="300" y2="299.1" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="260.9" y1="96" x2="260.9" y2="346" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="50" y1="306.9" x2="300" y2="306.9" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="268.8" y1="96" x2="268.8" y2="346" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="50" y1="314.8" x2="300" y2="314.8" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="276.6" y1="96" x2="276.6" y2="346" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="50" y1="322.6" x2="300" y2="322.6" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="284.4" y1="96" x2="284.4" y2="346" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="50" y1="330.4" x2="300" y2="330.4" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="292.2" y1="96" x2="292.2" y2="346" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<line x1="50" y1="338.2" x2="300" y2="338.2" stroke="#f6a93b" stroke-opacity=".22" stroke-width="1.0"/>
+<text x="175" y="376" class="axb" text-anchor="middle">1 · pixels</text>
+<text x="175" y="398" class="eq" text-anchor="middle">1024 × 1024 × 3 channels</text>
+<text x="175" y="418" class="eq" text-anchor="middle" fill="#a9b8c9">3 145 728 numbers per image</text>
+
+<rect x="345" y="96" width="250" height="250" rx="6" fill="rgba(177,140,255,.07)" stroke="#b18cff" stroke-opacity=".55"/>
+<line x1="376.2" y1="96" x2="376.2" y2="346" stroke="#b18cff" stroke-opacity=".4" stroke-width="1.0"/>
+<line x1="345" y1="127.2" x2="595" y2="127.2" stroke="#b18cff" stroke-opacity=".4" stroke-width="1.0"/>
+<line x1="407.5" y1="96" x2="407.5" y2="346" stroke="#b18cff" stroke-opacity=".4" stroke-width="1.0"/>
+<line x1="345" y1="158.5" x2="595" y2="158.5" stroke="#b18cff" stroke-opacity=".4" stroke-width="1.0"/>
+<line x1="438.8" y1="96" x2="438.8" y2="346" stroke="#b18cff" stroke-opacity=".4" stroke-width="1.0"/>
+<line x1="345" y1="189.8" x2="595" y2="189.8" stroke="#b18cff" stroke-opacity=".4" stroke-width="1.0"/>
+<line x1="470.0" y1="96" x2="470.0" y2="346" stroke="#b18cff" stroke-opacity=".4" stroke-width="1.0"/>
+<line x1="345" y1="221.0" x2="595" y2="221.0" stroke="#b18cff" stroke-opacity=".4" stroke-width="1.0"/>
+<line x1="501.2" y1="96" x2="501.2" y2="346" stroke="#b18cff" stroke-opacity=".4" stroke-width="1.0"/>
+<line x1="345" y1="252.2" x2="595" y2="252.2" stroke="#b18cff" stroke-opacity=".4" stroke-width="1.0"/>
+<line x1="532.5" y1="96" x2="532.5" y2="346" stroke="#b18cff" stroke-opacity=".4" stroke-width="1.0"/>
+<line x1="345" y1="283.5" x2="595" y2="283.5" stroke="#b18cff" stroke-opacity=".4" stroke-width="1.0"/>
+<line x1="563.8" y1="96" x2="563.8" y2="346" stroke="#b18cff" stroke-opacity=".4" stroke-width="1.0"/>
+<line x1="345" y1="314.8" x2="595" y2="314.8" stroke="#b18cff" stroke-opacity=".4" stroke-width="1.0"/>
+<text x="470" y="376" class="axb" text-anchor="middle" fill="#b18cff">2 · latent cells, after the VAE</text>
+<text x="470" y="398" class="eq" text-anchor="middle">128 × 128 × 32 channels</text>
+<text x="470" y="418" class="eq" text-anchor="middle" fill="#a9b8c9">one cell = 8 × 8 pixels, 32 numbers</text>
+
+<rect x="640" y="96" width="250" height="250" rx="6" fill="rgba(95,224,138,.06)" stroke="#5fe08a" stroke-opacity=".55"/>
+<line x1="702.5" y1="96" x2="702.5" y2="346" stroke="#5fe08a" stroke-opacity=".45" stroke-width="1.0"/>
+<line x1="640" y1="158.5" x2="890" y2="158.5" stroke="#5fe08a" stroke-opacity=".45" stroke-width="1.0"/>
+<line x1="765.0" y1="96" x2="765.0" y2="346" stroke="#5fe08a" stroke-opacity=".45" stroke-width="1.0"/>
+<line x1="640" y1="221.0" x2="890" y2="221.0" stroke="#5fe08a" stroke-opacity=".45" stroke-width="1.0"/>
+<line x1="827.5" y1="96" x2="827.5" y2="346" stroke="#5fe08a" stroke-opacity=".45" stroke-width="1.0"/>
+<line x1="640" y1="283.5" x2="890" y2="283.5" stroke="#5fe08a" stroke-opacity=".45" stroke-width="1.0"/>
+<rect x="702" y="158" width="62" height="62" fill="rgba(255,212,121,.3)" stroke="#ffd479" stroke-width="2.4"/>
+<text x="765" y="376" class="axb" text-anchor="middle" fill="#5fe08a">3 · tokens (corner, magnified)</text>
+<text x="765" y="398" class="eq" text-anchor="middle">the real grid is 64 × 64 = 4096</text>
+<text x="765" y="418" class="eq" text-anchor="middle" fill="#a9b8c9">one token = 16 × 16 pixels, 128 numbers</text>
+
+<path d="M308,221 L335,221" stroke="#7d8da1" stroke-width="2" fill="none" marker-end="url(#pxA)"/>
+<text x="322" y="205" class="ax" text-anchor="middle">VAE encoder</text>
+<text x="322" y="249" class="eq" text-anchor="middle">8× per side</text>
+<path d="M603,221 L630,221" stroke="#7d8da1" stroke-width="2" fill="none" marker-end="url(#pxA)"/>
+<text x="617" y="205" class="ax" text-anchor="middle">patchify</text>
+<text x="617" y="249" class="eq" text-anchor="middle">fold 2 × 2 → 1</text>
+
+<rect x="960" y="96" width="560" height="250" rx="14" fill="#0e1622" stroke="#ffd479" stroke-opacity=".45"/>
+<text x="986" y="128" class="axb" fill="#ffd479">What the gold square is</text>
+<text x="986" y="158" class="eq">one token = one 2 × 2 group of latent cells</text>
+<text x="986" y="180" class="eq">          = 4 cells × 32 channels each</text>
+<text x="986" y="202" class="eq" fill="#ffd479">          = 128 numbers  ← in_channels</text>
+<text x="986" y="230" class="eq">and it still covers 16 × 16 = 256 pixels of the</text>
+<text x="986" y="252" class="eq">photograph. Patchify concatenates the four cells;</text>
+<text x="986" y="274" class="eq">it does not average them, so no information is lost</text>
+<text x="986" y="296" class="eq">at this step — the 8× compression already happened.</text>
+<text x="986" y="326" class="eq" fill="#a9b8c9">4096 such rows are what the transformer receives as x.</text>
+<path d="M733,158 L958,186" stroke="#ffd479" stroke-width="1.6" fill="none" stroke-dasharray="5 4" marker-end="url(#pxG)"/>
+
+<text x="40" y="470" class="axb">then the 64 × 64 grid is read out row by row into one flat sequence</text>
+<rect x="520" y="446" width="330" height="36" rx="18" fill="rgba(95,224,138,.1)" stroke="#5fe08a" stroke-opacity=".5"/>
+<text x="685" y="470" class="eq" text-anchor="middle" fill="#5fe08a">x  (B, 4096, 128)</text>
+<path d="M400,464 L516,464" stroke="#7d8da1" stroke-width="1.8" fill="none" marker-end="url(#pxA)"/>
+<path d="M854,464 L920,464" stroke="#7d8da1" stroke-width="1.8" fill="none" marker-end="url(#pxA)"/>
+<rect x="924" y="436" width="200" height="56" rx="10" fill="#182231" stroke="#f6a93b" stroke-opacity=".7"/>
+<text x="1024" y="460" class="axb" text-anchor="middle" fill="#f6a93b">img_in</text>
+<text x="1024" y="480" class="eq" text-anchor="middle">128 → 6144 (§16.1)</text>
+<path d="M1128,464 L1194,464" stroke="#7d8da1" stroke-width="1.8" fill="none" marker-end="url(#pxA)"/>
+<rect x="1198" y="436" width="322" height="56" rx="10" fill="#121a26" stroke="#2e4054"/>
+<text x="1359" y="460" class="axb" text-anchor="middle">into the transformer</text>
+<text x="1359" y="480" class="eq" text-anchor="middle">4096 rows, one sequence with the text</text>
+<text x="40" y="536" class="ax">Compression per side: 8× from the VAE, then 2× from the patchify = 16×. In cells: 1 048 576 pixels become 4096 tokens — 256× fewer.</text>
+</svg>
+</div>
+<figcaption><span class="figno">FIG 7</span><b>The square never shrinks.</b> Panels 1 and 2 are the whole
+1024 × 1024 image drawn at the same scale: the VAE replaces every 8 × 8 block of pixels with one cell of
+32 numbers, so the grid goes from 1024 × 1024 to 128 × 128 and nothing about the <em>picture</em> gets
+smaller. Panel 3 is that same image as tokens, magnified at a corner so a single token is visible: the
+patchify step concatenates each 2 × 2 group of latent cells into one row of 4 × 32 = <strong>128</strong>
+numbers — which is exactly why <code>Flux2Params.in_channels</code> is 128 and not 32. The full token grid
+is 64 × 64 = 4096 rows, one for every 16 × 16 patch of the original photograph.</figcaption>
+</figure>
+
+<div class="note beginner">
+<div class="nh">◇ Beginner · why bother with latents at all?</div>
+<p>Attention costs grow with the <em>square</em> of the token count. A 1024×1024 image as raw pixels
+would be over a million tokens: 10¹² attention pairs per layer, utterly impossible. As 4096 tokens it
+is 21 million pairs — expensive but feasible on real hardware. The latent space is a compression
+scheme that throws away perceptually irrelevant detail (exact sub-pixel noise) while keeping
+everything a human would notice. One detail worth knowing, because it explains a shape you will see in
+<code>autoencoder.py</code>: the 128-channel latent is normalised by a running-statistics
+<code>BatchNorm2d(128, affine=False, eps=1e-4)</code> inside the autoencoder (<code>autoencoder.py</code> L293–325) — no per-channel
+scale/shift factors for the transformer to carry around.</p>
+</div>
+
+<h3>4.2 · What the VAE is, and why the transformer never sees a pixel</h3>
+<p>The first arrow in that figure — the one labelled "VAE encoder, 8× per side" — does more work than any
+single part of <code>model.py</code>, and it is not in <code>model.py</code> at all. It is worth a few
+paragraphs, because everything downstream depends on it.</p>
+<div class="note beginner">
+<div class="nh">◇ An autoencoder, in one paragraph</div>
+<p>Take two networks: an <strong>encoder</strong> that squeezes an image into a small code, and a
+<strong>decoder</strong> that tries to rebuild the image from that code alone. Train them together on
+millions of images, scoring them on how close the rebuild is to the original. The code cannot keep
+everything — it is far too small — so training forces it to keep <em>what matters</em> and discard what
+the eye forgives: exact noise in flat sky, the precise shape of a leaf's edge, the third decimal of a
+shadow. What survives is a compressed description of the picture: layout, colours, objects, texture. The
+"V" in VAE means the encoder emits a distribution rather than a point, and the code is sampled from it
+during training — which is what makes the space smooth enough to generate in.</p>
+</div>
+<p>Why go to all that trouble? Because of one property of attention that §6 will derive from scratch: its
+cost grows with the <em>square</em> of the number of rows. At 1024², working directly on pixels would mean
+1 048 576 rows per image. Working in latents means 4 096.</p>
+<div class="tbl-wrap">
+<table class="data">
+<thead><tr><th style="width:230px">if the transformer worked on…</th><th style="width:150px">rows at 1024²</th><th style="width:190px">attention pairs</th><th>verdict</th></tr></thead>
+<tbody>
+<tr><td>pixels</td><td class="num">1 048 576</td><td class="num">1.1 × 10¹²</td><td>impossible — a single step would cost more than a whole run does today</td></tr>
+<tr><td>VAE latents (128 × 128)</td><td class="num">16 384</td><td class="num">2.7 × 10⁸</td><td>still 16× the cost of what FLUX.2 actually does</td></tr>
+<tr><td><b>patchified latents — the real design</b></td><td class="num"><b>4 096</b></td><td class="num"><b>1.7 × 10⁷</b></td><td><b>256× fewer rows than pixels, and roughly 65 000× less attention work</b></td></tr>
+</tbody>
+</table>
+</div>
+<p>That is the whole reason latent diffusion exists: compress first, think in the compressed space, expand
+once at the end. FLUX.2's particular compression is a two-stage affair, both stages inside the
+autoencoder:</p>
+<ul>
+<li><strong>8× per side from the convolutional encoder.</strong> Its channel multipliers are
+<code>[1, 2, 4, 4]</code>, which means three rounds of halving the resolution — 2³ = 8 — ending at
+<code>z_channels = 32</code>. A 1024² image becomes a 128 × 128 grid of 32-number cells.</li>
+<li><strong>2× per side from the patchify.</strong> A pure reshape, no arithmetic: every 2 × 2 group of
+cells is concatenated into one row of 4 × 32 = 128 numbers. The autoencoder literally spells this as an
+<code>einops</code> rearrangement with <code>ps = [2, 2]</code>.</li>
+</ul>
+<p>Two details of this VAE matter later, and both are the opposite of what "variational" suggests.</p>
+<div class="note idea">
+<div class="nh">💡 Nothing is sampled at inference</div>
+<p>The encoder produces a mean and a spread, and <code>encode()</code> <strong>keeps only the mean</strong>.
+Encoding a reference image is therefore deterministic — the same photo gives the same latents every time —
+which is one of the reasons the KV cache of §22 can be bit-exact rather than approximate. The latents are
+then passed through a fixed per-channel normalisation with running statistics (128 channels, no learned
+scale of its own), so the transformer always receives them in the same range regardless of what the
+picture depicted.</p>
+</div>
+<p>And the decoder runs exactly once, after the last step, turning 128 × 128 × 32 back into 1024 × 1024 × 3.
+It is the only place in the whole system where a pixel is ever produced. The transformer — all 32 billion
+parameters of it, all 833 lines of this article — lives entirely inside the compressed space, and never
+knows what a colour is.</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 1560 380" role="img" aria-label="Three boxes with the number of values each holds: pixels 1024 by 1024 by 3 equals 3 145 728 values; latents 128 by 128 by 32 equals 524 288 values; tokens 64 by 64 by 128 equals 524 288 values. The first arrow, the VAE, divides by six. The second arrow, patchify, does not change the count at all - it only repacks.">
+<defs><marker id="cpA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7d8da1"/></marker></defs>
+<text x="40" y="34" class="ttl">Where the compression actually happens — count the values, not the picture</text>
+
+<rect x="40" y="70" width="400" height="180" rx="14" fill="#0e1622" stroke="#f6a93b" stroke-opacity=".55"/>
+<text x="240" y="104" class="axb" text-anchor="middle" fill="#f6a93b">pixels</text>
+<text x="240" y="134" class="eq" text-anchor="middle">1024 × 1024 × 3</text>
+<text x="240" y="164" class="eq" text-anchor="middle" fill="#ffd479">3 145 728 values</text>
+<text x="240" y="196" class="eq" text-anchor="middle" fill="#a9b8c9">what a camera gives you,</text>
+<text x="240" y="214" class="eq" text-anchor="middle" fill="#a9b8c9">and what the VAE decoder returns</text>
+
+<rect x="580" y="70" width="400" height="180" rx="14" fill="#0e1622" stroke="#b18cff" stroke-opacity=".55"/>
+<text x="780" y="104" class="axb" text-anchor="middle" fill="#b18cff">latents</text>
+<text x="780" y="134" class="eq" text-anchor="middle">128 × 128 × 32</text>
+<text x="780" y="164" class="eq" text-anchor="middle" fill="#ffd479">524 288 values</text>
+<text x="780" y="196" class="eq" text-anchor="middle" fill="#a9b8c9">the same picture with the</text>
+<text x="780" y="214" class="eq" text-anchor="middle" fill="#a9b8c9">redundancy squeezed out</text>
+
+<rect x="1120" y="70" width="400" height="180" rx="14" fill="#0e1622" stroke="#5fe08a" stroke-opacity=".55"/>
+<text x="1320" y="104" class="axb" text-anchor="middle" fill="#5fe08a">tokens</text>
+<text x="1320" y="134" class="eq" text-anchor="middle">4096 rows × 128</text>
+<text x="1320" y="164" class="eq" text-anchor="middle" fill="#ffd479">524 288 values</text>
+<text x="1320" y="196" class="eq" text-anchor="middle" fill="#a9b8c9">the same numbers again,</text>
+<text x="1320" y="214" class="eq" text-anchor="middle" fill="#a9b8c9">only repacked into rows</text>
+
+<path d="M442,160 L578,160" stroke="#7d8da1" stroke-width="2.4" fill="none" marker-end="url(#cpA)"/>
+<text x="510" y="140" class="axb" text-anchor="middle" fill="#b18cff">VAE encoder</text>
+<text x="510" y="192" class="eq" text-anchor="middle">÷ 6 — real compression,</text>
+<text x="510" y="210" class="eq" text-anchor="middle">a trained network doing it</text>
+
+<path d="M982,160 L1118,160" stroke="#7d8da1" stroke-width="2.4" fill="none" marker-end="url(#cpA)"/>
+<text x="1050" y="140" class="axb" text-anchor="middle" fill="#5fe08a">patchify</text>
+<text x="1050" y="192" class="eq" text-anchor="middle">÷ 1 — no compression at all,</text>
+<text x="1050" y="210" class="eq" text-anchor="middle">a reshape and nothing more</text>
+
+<text x="40" y="300" class="ax">Six times fewer values, all of it from the VAE. The patchify step changes the shape of the container — 128 × 128 cells of 32 become</text>
+<text x="40" y="322" class="ax">4096 rows of 128 — and not one number is lost or gained, which is why it can be undone for free.</text>
+<text x="40" y="360" class="ax" fill="#a9b8c9">That is also why the transformer's job is not smaller than it looks: 524 288 values still have to be reasoned about, only in 4096 rows instead of a million.</text>
+</svg>
+</div>
+<figcaption><span class="figno">FIG 8</span><b>Only one of the two stages compresses.</b> The VAE takes
+3 145 728 pixel values down to 524 288 latent values — a factor of six — and that is a trained network
+deciding what the picture needs to keep. The patchify step that follows is a pure rearrangement: the same
+524 288 values, regrouped from a 128 × 128 grid of 32-channel cells into 4 096 rows of 128. Counting values
+rather than pixels is the quickest way to see which part of §4.1 is doing the work.</figcaption>
+</figure>
+
+<h3>4.3 · How many tokens is that, really?</h3>
+<div class="tbl-wrap">
+<table class="data">
+<thead><tr><th>Output size</th><th>Megapixels</th><th>Latent grid</th><th style="text-align:right">image tokens</th><th style="text-align:right">+ 512 text</th><th style="text-align:right">attention pairs (L²)</th></tr></thead>
+<tbody>
+<tr><td>512 × 512</td><td class="m">0.26</td><td class="m">32 × 32</td><td class="num">1,024</td><td class="num">1,536</td><td class="num">2.4 M</td></tr>
+<tr><td>768 × 768</td><td class="m">0.59</td><td class="m">48 × 48</td><td class="num">2,304</td><td class="num">2,816</td><td class="num">7.9 M</td></tr>
+<tr><td><strong>1024 × 1024</strong></td><td class="m">1.05</td><td class="m">64 × 64</td><td class="num">4,096</td><td class="num">4,608</td><td class="num">21.2 M</td></tr>
+<tr><td>1360 × 768 <span style="color:var(--muted)">(CLI default)</span></td><td class="m">1.04</td><td class="m">48 × 85</td><td class="num">4,080</td><td class="num">4,592</td><td class="num">21.1 M</td></tr>
+<tr><td>1440 × 1440</td><td class="m">2.07</td><td class="m">90 × 90</td><td class="num">8,100</td><td class="num">8,612</td><td class="num">74.2 M</td></tr>
+<tr><td><strong>2048 × 2048</strong> (4 MP)</td><td class="m">4.19</td><td class="m">128 × 128</td><td class="num">16,384</td><td class="num">16,896</td><td class="num">285.5 M</td></tr>
+</tbody>
+</table>
+</div>
+<p>Quadrupling the pixels quadruples the <em>image</em> tokens — 4096 at 1 MP, 16 384 at 4 MP. The 512
+text tokens do not grow, so the joint sequence goes 4608 → 16 896, a factor of 3.7, and attention work,
+which is quadratic in that joint length, by <strong>13.4×</strong>.
+That single fact explains most of FLUX.2's engineering: the KV cache for references (§22), the shared
+modulation (§24), and the choice of 48 cheap single-stream blocks over expensive double-stream ones.</p>
+
+<h3>4.4 · Reference images are just more tokens</h3>
+<p>For editing and multi-reference generation, reference images go through the same VAE encoder and
+the same patchify, and their tokens are simply <em>appended to the sequence</em>. Up to ten references
+are supported; to keep the cost sane the pipeline caps reference pixels at 1024² each when there are
+several, and 2024² when there is only one (<code>sampling.py</code> L56–58 spells it
+<code>2024**2</code>, which is what upstream says — almost certainly a typo for 2048²). The only thing
+that distinguishes a reference token from a canvas token is its <em>position id</em> — which is the
+subject of §8.</p>
+</section>

@@ -1,0 +1,164 @@
+<section id="refprep">
+<h2><span class="secno">§ 5</span>Reference images: from JPEG to tokens</h2>
+<p class="section-intro">
+FLUX.2 edits and re-uses photographs: you hand it one or more images and it keeps what is in them while it
+paints something new. Those photographs have to become rows of 128 numbers with addresses before the network
+can see them, and getting there takes six functions and one hard-coded constant that is very nearly a typo.
+</p>
+
+<h3>5.1 · The preparation chain</h3>
+<p>Every reference photo goes through the same five stages, in this order, before it is encoded. The order is
+not arbitrary: each stage exists to make the next one safe.</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 1120 470" role="img" aria-label="A funnel of eight stages: a 2048 by 2048 photograph is colour-converted, size-checked, capped to 2024 by 2024, cropped to 2016 by 2016, turned into a tensor in the range minus one to one, encoded by the autoencoder into 128 by 126 by 126, and flattened into 15 876 tokens of 128 numbers. Bar widths are proportional to the number of values at each stage.">
+<text x="40" y="30" class="ttl">One reference photo, from disk to tokens — bar width is the number of values</text>
+
+<rect x="40" y="56" width="600" height="26" rx="5" fill="#f6a93b" opacity=".9"/>
+<text x="654" y="75" class="lbl">a 2048 × 2048 photo on disk · 3 channels · 12 582 912 values</text>
+
+<rect x="40" y="98" width="600" height="26" rx="5" fill="#f6a93b" opacity=".8"/>
+<text x="654" y="117" class="lbl">to_rgb — drop the alpha channel, force “RGB” · 12 582 912</text>
+
+<rect x="40" y="140" width="600" height="26" rx="5" fill="#f6a93b" opacity=".7"/>
+<text x="654" y="159" class="lbl">cap_min_pixels — refuse a side &lt; 64 or a ratio &gt; 8</text>
+
+<rect x="40" y="182" width="586" height="26" rx="5" fill="#f6a93b" opacity=".6"/>
+<text x="654" y="201" class="lbl">cap_pixels(2024²) — 2024 × 2024 · 12 289 728 values</text>
+
+<rect x="40" y="224" width="581" height="26" rx="5" fill="#f6a93b" opacity=".5"/>
+<text x="654" y="243" class="lbl">center_crop_to_multiple_of_x(16) — 2016 × 2016 · 12 192 768</text>
+
+<rect x="40" y="266" width="581" height="26" rx="5" fill="#f6a93b" opacity=".4"/>
+<text x="654" y="285" class="lbl">ToTensor then ×2 − 1 — every value in [−1, 1] · 12 192 768</text>
+
+<rect x="40" y="308" width="97" height="26" rx="5" fill="#b18cff" opacity=".9"/>
+<text x="654" y="327" class="lbl" fill="#b18cff">ae.encode — (128, 126, 126) · 2 032 128 values · ÷6</text>
+
+<rect x="40" y="350" width="97" height="26" rx="5" fill="#b18cff" opacity=".7"/>
+<text x="654" y="369" class="lbl" fill="#b18cff">prc_img — (15 876, 128) tokens, (15 876, 4) ids · ÷1</text>
+
+<line x1="40" y1="398" x2="1080" y2="398" stroke="#2e4054" stroke-width="1.4"/>
+<text x="40" y="422" class="ax">the five stages above the line only reshape and reject; the autoencoder is what compresses</text>
+<text x="40" y="444" class="eq">12 582 912 → 12 192 768 → 2 032 128 → 2 032 128</text>
+</svg>
+</div>
+<figcaption><span class="figno">FIG 8</span><b>Six times smaller, in one place.</b> The pixel-domain stages trim
+3&nbsp;% off the edges and change the value range; all of the real compression happens in
+<code>ae.encode</code>, which is 8× in each spatial direction plus a 2×2 patchify folded into the channel
+dimension — a factor of exactly 6 on the number of values, and then nothing at all when the grid is flattened
+into tokens. <b style="color:var(--ref)">VERIFIED</b> by running <code>cap_pixels</code> and
+<code>center_crop_to_multiple_of_x</code> on a 2048×2048 input.</figcaption>
+</figure>
+
+<div class="tbl-wrap">
+<table class="data">
+<thead><tr><th style="width:26%">Stage</th><th>What it guarantees for the next one</th></tr></thead>
+<tbody>
+<tr><td><code>to_rgb</code></td>
+    <td>Exactly three channels. A PNG with an alpha channel, or a greyscale scan, would otherwise reach
+    <code>ToTensor</code> and produce a tensor the autoencoder cannot accept.</td></tr>
+<tr><td><code>cap_min_pixels</code></td>
+    <td>Nothing degenerate gets through: a side shorter than 64 pixels or an aspect ratio beyond 8:1 raises
+    <code>ValueError</code> immediately. This is the only place in the file that refuses work rather than
+    doing it.</td></tr>
+<tr><td><code>cap_pixels</code></td>
+    <td>A ceiling on the token count, and therefore on memory and on attention cost — which grows with the
+    <em>square</em> of the sequence. It scales by <span class="mono">sqrt(k / pixels)</span> so the aspect ratio
+    survives, and resamples with LANCZOS.</td></tr>
+<tr><td><code>center_crop_to_multiple_of_x(16)</code></td>
+    <td>Both sides divisible by 16, so the 8× autoencoder and its 2×2 patchify land on whole cells. It floors to
+    the multiple and crops from the centre, taking half the remainder off each side.</td></tr>
+<tr><td><code>default_images_prep</code></td>
+    <td>A float tensor in [−1,&nbsp;1]: <code>ToTensor</code> divides by 255, then
+    <span class="mono">2·x − 1</span> recentres it. That is the range the autoencoder was trained on.</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>Cap first, then crop: the cap leaves a size that is <em>almost</em> a multiple of 16, and the crop removes
+the remainder — four pixels off each side in the example above. Reverse the two and the crop would be undone by
+the resize.</p>
+
+<h3>5.2 · The budget: 2024², not 2048²</h3>
+<p>How big a photo is allowed to be depends on how many photos there are, and the two numbers in the file are
+not the numbers you would expect:</p>
+
+<div class="mathbox">
+one reference <span class="op">→</span> limit_pixels <span class="op">=</span> 2024<sup>2</sup> <span class="op">=</span> 4 096 576
+<span class="op" style="padding-left:2em">two or more →</span> 1024<sup>2</sup> <span class="op">=</span> 1 048 576 <span class="op">each</span>
+</div>
+
+<div class="note warn">
+  <div class="nh">⚠ A 2.33 % typo, and exactly what it costs</div>
+  <p>The single-reference budget is <span class="mono">2024**2</span>. The number that would make the design
+  round — and that matches the 2048-pixel canvas the rest of FLUX.2 is documented for — is
+  <span class="mono">2048**2</span>: 4 194 304 pixels, <strong>97 728 more</strong>, a 2.33&nbsp;% difference.
+  Reading a four-digit year where a power of two belongs is an easy mistake, and nothing else in the file uses
+  2024. <span class="spec">inference</span></p>
+  <p>The consequence is concrete rather than cosmetic. A 2048×2048 reference is capped to 2024×2024, which is
+  not a multiple of 16, so it is then cropped to 2016×2016 = 126×126 = <strong>15 876 tokens</strong>. With a
+  2048² budget the crop would never fire and the same photo would give 128×128 = <strong>16 384 tokens</strong>.
+  One transposed digit removes <strong>508 tokens</strong> — a 3&nbsp;% strip around two edges of every
+  single-reference edit. <b style="color:var(--ref)">VERIFIED</b> by running both stages on a 2048×2048
+  input.</p>
+</div>
+
+<p>The multi-reference budget is a different shape of decision: rather than letting four photos add up to four
+times the tokens, each photo is held to 1024² so that the <em>total</em> stays near one canvas' worth. The
+trade-off is per-photo detail — a 2048×2048 reference loses three quarters of its pixels when it is one of
+four, and none when it is alone.</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 1120 350" role="img" aria-label="Horizontal bars comparing token counts: a 512 squared canvas at 1024 tokens, a 1024 squared canvas at 4096, a single reference photo at 15876, four reference photos at 16384, and a 2048 squared canvas at 16384.">
+<text x="40" y="30" class="ttl">What the reference tokens weigh, next to the canvas they guide</text>
+
+<rect x="40" y="56" width="22" height="26" rx="4" fill="#f6a93b" opacity=".55"/>
+<text x="76" y="75" class="lbl">canvas 512 × 512 · 1 024 tokens</text>
+
+<rect x="40" y="98" width="90" height="26" rx="4" fill="#f6a93b" opacity=".7"/>
+<text x="144" y="117" class="lbl">canvas 1024 × 1024 · 4 096 tokens</text>
+
+<rect x="40" y="140" width="349" height="26" rx="4" fill="#b18cff"/>
+<text x="403" y="159" class="lbl" fill="#b18cff">one reference photo · 15 876 tokens — 3.9 × that canvas</text>
+
+<rect x="40" y="182" width="360" height="26" rx="4" fill="#b18cff" opacity=".75"/>
+<text x="414" y="201" class="lbl" fill="#b18cff">four reference photos · 16 384 tokens — 4 × 4 096</text>
+
+<rect x="40" y="224" width="360" height="26" rx="4" fill="#f6a93b"/>
+<text x="414" y="243" class="lbl">canvas 2048 × 2048 · 16 384 tokens — the same as four photos</text>
+
+<line x1="40" y1="272" x2="940" y2="272" stroke="#2e4054" stroke-width="1.4"/>
+<text x="40" y="296" class="ax">512² canvas plus one reference: 16 900 image-side tokens, and 94 % of them are the reference</text>
+<text x="40" y="318" class="ax">1440² canvas plus one reference: 23 976 image-side tokens, and 66 % of them are the reference</text>
+</svg>
+</div>
+<figcaption><span class="figno">FIG 9</span><b>The references dominate the sequence.</b> One photograph, capped
+at 2024², carries almost four times the tokens of a 1024×1024 canvas. At a small canvas the reference is 94&nbsp;%
+of everything the attention has to look at on the image side — and it is the same 15 876 tokens, unchanged, at
+every single step. That is the entire motivation for §7.</figcaption>
+</figure>
+
+<h3>5.3 · Two details that only the code reveals</h3>
+<p><strong>Encoding happens on the GPU, unconditionally.</strong> The encode call is
+<span class="mono">ae.encode(img[None].cuda())</span> — the <code>.cuda()</code> is written into the line, with no
+device argument and no fallback. The reference path therefore cannot run on a CPU-only or Apple-silicon setup
+even if the rest of the pipeline could. The <span class="mono">[None]</span> adds the batch axis the autoencoder
+expects, and the <span class="mono">[0]</span> immediately after the call takes it back off: what
+<code>encode</code> returns is one tensor of shape (1,&nbsp;128,&nbsp;H/16,&nbsp;W/16), and
+<code>prc_img</code> wants (128,&nbsp;h,&nbsp;w).</p>
+<p><strong>Photos are encoded one at a time.</strong> There is no batching across references — a Python
+<code>for</code> loop calls the autoencoder once per photo. With four references that is four separate encoder
+passes, which is also why they can be different sizes: a batch would have to be padded to a common
+shape.</p>
+
+<div class="note beginner">
+  <div class="nh">▸ Why 16, and not 8</div>
+  <p>The autoencoder alone downsamples by 8 in each direction. FLUX.2 then folds each 2×2 block of latent cells
+  into one token, which is another factor of 2 per side. A side length divisible by 16 is what makes both steps
+  come out whole: 2016 → 252 latent cells → 126 tokens per side. The crop is the cheapest place to enforce that,
+  because it happens before any of the expensive work.</p>
+</div>
+</section>

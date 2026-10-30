@@ -1,0 +1,167 @@
+<div class="part-banner" id="part4" style="border-left-color:var(--img)">
+  <div class="pb-num">Part 4</div>
+  <div class="pb-txt">
+    <div class="pb-title">The big pieces</div>
+    <p>The five functions that do the work: the three that build the schedule, the one that turns photographs into conditioned tokens, and the three loops that call the network — including the two ways of handling references and the doubled batch of true classifier-free guidance.</p>
+  </div>
+</div>
+
+<section id="schedcode">
+<h2><span class="secno">§ 12</span>The schedule, in code</h2>
+<p class="section-intro">
+Twenty-three lines that produce every number in §2. Three functions, eight fitted constants, two hard-coded
+thresholds — and one identity that makes the whole thing easy to reason about.
+</p>
+
+<h3 id="p-shift">12.1 · generalized_time_snr_shift</h3>
+
+<!--CODE 240-241 title="sampling.py · generalized_time_snr_shift" hl="241"-->
+
+<!--TRACE-->
+<!--T 240|A pure function of three arguments: a tensor of times, and the two scalars that shape them. No state, no device, no dtype handling.-->
+<!--T 241|The whole shift in one expression. <code>math.exp(mu)</code> is a Python float, <code>t</code> is a tensor, and the division broadcasts — so the tensor stays a tensor. With σ = 1 the exponent is a no-op and the expression is exactly the logit translation of §2.2.-->
+<!--/TRACE-->
+
+<div class="note math">
+  <div class="nh">∑ The two ends are safe by construction</div>
+  <p>The expression divides by <em>t</em>, and the schedule always contains <em>t</em>&nbsp;=&nbsp;1 and
+  <em>t</em>&nbsp;=&nbsp;0. Neither breaks it. At <em>t</em>&nbsp;=&nbsp;1 the term
+  <span class="mono">(1/t − 1)</span> is exactly 0, so the result is
+  <span class="mono">e<sup>μ</sup>/(e<sup>μ</sup>+0) = 1</span>. At <em>t</em>&nbsp;=&nbsp;0 the same term is
+  <span class="mono">+inf</span> in IEEE floating point, and
+  <span class="mono">e<sup>μ</sup>/(e<sup>μ</sup>+inf) = 0</span> — no exception, no NaN, just the right answer.
+  The endpoints are fixed points of the map for every μ, which is what lets the ladder start at pure noise and
+  end at a finished image no matter how hard it is bent.</p>
+</div>
+
+<h3 id="p-getsched">12.2 · get_schedule</h3>
+
+<!--CODE 244-248 title="sampling.py · get_schedule" hl="245,246,247,248"-->
+
+<!--TRACE-->
+<!--T 244|Two integers in: how many steps, and how many image tokens the canvas has. Returns a plain Python list of floats of length <code>num_steps + 1</code>.-->
+<!--T 245|μ first — it depends on both arguments, and it is the only thing about the ladder that is not uniform.-->
+<!--T 246|<code>linspace(1, 0, …)</code> counts <em>down</em>, and asks for one more point than there are steps: N steps need N+1 times, because each step is a pair.-->
+<!--T 247|Bends the uniform ladder with σ hard-coded to 1.0 — the general exponent exists in the function above but is never used with anything else.-->
+<!--T 248|Back to Python floats. From here on the schedule is a list, indexed and zipped like any other sequence, and its arithmetic keeps full double precision.-->
+<!--/TRACE-->
+
+<p>That the result is a Python list rather than a tensor matters more than it looks. The loop of §14 pairs
+consecutive entries with <code>zip(timesteps[:-1], timesteps[1:])</code> and multiplies the difference into a
+tensor — so the stride is computed in Python floats and only the product is rounded to bfloat16. The
+<em>time the model is told</em> is rounded, as §3.2 showed; the <em>distance the image moves</em> is not.</p>
+
+<h3 id="p-mu">12.3 · compute_empirical_mu</h3>
+
+<!--CODE 251-266 title="sampling.py · compute_empirical_mu" hl="252,253,255,256,259,260,262,263,264"-->
+
+<!--TRACE-->
+<!--T 251|The most consequential function in the file, and the one with the most constants in it.-->
+<!--T 252|The 10-step fit: a slope of 8.73809524·10⁻⁵ per token and an intercept of 1.89833333.-->
+<!--T 253|The 200-step fit: a steeper slope, 1.6927·10⁻⁴ per token, and a much lower intercept, 0.45666666.-->
+<!--T 255-257|Above 4 300 tokens the step count is ignored entirely and the 200-step line is used as-is, with an early return.-->
+<!--T 259-260|Below it, both anchors are evaluated at this canvas size: <code>m_200</code> and <code>m_10</code>.-->
+<!--T 262-263|A line through the two anchors, parameterised by step count: the slope is their difference over 190 steps, and the intercept is chosen so that the line passes through <code>m_200</code> at 200.-->
+<!--T 264|Evaluate it at the requested number of steps.-->
+<!--T 266|Returned as a Python float either way.-->
+<!--/TRACE-->
+
+<div class="note proof">
+  <div class="nh">◆ The interpolation hits both anchors exactly</div>
+  <p>With <span class="mono">a = (m₂₀₀ − m₁₀)/190</span> and <span class="mono">b = m₂₀₀ − 200a</span>:</p>
+  <div class="mathblk">
+  at N = 200: <span class="mm">a</span>·200 <span class="op">+</span> <span class="mm">b</span>
+  <span class="op">=</span> 200a <span class="op">+</span> m₂₀₀ <span class="op">−</span> 200a
+  <span class="op">=</span> m₂₀₀ ✓<br>
+  at N = 10: <span class="mm">a</span>·10 <span class="op">+</span> <span class="mm">b</span>
+  <span class="op">=</span> 10a <span class="op">+</span> m₂₀₀ <span class="op">−</span> 200a
+  <span class="op">=</span> m₂₀₀ <span class="op">−</span> 190a
+  <span class="op">=</span> m₂₀₀ <span class="op">−</span> (m₂₀₀ <span class="op">−</span> m₁₀)
+  <span class="op">=</span> m₁₀ ✓
+  </div>
+  <p>So the names of the two constants are not decorative: they are the values this function returns at ten steps
+  and at two hundred, and every other step count is a straight line between them — extrapolating below 10, which
+  is what all four klein configurations do.</p>
+</div>
+
+<p>Extrapolation is worth a moment, because four steps is a long way from ten. The slope at 4 096 tokens is
+<span class="mono">a = −0.005822</span> per step, so going from 10 steps to 4 adds
+<span class="mono">6 × 0.005822 = 0.035</span> to μ — a small correction, and one that keeps the ladder in the
+family the fits describe. Nothing in the file clamps the step count; a one-step run would be given
+μ&nbsp;=&nbsp;2.3086 at 4 096 tokens, and the "schedule" would be <span class="mono">[1.0, 0.0]</span> — one call at
+pure noise and one stride covering the whole path, which §3 showed is exact only if the velocity field is.</p>
+
+<div class="note warn">
+  <div class="nh">⚠ The knee at 4 300 is a discontinuity, not a crossover</div>
+  <p>The two branches agree only at 200 steps, because above the knee the function returns
+  <code>m_200</code> — the value the lower branch would have produced at exactly 200 steps. At any other step
+  count there is a jump, and §2.3 measured it: for a 4-step run, μ falls from 2.3021 at 4 225 tokens to 1.1940 at
+  4 356. The threshold is written as a bare integer comparison with no comment, and 4 300 tokens is a square of
+  side 65.57 — not a round number in pixels, in tokens, or in megapixels. Whatever it was fitted to, it was fitted in
+  token space. <span class="spec">inference</span></p>
+</div>
+</section>
+
+<section id="encoderefs">
+<h2><span class="secno">§ 13</span>encode_image_refs</h2>
+<p class="section-intro">
+The only function in the file that calls another model. Thirty-nine lines that take a list of PIL images and
+return two tensors — the reference tokens and their addresses — ready to be concatenated to the canvas at every
+step, or cached once.
+</p>
+
+<!--CODE 52-90 title="sampling.py · encode_image_refs" hl="53,55,56,58,62,65,72,76,80,83,87,90"-->
+
+<!--TRACE-->
+<!--T 52|Two arguments and no type hint on the first: <code>ae</code> is the autoencoder, <code>img_ctx</code> a list of PIL images. Returns either a pair of tensors or a pair of <code>None</code>s.-->
+<!--T 53|The plane spacing of §4.2, defined once and used once.-->
+<!--T 55-60|The pixel budget, chosen by how many photos there are: 1024² each if there are several, 2024² if there is exactly one, and <code>None</code> if there are none at all.-->
+<!--T 62-63|The empty case returns before touching the GPU — which is also why the <code>None</code> budget above can never reach <code>default_prep</code>.-->
+<!--T 65|Runs the whole chain of §10 on the list: <code>default_prep</code> recurses over it, so one call prepares every photo.-->
+<!--T 66-67|…except that with a single image it returns a bare tensor rather than a list, so the caller wraps it back.-->
+<!--T 69-73|One autoencoder pass per photo, in a Python loop. <code>img[None]</code> adds the batch axis the encoder wants, <code>.cuda()</code> is unconditional, and <code>[0]</code> takes the batch axis back off.-->
+<!--T 75-77|The plane coordinates: 10, 20, 30… one per photo, each reshaped to a one-element tensor because <code>prc_img</code> expects a coordinate <em>range</em>.-->
+<!--T 79-80|Addresses every photo through the list wrapper, so each keeps its own (h, w) grid and its own plane.-->
+<!--T 82-84|All references concatenated along the sequence axis: one long run of tokens, and one long run of addresses.-->
+<!--T 86-88|A batch axis of 1 on both — the references are shared by the whole batch rather than varying with it.-->
+<!--T 90|The tokens are cast to bfloat16 to match the model; the ids are not, and stay integers.-->
+<!--/TRACE-->
+
+<h3>13.1 · What comes out</h3>
+<div class="tbl-wrap">
+<table class="data">
+<thead><tr><th>Input</th><th class="num">Output tokens</th><th class="m">Shapes</th><th>Planes</th></tr></thead>
+<tbody>
+<tr><td>No photos</td><td class="num">—</td><td class="m">(None, None)</td><td>—</td></tr>
+<tr><td>One 2048×2048 photo</td><td class="num">15 876</td><td class="m">(1, 15876, 128) · (1, 15876, 4)</td><td class="m">t = 10</td></tr>
+<tr><td>Four 2048×2048 photos</td><td class="num">16 384</td><td class="m">(1, 16384, 128) · (1, 16384, 4)</td><td class="m">t = 10, 20, 30, 40</td></tr>
+<tr><td>One 1920×1080 photo</td><td class="num">8 040</td><td class="m">(1, 8040, 128) · (1, 8040, 4)</td><td class="m">t = 10</td></tr>
+<tr><td>Four 512×512 photos</td><td class="num">4 096</td><td class="m">(1, 4096, 128) · (1, 4096, 4)</td><td class="m">t = 10, 20, 30, 40</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>Every row was produced by running <code>cap_pixels</code>, <code>center_crop_to_multiple_of_x</code> and the
+token arithmetic on those input sizes; the 1920×1080 case is the interesting one, because it is under the budget
+and therefore never resized — it only loses eight rows of pixels to the crop, from 1080 to 1072, and becomes
+120×67 = 8 040 tokens.</p>
+
+<div class="note idea">
+  <div class="nh">✦ Why the batch axis is 1 and not B</div>
+  <p>The function encodes the photos once and returns them with a leading axis of size 1. In
+  <code>denoise</code> those tokens are then concatenated to a canvas of batch size B along the
+  <em>sequence</em> axis — which only works if B is 1, or if every sample in the batch is meant to see the same
+  references. The command-line script generates one image at a time, so the question never arises; a batched
+  caller with per-sample references would have to run this function once per sample.
+  <span class="spec">inference</span></p>
+</div>
+
+<div class="note beginner">
+  <div class="nh">▸ Where the 128 comes from</div>
+  <p>Each reference token is 128 numbers because that is what the autoencoder emits per patch: 32 latent channels
+  with each 2×2 block of cells folded into the channel dimension, 32 × 2 × 2 = 128. It is the same 128 the canvas
+  noise is drawn with, and the same 128 that <code>img_in</code> in
+  <a href="index.html"><code>model.py</code></a> projects up to the hidden size — which is why references and
+  canvas can sit in one sequence at all.</p>
+</div>
+</section>

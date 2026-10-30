@@ -1,0 +1,260 @@
+<div class="part-banner" id="part5" style="border-left-color:var(--ref)">
+  <div class="pb-num">Part 5</div>
+  <div class="pb-txt">
+    <div class="pb-title">Zooming back out</div>
+    <p>One complete generation with real numbers in it, the design decisions that give the file its shape — including the four pieces of code that do nothing — a cheat sheet of all twenty-six symbols, and the papers behind the two ideas this file implements.</p>
+  </div>
+</div>
+
+<section id="endtoend">
+<h2><span class="secno">§ 17</span>From the command line to a PNG</h2>
+<p class="section-intro">
+Everything in one place. This is the generation block of <code>scripts/cli.py</code>, trimmed to the calls that
+touch this file — and below it, the same run with every shape and every number filled in.
+</p>
+
+<!--RAW title="scripts/cli.py · the generation block, trimmed to the sampling calls"-->
+ctx = text_encoder([prompt]).to(torch.bfloat16)        # klein: guidance is distilled
+ctx, ctx_ids = batched_prc_txt(ctx)
+
+with torch.no_grad():
+    ref_tokens, ref_ids = encode_image_refs(ae, img_ctx)
+
+shape = (1, 128, height // 16, width // 16)
+generator = torch.Generator(device="cuda").manual_seed(seed)
+randn = torch.randn(shape, generator=generator, dtype=torch.bfloat16, device="cuda")
+x, x_ids = batched_prc_img(randn)
+
+timesteps = get_schedule(cfg.num_steps, x.shape[1])
+x = denoise(
+    model, x, x_ids, ctx, ctx_ids,
+    timesteps=timesteps, guidance=cfg.guidance,
+    img_cond_seq=ref_tokens, img_cond_seq_ids=ref_ids,
+)
+
+x = torch.cat(scatter_ids(x, x_ids)).squeeze(2)
+x = ae.decode(x).float()
+<!--/RAW-->
+
+<h3>17.1 · The same run, with numbers</h3>
+<p>klein-9B, a 1024×1024 canvas, one 2048×2048 reference photograph, four steps, guidance 1.0:</p>
+
+<div class="tbl-wrap">
+<table class="data">
+<thead><tr><th style="width:26%">Call</th><th style="width:30%">Out</th><th>What happened</th></tr></thead>
+<tbody>
+<tr><td><code>batched_prc_txt(ctx)</code></td><td class="m">(1, 512, 12288) · (1, 512, 4)</td>
+    <td>512 prompt rows from an 8-billion-parameter language model, each addressed
+    <span class="mono">(0, 0, 0, l)</span>. The tokens themselves are untouched.</td></tr>
+<tr><td><code>encode_image_refs(ae, photos)</code></td><td class="m">(1, 15876, 128) · (1, 15876, 4)</td>
+    <td>2048² → capped to 2024² → cropped to 2016² → tensor in [−1, 1] → autoencoder →
+    (128, 126, 126) → flattened to 15 876 tokens on plane <em>t</em>&nbsp;=&nbsp;10, in bfloat16.</td></tr>
+<tr><td><code>batched_prc_img(randn)</code></td><td class="m">(1, 4096, 128) · (1, 4096, 4)</td>
+    <td>The seeded noise, flattened to 64×64 tokens on plane <em>t</em>&nbsp;=&nbsp;0.</td></tr>
+<tr><td><code>get_schedule(4, 4096)</code></td><td class="m">[1.000, 0.967, 0.908, 0.767, 0.000]</td>
+    <td>μ = 2.2912 from the interpolation branch (4 096 ≤ 4 300), then the logit shift of four uniform
+    times.</td></tr>
+<tr><td><code>denoise(...)</code> step 1</td><td class="m">sequence of 20 484</td>
+    <td>512 text + 4 096 canvas + 15 876 reference tokens, one call at <em>t</em>&nbsp;=&nbsp;1.0, then
+    <span class="mono">x += −0.0326·pred</span>.</td></tr>
+<tr><td>steps 2, 3, 4</td><td class="m">strides −0.0592, −0.1409, −0.7672</td>
+    <td>The same 20 484-token sequence three more times, at <em>t</em> = 0.967, 0.908 and 0.767. The last
+    stride covers 77 % of the whole path.</td></tr>
+<tr><td><code>scatter_ids(x, x_ids)</code></td><td class="m">[(1, 128, 1, 64, 64)]</td>
+    <td>The plane axis is compressed to a single plane, the tokens are scattered row-major back into the grid,
+    and <code>squeeze(2)</code> removes it again: (1, 128, 64, 64).</td></tr>
+<tr><td><code>ae.decode(x)</code></td><td class="m">(1, 3, 1024, 1024)</td>
+    <td>Not this file's work — but it is why every size above had to be a multiple of 16.</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>Four transformer calls over 20 484 tokens each, and 78 % of those tokens are the reference photograph —
+recomputed, and its predictions discarded, four times. That single sentence is the case for
+<code>denoise_cached</code>, for the 2024² budget, and for the whole of §7.</p>
+
+<div class="note beginner">
+  <div class="nh">▸ What the seed does and does not control</div>
+  <p><code>torch.randn</code> with a seeded generator is the only random act in a generation. The schedule is a
+  deterministic function of the step count and the canvas size; the reference tokens are a deterministic function
+  of the photographs; the loop is pure arithmetic. The same seed, prompt, canvas and reference give the same
+  image — but changing the canvas size changes μ, which changes the ladder, which changes the result even at the
+  same seed.</p>
+</div>
+</section>
+
+<section id="sdesign">
+<h2><span class="secno">§ 18</span>Why it looks like this</h2>
+<p class="section-intro">
+Twelve decisions, visible in the code, each with the line that shows it. Some are excellent, some are
+consequences of history, and four of them are code that does nothing.
+</p>
+
+<div class="tbl-wrap">
+<table class="data">
+<thead><tr><th style="width:24%">Decision</th><th style="width:12%">Where</th><th>What it buys, and what it costs</th></tr></thead>
+<tbody>
+<tr><td><strong>No classes</strong></td><td class="m">whole file</td>
+    <td>There is no sampler to construct, configure or keep alive; the entire state of a generation is the
+    <code>img</code> tensor and a Python loop counter. It costs a little repetition — three loops each rebuild a
+    guidance vector and a time tensor — and it buys the ability to read any function in isolation.</td></tr>
+<tr><td><strong>Three loops instead of one</strong></td><td class="m">269, 310, 364</td>
+    <td>Each loop is a straight line with no branches except the ones it is about. A single loop with
+    <code>use_cache</code> and <code>use_cfg</code> flags would be shorter and much harder to trust. The Euler
+    step is written three times as a result.</td></tr>
+<tr><td><strong>Ids threaded everywhere</strong></td><td class="m">24, 93, 141</td>
+    <td>Position is data, not a property of the tensor, so a reference can be moved to another plane without
+    touching its content — and the same flat token list can be turned back into a picture after the loop
+    (<code>scatter_ids</code>). The cost is that every function has twice as many arguments.</td></tr>
+<tr><td><strong>Two wrappers, not four addressers</strong></td><td class="m">106, 122</td>
+    <td>"Per sample" and "as a collection" are separated, so the batch/list distinction is one line each and the
+    address logic exists once per modality.</td></tr>
+<tr><td><strong>PIL at the edges, tensors inside</strong></td><td class="m">226–237</td>
+    <td>Cropping, resampling and aspect checks are done by PIL, which is good at them; the tensor world starts at
+    <code>ToTensor</code>. Nothing in between: there is no numpy stage.</td></tr>
+<tr><td><strong>Validation raises, everything else repairs</strong></td><td class="m">199–202</td>
+    <td>A too-thin or too-extreme image is a mistake by the caller, so it is reported; a too-large image is
+    normal, so it is resized. One function in the file says no.</td></tr>
+<tr><td><strong>Constants inline</strong></td><td class="m">53, 56, 58, 227, 252–253, 255</td>
+    <td>Eight fitted decimals, three pixel budgets, a plane spacing of 10, a knee at 4 300, a multiple of 16, an
+    aspect limit of 8 and a minimum side of 64 — none of them in a config, none of them named. Reading the file
+    tells you everything; changing any of it means editing the function.</td></tr>
+<tr><td><strong><code>.cuda()</code> written in</strong></td><td class="m">72</td>
+    <td>The reference path assumes a CUDA device with no argument and no fallback, while the loops themselves are
+    device-agnostic — they inherit whatever device the tensors are on.</td></tr>
+<tr><td><strong>The schedule becomes a Python list</strong></td><td class="m">248</td>
+    <td>Slicing (<code>[:-1]</code>, <code>[1:]</code>) and <code>zip</code> then cost nothing and need no device,
+    and the stride arithmetic keeps full float precision instead of the image's bfloat16 (§3.2).</td></tr>
+<tr><td><strong>Guidance always passed</strong></td><td class="m">283, 398</td>
+    <td>The loops do not ask whether the model has a guidance embedding; they always build the tensor and let
+    <code>model.py</code> decide. Uniform code, and a silently ignored argument for four of the six
+    checkpoints.</td></tr>
+<tr><td><strong>The batch stays doubled in CFG</strong></td><td class="m">406, 408, 410</td>
+    <td>One duplication at the top, one at the end, and a stable shape through the loop — at the price of
+    carrying an identical second half for the whole generation.</td></tr>
+<tr><td><strong>Nothing is logged</strong></td><td class="m">whole file</td>
+    <td>No progress bar, no per-step timing, no warnings. The script prints; this file computes.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>18.1 · The four things that do nothing</h3>
+<div class="tbl-wrap">
+<table class="data">
+<thead><tr><th style="width:30%">Dead code</th><th style="width:12%">Where</th><th>Why it is still there</th></tr></thead>
+<tbody>
+<tr><td><code>vanilla_guidance</code></td><td class="m">358–361</td>
+    <td>Called by nothing in the repository; <code>denoise_cfg</code> inlines the same formula (§11). It documents
+    the convention that the unconditional half comes first.</td></tr>
+<tr><td><code>t_coords</code> in <code>scatter_ids</code></td><td class="m">29, 48</td>
+    <td>Appended to on every sample and never returned — the fingerprint of a version that reported which planes
+    it had reconstructed.</td></tr>
+<tr><td>The <code>limit_pixels is None</code> branch</td><td class="m">233–234</td>
+    <td>Reachable only from a caller with no images, and the only caller returns before that point
+    (§13).</td></tr>
+<tr><td>The <code>img_input_ids is not None</code> guard</td><td class="m">302</td>
+    <td>Always true, because the ids are a required argument; without references the slice it guards is a
+    no-op.</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>None of the four changes any output. Together they are eleven lines out of 442 — about the same share as the
+schedule itself.</p>
+</section>
+
+<section id="scheatsheet">
+<h2><span class="secno">§ 19</span>The complete cheat sheet</h2>
+<p class="section-intro">
+Every symbol defined in <code>sampling.py</code>, in file order, with the line where it begins.
+</p>
+
+<div class="tbl-wrap">
+<table class="data">
+<thead><tr><th style="width:80px">line</th><th style="width:280px">symbol</th><th>one-line description</th></tr></thead>
+<tbody>
+<tr class="grp"><td colspan="3">position ids</td></tr>
+<tr><td class="m">12</td><td><code>compress_time</code></td><td>Densifies plane ids to 0…k−1 so a rebuilt volume has no empty planes.</td></tr>
+<tr><td class="m">24</td><td><code>scatter_ids</code></td><td>Puts flat tokens back into a (1, C, t, h, w) volume using their addresses.</td></tr>
+<tr><td class="m">93</td><td><code>prc_txt</code></td><td>Addresses one sample's prompt rows as (0, 0, 0, l).</td></tr>
+<tr><td class="m">141</td><td><code>prc_img</code></td><td>Flattens one (C, h, w) latent to tokens and addresses them (t, h, w, 0).</td></tr>
+<tr><td class="m">106</td><td><code>batched_wrapper</code></td><td>Turns an addresser into a batched one by looping and stacking.</td></tr>
+<tr><td class="m">107</td><td><code>· batched_prc</code></td><td>The function it returns; requires every sample to have the same token count.</td></tr>
+<tr><td class="m">122</td><td><code>listed_wrapper</code></td><td>The same, for a Python list of differently shaped samples.</td></tr>
+<tr><td class="m">123</td><td><code>· listed_prc</code></td><td>The function it returns; keeps the results as lists.</td></tr>
+<tr><td class="m">154</td><td><code>listed_prc_img</code></td><td>Per-photo addressing — the reference path.</td></tr>
+<tr><td class="m">155</td><td><code>batched_prc_img</code></td><td>Batched image addressing — the canvas.</td></tr>
+<tr><td class="m">156</td><td><code>batched_prc_txt</code></td><td>Batched text addressing — the prompt.</td></tr>
+
+<tr class="grp"><td colspan="3">image preparation</td></tr>
+<tr><td class="m">206</td><td><code>to_rgb</code></td><td>Forces three channels.</td></tr>
+<tr><td class="m">195</td><td><code>cap_min_pixels</code></td><td>Refuses sides below 64 or aspect ratios beyond 8:1. Validates, never resizes.</td></tr>
+<tr><td class="m">178</td><td><code>cap_pixels</code></td><td>Scales down to a pixel budget by <code>sqrt(k / pixels)</code>, LANCZOS, truncating.</td></tr>
+<tr><td class="m">159</td><td><code>center_crop_to_multiple_of_x</code></td><td>Floors both sides to a multiple of 16 and crops the remainder centrally.</td></tr>
+<tr><td class="m">217</td><td><code>default_images_prep</code></td><td><code>ToTensor</code> then ×2 − 1, giving [−1, 1].</td></tr>
+<tr><td class="m">226</td><td><code>default_prep</code></td><td>The five stages in order: rgb → min → cap → crop → tensor.</td></tr>
+<tr><td class="m">52</td><td><code>encode_image_refs</code></td><td>The whole reference path: budget, prep, encode per photo, planes at 10·i, concatenated, bfloat16.</td></tr>
+<tr><td class="m">413</td><td><code>concatenate_images</code></td><td>Pastes photos side by side on white, centred. Used by the prompt upsampler only.</td></tr>
+
+<tr class="grp"><td colspan="3">the schedule</td></tr>
+<tr><td class="m">240</td><td><code>generalized_time_snr_shift</code></td><td><code>exp(mu)/(exp(mu) + (1/t − 1)**sigma)</code> — adds μ in logit space.</td></tr>
+<tr><td class="m">244</td><td><code>get_schedule</code></td><td>Uniform <code>linspace(1, 0, N+1)</code>, shifted with σ = 1.0, returned as a list.</td></tr>
+<tr><td class="m">251</td><td><code>compute_empirical_mu</code></td><td>Two fitted lines in the token count, interpolated on the step count, with a knee at 4 300.</td></tr>
+
+<tr class="grp"><td colspan="3">the loops</td></tr>
+<tr><td class="m">269</td><td><code>denoise</code></td><td>References appended every step, full bidirectional attention, predictions sliced back to the canvas.</td></tr>
+<tr><td class="m">310</td><td><code>denoise_cached</code></td><td>Step 0 extracts the reference K and V; later steps send the canvas alone.</td></tr>
+<tr><td class="m">358</td><td><code>vanilla_guidance</code></td><td>The textbook CFG combine. Never called.</td></tr>
+<tr><td class="m">364</td><td><code>denoise_cfg</code></td><td>Doubled batch, <code>guidance=None</code>, extrapolate, re-double, return one half.</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="note proof">
+  <div class="nh">◆ The numbers on this page</div>
+  <p>Every schedule, μ, stride, token count and byte count quoted in this article is re-derived from
+  <code>src/ref/sampling.py</code> on every build by <code>src/ref/verify_sampling.py</code>, which then searches
+  the finished page for each of them. If a number here disagrees with the file, the build fails.</p>
+</div>
+</section>
+
+<section id="srefs">
+<h2><span class="secno">§ 20</span>References &amp; further reading</h2>
+<ul>
+<li><b>The source.</b> black-forest-labs/flux2, <code>src/flux2/sampling.py</code> — 442 lines, git blob
+<code>1b581083d2bd603ef3eb79605ee5321fc36bff01</code>. Also read alongside it: <code>scripts/cli.py</code> (the
+caller), <code>src/flux2/util.py</code> (the checkpoint table that chooses the loop),
+<code>src/flux2/text_encoder.py</code> (the other importer) and <code>docs/flux2_klein_kv_cache.md</code> (the
+measured speedups of §7).</li>
+<li><b>The companion article.</b> <a href="index.html">FLUX.2 <span class="mono">model.py</span>, every line
+explained</a> — what happens inside each of the calls this file makes, including the KV-cache machinery of
+§7.</li>
+<li><b>Scaling Rectified Flow Transformers (SD3).</b> Esser et al., 2024 — arXiv:2403.03206. §5.2 is where the
+resolution-dependent timestep shift comes from, and why a larger canvas needs a larger μ.</li>
+<li><b>Flow matching.</b> Lipman et al., 2022 — arXiv:2210.02747. Predicting a velocity field and integrating it:
+the idea the Euler step of §3 implements.</li>
+<li><b>Rectified flow.</b> Liu et al., "Flow Straight and Fast", 2022 — arXiv:2209.03003. Why straight paths let
+a four-step schedule work at all.</li>
+<li><b>Classifier-free guidance.</b> Ho &amp; Salimans, 2022 — arXiv:2207.12598. The unconditional/conditional
+extrapolation of §6.2 and of <code>denoise_cfg</code>.</li>
+<li><b>Guidance distillation.</b> Meng et al., "On Distillation of Guided Diffusion Models", 2023 —
+arXiv:2210.03142. Turning the two-pass extrapolation into a single conditioned pass, which is what makes
+<code>denoise</code> half the cost of <code>denoise_cfg</code>.</li>
+<li><b>RoPE.</b> Su et al., "RoFormer", 2021 — arXiv:2104.09864. The relative-position mechanism that gives the
+plane spacing of §4.2 its meaning.</li>
+<li><b>KV caching in autoregressive transformers.</b> The technique the cached loop adapts to a diffusion
+sampler; the isolation pattern it needs is worked out in the <a href="index.html">model.py article</a>.</li>
+<li><b>LANCZOS resampling.</b> The filter <code>cap_pixels</code> uses, described in
+<code>PIL.Image.Resampling</code>; the standard reference is Lanczos, "Expressions for band-limited signals
+and interpolation formulas" (1964).</li>
+</ul>
+
+<div class="note idea">
+  <div class="nh">✦ Where to go from here</div>
+  <p>Three experiments this file makes easy. Call <code>get_schedule</code> with your own step counts and canvas
+  sizes and plot the ladders — the shape of §2.4 is entirely determined by two numbers. Call
+  <code>default_prep</code> on a photograph of your own and watch the five stages change its size. And read
+  <code>denoise</code> next to <code>denoise_cfg</code>: they are the same loop with one difference, and finding
+  it is the quickest way to be sure you understand both.</p>
+</div>
+</section>

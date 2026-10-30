@@ -1,0 +1,117 @@
+<div id="wrap">
+<aside id="toc">
+  <div class="brand">
+    <div class="brand-mark">F2</div>
+    <div>
+      <div class="brand-name">FLUX.2 model.py</div>
+      <div class="brand-sub">EVERY LINE, EXPLAINED</div>
+    </div>
+  </div>
+  <nav>
+    <div class="toc-h">Part 1 · Pure theory</div>
+    <a href="#flow">1 · Rectified flow in 5 minutes</a>
+    <a href="#structure">2 · FLUX.2's structure</a>
+    <a href="#prompt">3 · From prompt to tokens</a>
+    <a href="#tokens">4 · From pixels to tokens</a>
+    <a href="#language">5 · One language: 128 and 15 360 → 6 144</a>
+    <a href="#attnbasics">6 · Attention, from zero</a>
+    <a href="#fingerprint">7 · The frequency trick</a>
+    <a href="#rope">8 · Position: the 4-axis RoPE</a>
+    <a href="#conditioning">9 · Time and guidance</a>
+    <a href="#silu">10 · SiLUActivation — the soft switch</a>
+    <a href="#modulation">11 · Modulation — how a vector steers 56 blocks</a>
+    <a href="#kvcachetheory">12 · The KV cache — paying once</a>
+
+    <div class="toc-h">Part 2 · Code overview</div>
+    <a href="#map">13 · The file at a glance</a>
+    <a href="#bigpicture">14 · What FLUX.2 actually is</a>
+    <a href="#configs">15 · The three configurations</a>
+
+    <div class="toc-h">Part 3 · The small parts</div>
+    <a href="#primitives">16 · The eleven small parts</a>
+    <a class="sub" href="#p-timestep">16.1 · timestep_embedding</a>
+    <a class="sub" href="#p-glu">16.2 · SiLUActivation — the gate</a>
+    <a class="sub" href="#p-mlp">16.3 · MLPEmbedder</a>
+    <a class="sub" href="#p-rope">16.4 · rope — building rotations</a>
+    <a class="sub" href="#p-embednd">16.5 · EmbedND — gluing four axes</a>
+    <a class="sub" href="#p-applyrope">16.6 · apply_rope — using them</a>
+    <a class="sub" href="#p-norms">16.7 · RMSNorm &amp; QKNorm</a>
+    <a class="sub" href="#p-selfattn">16.8 · SelfAttention</a>
+    <a class="sub" href="#p-mod">16.9 · Modulation</a>
+    <a class="sub" href="#p-last">16.10 · LastLayer</a>
+
+    <div class="toc-h">Part 4 · The big pieces</div>
+    <a href="#attention">17 · causal_attn_fn — the router</a>
+    <a href="#single">18 · SingleStreamBlock</a>
+    <a href="#double">19 · DoubleStreamBlock</a>
+    <a href="#flux2">20 · Flux2 — init + three forwards</a>
+    <a href="#blend">21 · Blending modulations</a>
+    <a href="#kvcache">22 · The KV cache paths</a>
+
+    <div class="toc-h">Part 5 · Zooming back out</div>
+    <a href="#loop">23 · The denoising loop</a>
+    <a href="#design">24 · Why it looks like this</a>
+    <a href="#cheatsheet">25 · Complete cheat sheet</a>
+    <a href="#refs">26 · References</a>
+  </nav>
+</aside>
+
+<main>
+<header class="hero">
+  <div class="kicker">A complete walkthrough · black-forest-labs/flux2 · src/flux2/model.py</div>
+  <h1 class="title">FLUX.2, <span class="mono">model.py</span>,<br>every single line.</h1>
+  <p class="lede">
+    This is the 833-line file that defines a <strong>32-billion-parameter image generator</strong>.
+    It has no training code, no diffusion schedulers, no VAE — just the transformer that sits in the
+    middle of FLUX.2 and predicts, at every step, <em>which direction to push the image</em>.
+    Below, every class, every function and every line is explained from first principles, with
+    hand-drawn diagrams showing exactly how the layers are wired and what shape the data has
+    as it flows between them.
+  </p>
+  <p class="lede" style="font-size:16.5px">
+    No prior knowledge of diffusion models is assumed. If you know what a matrix multiply does
+    and have seen a bit of Python, you can follow this all the way to the end.
+  </p>
+  <p class="lede" style="font-size:16.5px">
+    The file that <em>drives</em> this model — the 442-line <code>sampling.py</code>, with its timestep
+    shift, its empirically fitted schedule and its three denoising loops — has a companion article in
+    the same style and with the same checks:
+    <a href="sampling.html"><b>sampling.py, every single line →</b></a>
+  </p>
+
+  <div class="statgrid">
+    <div class="stat a"><div class="n">833</div><div class="l">lines of Python</div></div>
+    <div class="stat b"><div class="n">14</div><div class="l">classes</div></div>
+    <div class="stat c"><div class="n">36</div><div class="l">functions &amp; methods</div></div>
+    <div class="stat d"><div class="n">32.22B</div><div class="l">parameters (verified)</div></div>
+    <div class="stat e"><div class="n">56</div><div class="l">transformer blocks</div></div>
+    <div class="stat a"><div class="n">0</div><div class="l">bias terms in the whole model</div></div>
+  </div>
+
+  <div class="note proof" style="margin-top:26px">
+    <div class="nh">◆ How this article was checked</div>
+    <p>Every claim marked <b style="color:var(--ref)">VERIFIED</b> was produced by actually
+    <em>running</em> the code. The file reproduced here is byte-identical to the upstream source —
+    its git blob hash is <code>9b1f5b50f8a966d6f4b9ed33b6f125695dc707f0</code>, matching
+    <code>black-forest-labs/flux2@main</code>. I instantiated all three model configs on PyTorch's
+    <code>meta</code> device to count parameters exactly, ran a miniature FLUX.2 end-to-end to trace
+    real tensor shapes, derived the attention isolation pattern empirically by feeding one-hot vectors through the router,
+    and measured the KV-cache error as exactly <code>0.000e+00</code>. The scripts are
+    <code>src/ref/verify1.py … verify4.py</code> in this repository.</p>
+    <p>Six more checks run on every build, because this page quotes real source line numbers all the
+    way through, and any one of them stops the build. <code>src/ref/qa_trace.py</code> verifies that
+    every line-by-line annotation points at lines containing the identifiers it talks about;
+    <code>src/ref/qa_coverage.py</code> verifies that all 692 non-blank lines of the file are shown
+    somewhere; <code>src/ref/qa_linerefs.py</code> checks every place where the prose cites a line
+    number — "line 455", or a row of the cheat-sheet table — against what really sits on that line;
+    <code>src/ref/qa_xrefs.py</code> resolves every "see §16.9" and "FIG 7" in the page;
+    <code>src/ref/qa_order.py</code> fails if any chapter tells the reader they have already met
+    something a later chapter explains; and
+    <code>src/ref/verify4.py</code> re-derives every number quoted here from the source and then looks
+    for it in the finished page. All six are clean.</p>
+    <p>One convention to know: numbers and structure are checked against the code, but the file carries
+    almost no comments, so a statement about <em>why</em> the authors chose something is marked
+    <span class="spec">inference</span>. The page carries <!--SPECCOUNT--> of these badges, this one
+    included — everything else in it is in the source.</p>
+  </div>
+</header>
